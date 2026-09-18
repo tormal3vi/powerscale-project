@@ -536,6 +536,48 @@ worth noting since these are real coverage gaps, not bugs:
   actually say is an ongoing, open-ended tail rather than a one-line
   fix, and better scoped as deliberate follow-up work.
 
+### Stress test: Category:Chainsaw Man (33 members)
+
+Added after noticing Chainsaw Man characters weren't getting a "who
+would win" verdict at all. Diagnosed the same way as the Genos/Vegeta/
+Goku multi-form bug: inspected the real HTML before touching any code,
+not guessed at.
+
+**Root cause**: Tier parsed fine for characters like `Denji` and
+`Power` (it's a flat field outside the tabber), but Attack
+Potency/Speed/Durability all came back `None` for every one of them -
+enough that most pairings had fewer than 2 comparable axes and
+`calculator.py` correctly (by design) refused to produce a verdict at
+all, which is what looked like "an issue." The actual bug: most of the
+Chainsaw Man cast's stat tabber wraps each tab's stat `<p>`'s in an
+extra `<div class="scrollable">` layer - `_find_stats_tabber`/
+`_extract_forms_from_stats_tabber` only ever looked at a tab's *direct*
+`<p>` children (true for Genos/Vegeta/Goku, where the fields sit
+directly in the tab), so on this page layout they silently found
+nothing. Fixed with a small `_stat_paragraphs()` helper in `parser.py`
+that also checks one level into a direct-child `div.scrollable`, used
+in both places. Regression test: `test_denji_multi_form_extraction_
+through_a_scrollable_wrapper` in `test_parser.py`, using Denji's real
+page as a new fixture.
+
+**Impact after re-parsing the category from cache (no re-fetch
+needed)**: characters with fewer than 2 scored axes dropped from ~12 to
+2, and 9 characters that were incorrectly flattened to a single "Base"
+form now correctly show their real per-arc forms (Denji: 4, Power: 3,
+etc.) - the same `Key:` progression pattern documented under
+"Multi-form characters" below.
+
+**2 characters still don't parse (`Reze`, `Samurai Sword`) - a
+different, unfixed issue, not the same bug.** Their stat block isn't
+inside a per-form tab at all: it sits as flat `<p>` siblings *after*
+an unrelated outer tabber (a Reze/"Bomb Girl" persona-selector, in
+Reze's case), with a second, seemingly-unrelated nested tabber further
+down the page. Reported here rather than patched - the shape is
+different enough from every other case handled so far that a quick
+fix risked being fragile or narrowly overfit to these two pages,
+better scoped as deliberate follow-up if more characters turn out to
+share this layout.
+
 ## Comparison UI (Phase 4)
 
 ```bash

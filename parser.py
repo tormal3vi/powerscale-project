@@ -274,6 +274,21 @@ def _table_field(table) -> Optional[dict]:
     return {"label": label, "html_parts": [], "raw_value": text}
 
 
+def _stat_paragraphs(content_div) -> List:
+    """<p> elements to scan for stat-field labels within one tab's
+    wds-tab__content div: direct children, plus (merged in) any inside
+    a direct-child `div.scrollable`. Most pages (Genos, Vegeta, Goku)
+    put the stat <p>'s directly in the tab content; some (found on
+    Chainsaw Man's cast - e.g. Denji, Power) wrap the entire stat block
+    in a horizontally-scrollable div one level deeper instead, leaving
+    only empty spacer <p>'s as direct children. Checking both means
+    either layout is found without needing a page-specific branch."""
+    paragraphs = list(content_div.find_all("p", recursive=False))
+    for scrollable in content_div.find_all("div", class_="scrollable", recursive=False):
+        paragraphs.extend(scrollable.find_all("p", recursive=False))
+    return paragraphs
+
+
 def _find_stats_tabber(heading):
     """Find the tabber (among heading's siblings, at any depth - it may
     sit inside a "scrollable" wrapper alongside the unrelated Powers-
@@ -297,7 +312,7 @@ def _find_stats_tabber(heading):
             top_contents = tabber.find_all("div", class_="wds-tab__content", recursive=False)
             if not top_contents:
                 continue
-            for p in top_contents[0].find_all("p", recursive=False):
+            for p in _stat_paragraphs(top_contents[0]):
                 b = p.find("b")
                 if b:
                     label = b.get_text(strip=True).rstrip(":").strip().lower()
@@ -322,7 +337,7 @@ def _extract_forms_from_stats_tabber(tabber, flat_tier: Optional[str]) -> List[C
     forms = []
     for i, (label, content) in enumerate(zip(tab_labels, top_contents)):
         stat_values: Dict[str, str] = {}
-        for p in content.find_all("p", recursive=False):
+        for p in _stat_paragraphs(content):
             b = p.find("b")
             if b is None:
                 continue

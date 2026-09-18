@@ -33,6 +33,16 @@ the multi-form work below didn't disturb the common case.
   exactly for all three (6, 7, and 8 respectively), in the same
   chronological order - confirmed here as a regression check per form,
   not assumed.
+- Denji (Chainsaw Man): found while diagnosing why an entire batch of
+  Chainsaw Man characters got "Insufficient data" verdicts from
+  calculator.py - Tier parsed fine (it's a flat field outside the
+  tabber) but Attack Potency/Speed/Durability came back None for every
+  form. Root cause: this page's stat tabber wraps each tab's stat <p>'s
+  in an extra `<div class="scrollable">` layer that `_find_stats_tabber`/
+  `_extract_forms_from_stats_tabber` only ever looked past when they
+  were direct children - confirmed against the raw HTML (Genos' same
+  fields are direct children; Denji's are one level deeper inside that
+  wrapper) before fixing it.
 
 Run with: ./venv/bin/python3 -m pytest test_parser.py -v
 (or plain: ./venv/bin/python3 test_parser.py)
@@ -202,6 +212,27 @@ def test_goku_multi_form_extraction():
     assert all(f.tier for f in stats.forms)
     assert len({f.tier for f in stats.forms}) == 8
     assert stats.attack_potency is None
+
+
+def test_denji_multi_form_extraction_through_a_scrollable_wrapper():
+    # Found while diagnosing why Chainsaw Man characters got "Insufficient
+    # data" verdicts from calculator.py: Denji's page (and most of the
+    # Chainsaw Man cast) wraps each tab's stat <p>'s in an extra
+    # `<div class="scrollable">` layer the tabber-detection/extraction
+    # code didn't look inside - Tier still parsed (it's a flat field
+    # outside the tabber entirely) while Attack Potency/Speed/Durability
+    # silently came back None for every form. Confirmed directly against
+    # the raw HTML before fixing `_stat_paragraphs()` in parser.py.
+    stats = parse_character(_load("Denji"))
+    assert len(stats.forms) == 4
+    assert stats.forms[0].name == "Pre-Training"
+    assert stats.forms[-1].name == "Post-Fear Boost"
+    assert all(f.tier for f in stats.forms)
+    # The actual regression: every form must have real Attack
+    # Potency/Speed/Durability text, not None from a missed <p>.
+    assert all(f.stats.attack_potency for f in stats.forms)
+    assert all(f.stats.speed for f in stats.forms)
+    assert all(f.stats.durability for f in stats.forms)
 
 
 if __name__ == "__main__":
