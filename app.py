@@ -325,6 +325,20 @@ st.sidebar.divider()
 # --- sidebar: character picker + view controls ------------------------------
 
 st.sidebar.header("Compare")
+
+if st.sidebar.button("Refresh character list"):
+    # Same cache-invalidation the "Add a character" flow above already
+    # does automatically - exposed here on demand for anything that
+    # changes the DB outside this UI (batch_scrape.py runs, one-off
+    # scripts), which a long-running Streamlit process would otherwise
+    # never notice since st.cache_data's cache lives in-process.
+    previous_selection = st.session_state.get("character_selector")
+    load_characters.clear()
+    load_form_counts.clear()
+    if previous_selection:
+        st.session_state["character_selector"] = previous_selection
+    st.sidebar.success("Character list refreshed.")
+
 characters = load_characters()
 form_counts = load_form_counts()
 

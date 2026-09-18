@@ -702,6 +702,24 @@ verdict's numbers - see "Who would win calculator" above for why.
   badge a handful of them), and `_prune_stale_form_selections()` runs
   every rerun to drop session-state keys for characters no longer
   selected (see "Multi-form characters" above).
+- **"Refresh character list" sidebar button.** `load_characters()`/
+  `load_form_counts()` are cached per-process (`st.cache_data`), which
+  is invisible as long as every DB write goes through the sidebar's own
+  "Add a character" flow - it already clears both caches after a
+  successful add. It breaks the moment a character gets added any other
+  way (a `batch_scrape.py` run, a one-off script like adding Silver
+  Surfer/Superboy-Prime individually - see below) while a Streamlit
+  session is already running: the new row is confirmed in the DB but
+  invisible in the character selector, because the long-running process
+  never knew the DB changed. Found exactly this way in practice - a
+  session that had been up since the day before didn't show two
+  characters added that morning. The fix is a button that runs the
+  *exact same* two `.clear()` calls the add-flow already does, exposed
+  on demand rather than automatically, with the same selection-
+  preservation logic (re-asserting `character_selector` into
+  session_state afterward, since clearing the cache changes the
+  multiselect's `options` identity and would otherwise silently drop
+  the current selection - same Streamlit quirk noted above).
 
 ## "Who would win" calculator (Phase 5)
 
