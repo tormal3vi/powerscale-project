@@ -34,6 +34,23 @@ python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
 ```
 
+### Deploying (e.g. Streamlit Community Cloud)
+
+`app.py` calls `db.init_db()` on startup (a no-op if the schema already
+exists), so a fresh clone with no `powerscale.db` at all still runs -
+it just starts with an empty character list rather than crashing with
+"no such table: characters" (the failure mode before this was added,
+found by actually deploying and hitting it).
+
+`powerscale.db` is intentionally **tracked in git**, not ignored like
+`cache/`/`data/` - a hosted deploy has no way to run `batch_scrape.py`
+itself, so the committed DB is the only way it ends up with real data.
+This is a point-in-time **snapshot, not a live sync**: after any local
+batch scrape or one-off addition you want reflected in a deployment,
+re-add and commit `powerscale.db` same as any other changed file. Also
+worth knowing: a public deployment lets any visitor trigger a live
+fetch against VS Battles Wiki via "Add a character," not just you.
+
 ## Usage
 
 ```bash

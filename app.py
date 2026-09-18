@@ -42,6 +42,16 @@ import scraper
 
 st.set_page_config(page_title="Powerscale Comparator", layout="wide")
 
+# Every other entry point (batch_scrape.py, main.py's data/ output) either
+# creates powerscale.db's schema itself or doesn't touch the DB at all - this
+# app never did, silently relying on the file already existing from a prior
+# batch_scrape.py run. That's invisible on a dev machine where it always has,
+# but breaks on a fresh checkout (e.g. Streamlit Cloud cloning the repo,
+# where powerscale.db is deliberately gitignored - see README) with "no such
+# table: characters". init_db()'s CREATE TABLE IF NOT EXISTS is a no-op when
+# the schema already exists, so this is safe to call unconditionally here.
+db.init_db()
+
 MAX_CHARACTERS = 4
 MIN_CHARACTERS = 2
 STAT_AXES = ["Tier/AP", "Durability", "Speed"]

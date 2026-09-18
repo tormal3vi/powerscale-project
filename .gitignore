@@ -3,6 +3,10 @@ __pycache__/
 *.pyc
 cache/
 data/
-powerscale.db
 vocab_gaps_report*.txt
 .DS_Store
+
+# powerscale.db is intentionally tracked (not ignored) so the Streamlit
+# Cloud deploy has real data - it's a snapshot, not live-synced, so re-add
+# and commit it after any local batch_scrape.py run you want reflected
+# there.
