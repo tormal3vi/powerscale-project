@@ -1,0 +1,371 @@
+"""Normalizer tests: the tier/speed/AP/durability strings actually
+present in the 3 existing parser fixtures (Saitama, Kirby, Flameskull),
+hand-built edge cases the fixtures don't happen to cover:
+
+- "Low 1-C" alone (a Low-graded tier with no pipe/comma at all)
+- three pipe-separated values in one string
+- a tier string with no qualifier word at all
+- a string with no recognizable token (graceful fallback, no crash)
+
+...and regressions for the 5 vocabulary-gap fixes decided after the
+Phase 4 sweep of Baki the Grappler / Fairy Tail / Puella Magi Verse
+(see vocab_gaps_report.txt): 2 typo aliases, the "Human level" family
+aliased to 10-C, the "Speed of Light" anchor, the "Omnipresent" flag
+(no numeric score), and the "Infinite" -> "Infinite Speed" alias.
+
+...and multi-form normalization (Phase 4 follow-up): NormalizedStats.forms
+is always populated, mirroring CharacterStats.forms - one synthetic
+NormalizedForm for ordinary characters (checked for exact agreement
+with the top-level fields, since forms[0] is supposed to just be the
+same data wrapped uniformly), or one per story arc/key for genuine
+multi-form characters (Genos, Vegeta, Goku).
+
+Run with: ./venv/bin/python3 -m pytest test_normalizer.py -v
+(or plain: ./venv/bin/python3 test_normalizer.py)
+"""
+
+from pathlib import Path
+
+from parser import CharacterStats, parse_character
+from normalizer import normalize_character, parse_tier_range, parse_speed_range, TIER_LADDER, SPEED_LADDER
+
+FIXTURES_DIR = Path(__file__).parent / "test_fixtures"
+
+
+def _load_stats(name: str):
+    html = (FIXTURES_DIR / f"{name}.html").read_text(encoding="utf-8")
+    return parse_character(html, source=name)
+
+
+# --- fixture-driven tests --------------------------------------------------
+
+def test_saitama_tier_range_spans_weakest_to_strongest_form():
+    stats = _load_stats("Saitama")
+    r = parse_tier_range(stats.tier)
+    assert r.baseline_label == "9-b"
+    assert r.peak_label == "3-c"
+    assert r.baseline < r.peak
+    assert r.peak_qualifier == "possibly"
+
+
+def test_saitama_speed_picks_up_pipe_separated_forms():
+    stats = _load_stats("Saitama")
+    r = parse_speed_range(stats.speed)
+    assert r.baseline_label == "superhuman"
+    assert r.peak_label == "massively ftl+"
+    assert r.baseline < r.peak
+
+
+def test_kirby_tier_three_pipe_values_and_ap_durability_share_the_tier_ladder():
+    stats = _load_stats("Kirby")
+    tier = parse_tier_range(stats.tier)          # "5-A | 2-C | 2-C"
+    ap = parse_tier_range(stats.attack_potency)   # "Large Planet level ..."
+    assert tier.baseline_label == "5-a"
+    assert tier.peak_label == "2-c"
+    # AP's peak ("Low Multiverse level") must equal Tier's peak ("2-C") -
+    # same rank, same shared ladder, different vocabulary.
+    assert ap.peak == tier.peak
+
+
+def test_flameskull_missing_classification_does_not_affect_normalization():
+    stats = _load_stats("Flameskull")
+    assert stats.classification is None  # Phase 1 behavior, unaffected here
+    tier = parse_tier_range(stats.tier)  # "9-A", no pipe, no qualifier
+    assert tier.baseline_label == "9-a"
+    assert tier.baseline == tier.peak
+    assert tier.baseline_qualifier is None
+
+
+def test_flameskull_speed_extracts_two_tokens_joined_by_prose():
+    # "Hypersonic+ with High Hypersonic+ reactions" - no pipe or comma
+    # separates these; the tokenizer must still find both.
+    stats = _load_stats("Flameskull")
+    r = parse_speed_range(stats.speed)
+    assert r.baseline_label == "hypersonic+"
+    assert r.peak_label == "high hypersonic+"
+    assert r.baseline < r.peak
+
+
+def test_normalize_character_end_to_end():
+    stats = _load_stats("Saitama")
+    normalized = normalize_character(stats)
+    assert normalized.name == stats.name
+    assert normalized.tier.baseline is not None
+    assert normalized.speed.peak is not None
+
+
+def test_single_form_normalization_matches_top_level_exactly():
+    # Consistency check across all 4 single-form fixtures: forms is
+    # exactly 1 entry, and every value on it - including is_omnipresent
+    # - agrees with the corresponding top-level field. forms[0] is
+    # supposed to be the exact same data as the flat fields, just
+    # wrapped uniformly; this would catch any drift between the two
+    # normalization paths.
+    for name in ["Saitama", "Kirby", "Flameskull", "PromotedRook"]:
+        stats = _load_stats(name)
+        normalized = normalize_character(stats)
+        assert len(normalized.forms) == 1, name
+        form = normalized.forms[0]
+        assert form.tier == normalized.tier, name
+        assert form.attack_potency == normalized.attack_potency, name
+        assert form.speed == normalized.speed, name
+        assert form.durability == normalized.durability, name
+        assert form.is_omnipresent == normalized.is_omnipresent, name
+
+
+# --- hand-built edge cases --------------------------------------------------
+
+def test_single_low_graded_tier_no_pipe_no_comma():
+    r = parse_tier_range("Low 1-C")
+    assert r.baseline_label == "low 1-c"
+    assert r.baseline == r.peak
+    assert r.baseline_qualifier is None
+    # Low 1-C must sit strictly between the previous tier (2-A) and
+    # plain 1-C - tier ordering runs ... < 2-A < 1-C < 1-B < 1-A.
+    assert TIER_LADDER["2-a"] < r.baseline < TIER_LADDER["1-c"]
+
+
+def test_three_pipe_separated_values():
+    r = parse_tier_range("9-B | 8-A | Low 7-B")
+    assert r.baseline_label == "9-b"
+    assert r.peak_label == "low 7-b"
+    assert r.baseline < r.peak
+
+
+def test_no_qualifier_at_all():
+    r = parse_tier_range("Wall level")
+    assert r.baseline_label == "wall level"
+    assert r.baseline_qualifier is None
+    assert r.peak_qualifier is None
+
+
+def test_unrecognizable_string_falls_back_gracefully_instead_of_crashing():
+    r = parse_tier_range("Completely Unknown Nonsense Tier")
+    assert r.baseline is None
+    assert r.peak is None
+    assert r.raw == "Completely Unknown Nonsense Tier"
+
+
+def test_empty_and_none_input_do_not_crash():
+    assert parse_tier_range(None).baseline is None
+    assert parse_tier_range("").baseline is None
+
+
+# --- vocabulary gap sweep fixes (Phase 4) -----------------------------------
+# Real strings/characters from vocab_gaps_report.txt (sweep of Baki the
+# Grappler, Fairy Tail, Puella Magi Verse), for the 5 fixes the user
+# reviewed and decided on.
+
+def test_typo_sub_relativistic_plus():
+    # Jackal (Fairy Tail): "Sub-Relatvistic+ with Etherious Form"
+    r = parse_speed_range("Sub-Relatvistic+ with Etherious Form")
+    assert r.baseline_label == "sub-relatvistic+"
+    assert r.baseline == SPEED_LADDER["sub-relativistic+"]
+
+
+def test_typo_relavistic():
+    # Tsukuyo Amane (Puella Magi Verse): "Relavistic attack speed with Cherry Blizzard"
+    r = parse_speed_range("Relavistic attack speed with Cherry Blizzard")
+    assert r.baseline_label == "relavistic"
+    assert r.baseline == SPEED_LADDER["relativistic"]
+
+
+def test_human_level_aliases_all_map_to_10c():
+    # Romeo Conbolt (Fairy Tail): "Below Average Human level"
+    r1 = parse_tier_range("Below Average Human level")
+    assert r1.baseline == TIER_LADDER["below average level"]
+
+    # King, One-Punch Man / Hitomi Shizuki (Puella Magi Verse): "Human level"
+    r2 = parse_tier_range("Human level")
+    assert r2.baseline == TIER_LADDER["below average level"]
+
+    # Kosane Kiriha (Puella Magi Verse, durability field): "Average Human"
+    r3 = parse_tier_range("Average Human")
+    assert r3.baseline == TIER_LADDER["below average level"]
+
+    # The SPEED ladder's own separate "Average Human" entry must be untouched.
+    assert SPEED_LADDER["average human"] != TIER_LADDER["average human"]
+
+
+def test_speed_of_light_anchor_and_variant():
+    # Laxus Dreyar (Fairy Tail): "Speed of Light with Fairy Law"
+    r = parse_speed_range("Speed of Light with Fairy Law")
+    assert r.baseline_label == "speed of light"
+    assert r.baseline == SPEED_LADDER["speed of light"]
+    # Exact boundary: strictly above Massively Relativistic (~c, approaching
+    # but not touching light speed), strictly below FTL.
+    assert SPEED_LADDER["massively relativistic"] < r.baseline < SPEED_LADDER["ftl"]
+
+
+def test_omnipresent_gets_flag_not_a_score():
+    # Homura Akemi / Madoka Kaname (Puella Magi Verse): "Omnipresent"
+    r = parse_speed_range("Omnipresent")
+    assert r.baseline is None  # no ladder score - by design, not a bug
+    assert r.peak is None
+    assert "omnipresent" not in SPEED_LADDER
+
+    stats = CharacterStats(name="Test Character", speed="Omnipresent")
+    normalized = normalize_character(stats)
+    assert normalized.is_omnipresent is True
+    assert normalized.speed.baseline is None
+
+
+def test_non_omnipresent_character_flag_is_false():
+    stats = CharacterStats(name="Test Character", speed="Massively FTL+")
+    normalized = normalize_character(stats)
+    assert normalized.is_omnipresent is False
+    assert normalized.speed.baseline is not None
+
+
+def test_infinite_alias_for_infinite_speed():
+    # Jeanne d'Arc (Puella Magi Verse): "Infinite"
+    r = parse_speed_range("Infinite")
+    assert r.baseline_label == "infinite"
+    assert r.baseline == SPEED_LADDER["infinite speed"]
+
+
+# --- vocabulary gap sweep fixes (batch2: Dragon Ball / JoJo's Bizarre Adventure) --
+# Real strings from vocab_gaps_report_batch2.txt (sweep triggered by batch-scraping
+# Dragon Ball and JoJo, run against already-cached DB data). Two decisions:
+# 1. 10-A's canonical name renamed "Peak Human level" -> "Athlete level" to match
+#    the wiki's current Tiering System/Attack Potency page naming; old name kept
+#    as an alias, same score (2.8).
+# 2. "Brown Dwarf level" (High 5-A) added as its own new anchor at 37.84 -
+#    log10 of the wiki's published High 5-A lower bound (~6.906e37 J) - strictly
+#    between 5-A "Large Planet level" (36.0) and 4-C "Star level" (41.8), same
+#    anchoring method as the existing Moon/Sun/Earth entries. "Small Star level"
+#    (Low 4-C, the next rung up) deliberately NOT added - not yet observed in
+#    scraped data, same policy that gated adding Brown Dwarf itself.
+
+def test_athlete_level_is_the_renamed_10a_canonical_name():
+    r = parse_tier_range("Athlete level")
+    assert r.baseline_label == "athlete level"
+    assert r.baseline == TIER_LADDER["10-a"] == 2.8
+
+
+def test_peak_human_level_still_works_as_an_alias():
+    # Old canonical name for 10-A, kept as an alias after the rename - same score.
+    r = parse_tier_range("Peak Human level")
+    assert r.baseline == TIER_LADDER["athlete level"] == 2.8
+
+
+def test_bobby_jean_athlete_level_real_string():
+    # Bobby Jean, Agent Bobby Jean (JoJo's Bizarre Adventure):
+    # AP "Athlete level, Street level with USP-45 (...)"
+    r = parse_tier_range("Athlete level, Street level with USP-45 (Firepower of bullets have an average of 705.45 Joules)")
+    assert r.baseline_label == "athlete level"
+    assert r.peak_label == "street level"
+    assert r.baseline < r.peak
+
+    # Durability: "Athlete level" alone
+    r_dur = parse_tier_range("Athlete level")
+    assert r_dur.baseline == r_dur.peak == TIER_LADDER["athlete level"]
+
+
+def test_brown_dwarf_level_is_a_new_anchor_between_5a_and_4c():
+    r = parse_tier_range("Brown Dwarf level")
+    assert r.baseline_label == "brown dwarf level"
+    assert r.baseline == TIER_LADDER["high 5-a"]
+    assert TIER_LADDER["5-a"] < r.baseline < TIER_LADDER["4-c"]
+
+
+def test_brown_dwarf_level_plus_grades_above_plain_and_stays_below_4c():
+    r_plain = parse_tier_range("Brown Dwarf level")
+    r_plus = parse_tier_range("Brown Dwarf level+")
+    assert r_plain.baseline < r_plus.baseline < TIER_LADDER["4-c"]
+
+
+def test_brocco_real_strings_resolve_via_code_and_name_forms():
+    # Brocco, "Shorty" (Dragon Ball) - Tier given as the bare code "High 5-A",
+    # AP/Durability given as the descriptive name "Brown Dwarf level+".
+    tier = parse_tier_range("High 5-A")
+    assert tier.baseline == tier.peak == TIER_LADDER["high 5-a"]
+
+    ap = parse_tier_range('Brown Dwarf level+ (Superior to Garlic Jr.)')
+    assert ap.baseline == ap.peak == TIER_LADDER["brown dwarf level+"]
+
+    dur = parse_tier_range("Brown Dwarf level+")
+    assert dur.baseline == dur.peak == TIER_LADDER["brown dwarf level+"]
+
+
+def test_son_goku_toei_beginning_of_z_form_finds_brown_dwarf_amid_prose():
+    # Son Goku (Toei)'s "Beginning of Z" form - real multi-form data with lots
+    # of unrecognized prose ("Varies", "up to far higher with Kamehameha")
+    # mixed in; the new anchor must still be found correctly amid the noise.
+    tier = parse_tier_range("High 5-A, Varies, up to far higher with Kamehameha")
+    assert tier.baseline == tier.peak == TIER_LADDER["high 5-a"]
+
+    ap = parse_tier_range(
+        "Brown Dwarf level+ (Overwhelmed Super Garlic. Jr after removing his weighted clothing alongside Piccolo), "
+        "Varies (The Kamehameha works by condensing one's Ki into a single point), "
+        "up to far higher with Kamehameha (Scared Raditz enough to force his to dodge)"
+    )
+    assert ap.baseline == ap.peak == TIER_LADDER["brown dwarf level+"]
+
+
+def test_small_star_level_deliberately_not_added_yet():
+    # Low 4-C's real name per the wiki - not observed in scraped data yet,
+    # so (per explicit instruction) it gets no anchor or alias of its own.
+    # "low 4-c" still resolves via the ladder's automatic Low/High grading,
+    # just recalculated against the new, closer Brown Dwarf neighbor.
+    assert "small star level" not in TIER_LADDER
+    assert "low 4-c" in TIER_LADDER
+    assert TIER_LADDER["high 5-a"] < TIER_LADDER["low 4-c"] < TIER_LADDER["4-c"]
+
+
+# --- multi-form normalization (Phase 4 follow-up) ---------------------------
+
+def test_genos_forms_normalize_independently_and_increase_in_power():
+    stats = _load_stats("Genos")
+    normalized = normalize_character(stats)
+    assert len(normalized.forms) == 6
+    # each form's own ladder lookup, not a shared/reused value
+    ap_scores = [f.attack_potency.baseline for f in normalized.forms]
+    assert all(v is not None for v in ap_scores)
+    # power is non-decreasing across the story's chronological forms
+    assert ap_scores == sorted(ap_scores)
+    assert ap_scores[0] < ap_scores[-1]
+
+    # Genos' Durability is only documented on his last form - the other
+    # 5 must independently come back unscored, not inherit a value.
+    durability_scores = [f.durability.baseline for f in normalized.forms]
+    assert durability_scores[:-1] == [None] * 5
+    assert durability_scores[-1] is not None
+
+    # top-level stays unscored for a genuine multi-form character
+    assert normalized.attack_potency.baseline is None
+    assert normalized.durability.baseline is None
+
+
+def test_vegeta_and_goku_forms_count_and_tier_alignment():
+    for name, expected_count in [("Vegeta", 7), ("Goku", 8)]:
+        stats = _load_stats(name)
+        normalized = normalize_character(stats)
+        assert len(normalized.forms) == expected_count, name
+        # every form's Tier was aligned (segment count matched tab count)
+        assert all(f.tier.baseline is not None for f in normalized.forms), name
+        # every form has its own Attack Potency and Durability
+        assert all(f.attack_potency.baseline is not None for f in normalized.forms), name
+        assert all(f.durability.baseline is not None for f in normalized.forms), name
+        # scores rise monotonically across the (chronological) forms
+        tiers = [f.tier.baseline for f in normalized.forms]
+        assert tiers == sorted(tiers), name
+        # top-level flat fields stay unscored - never collapsed to one form
+        assert normalized.attack_potency.baseline is None, name
+        assert normalized.durability.baseline is None, name
+
+
+if __name__ == "__main__":
+    import sys
+
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    failures = 0
+    for t in tests:
+        try:
+            t()
+            print(f"PASS {t.__name__}")
+        except AssertionError as exc:
+            failures += 1
+            print(f"FAIL {t.__name__}: {exc}")
+    print(f"\n{len(tests) - failures}/{len(tests)} passed")
+    sys.exit(1 if failures else 0)

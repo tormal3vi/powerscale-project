@@ -1,0 +1,797 @@
+# Powerscale Project
+
+Fetches a character page from [VS Battles Wiki](https://vsbattles.fandom.com),
+parses its "Powers and Stats" section into structured JSON (Phase 1),
+normalizes the tier/speed/AP/durability strings into comparable numeric
+scores (Phase 2), batch-scrapes an entire category into a local SQLite
+database (Phase 3), sweeps categories for tier/speed vocabulary the
+normalizer doesn't yet recognize (Phase 4 prep), compares characters
+side by side in a Streamlit UI (Phase 4), and estimates who would win
+a fight between two characters with a weighted stat comparison plus
+score-free ability flags (Phase 5).
+
+## How it fetches pages (important context)
+
+`vsbattles.fandom.com` puts a Cloudflare bot-challenge in front of its
+rendered `/wiki/<Character>` pages, which blocks plain HTTP clients like
+`requests` no matter what `User-Agent` is sent (it's TLS/JS fingerprinting,
+not a header check). Its MediaWiki API endpoint, `/api.php`, is not behind
+that challenge and is explicitly allowed by `robots.txt` for all bots, so
+`scraper.py` fetches rendered page HTML through `action=parse&prop=text`
+on that endpoint instead of scraping `/wiki/` pages directly.
+
+One consequence: `robots.txt` itself is *also* behind the same
+Cloudflare challenge for non-browser clients, so it can't be fetched live
+at runtime either. It was checked manually in a real browser instead
+(`/api.php` is allowed for `User-agent: *`), and that's hardcoded as a
+guard in `scraper._check_robots_allowed` with a comment explaining why -
+see that function if this ever needs re-verifying.
+
+## Setup
+
+```bash
+python3 -m venv venv
+./venv/bin/pip install -r requirements.txt
+```
+
+## Usage
+
+```bash
+./venv/bin/python3 main.py "Saitama"
+./venv/bin/python3 main.py "https://vsbattles.fandom.com/wiki/Kirby"
+./venv/bin/python3 main.py "Saitama" --refresh   # bypass the page cache
+```
+
+Prints the parsed dict as JSON and saves it to `data/<Character>.json`.
+
+### Comparison UI
+
+```bash
+./venv/bin/streamlit run app.py
+```
+
+Opens at `http://localhost:8501`. See "Comparison UI (Phase 4)" below.
+
+### Batch-scraping a category
+
+```bash
+./venv/bin/python3 batch_scrape.py "Kages" --dry-run   # sanity-check first, no pages fetched
+./venv/bin/python3 batch_scrape.py "Kages"              # scrape + parse + normalize + store in the DB
+./venv/bin/python3 batch_scrape.py "Kages" --force      # re-scrape even if already fresh
+./venv/bin/python3 batch_scrape.py "Kages" --freshness-days 7
+```
+
+The `Category:` prefix is optional (`"Kages"` and `"Category:Kages"` are
+equivalent). See "Batch scraping (Phase 3)" below for details.
+
+## Project layout
+
+- `scraper.py` - fetches a page via the MediaWiki API, rate-limited
+  (1.5s minimum between live requests) and cached to `cache/<Title>.html`
+  so repeated runs during development don't re-hit the network.
+- `parser.py` - parses the rendered HTML into a `CharacterStats`
+  dataclass: `tier`, `name`, `origin`, `gender`, `age`, `classification`,
+  `powers_and_abilities` (list of strings), `attack_potency`, `speed`,
+  `lifting_strength`, `striking_strength`, `durability`, `stamina`,
+  `range`, `standard_equipment`, `intelligence`, `weaknesses`. Values are
+  kept as raw wiki text (e.g. `"9-B"`, `"Massively Hypersonic+"`) -
+  no normalization yet, that's Phase 2. Any field the page has that isn't
+  in that standard list (e.g. `Key`, `Feats`, `Notable Attacks/Techniques`)
+  is kept in `extra_fields` instead of being discarded. Fields missing
+  from a page are simply `None` / an empty list, never an error.
+- `normalizer.py` - converts a `CharacterStats` into a `NormalizedStats`
+  with numeric `tier`, `attack_potency`, `speed`, and `durability` fields
+  (each a `NormalizedRange` with `baseline`/`peak` scores, and the
+  qualifier word - "At least", "Possibly", etc. - attached to each, so
+  speculative and confirmed values stay distinguishable). See "Numeric
+  normalization (Phase 2)" below for how the scale itself works.
+- `main.py` - CLI: `python main.py "Character Name"`.
+- `test_parser.py` - parser tests against 3 real, differently-laid-out
+  character pages (see below).
+- `test_normalizer.py` - normalizer tests against the same 3 fixtures'
+  actual tier/speed/AP/durability strings, plus hand-built edge cases
+  (see "Numeric normalization (Phase 2)" below).
+- `cache/` - raw HTML fetched via the API during development (gitignored,
+  purely a local dev speedup - not the same as the test fixtures below).
+- `data/` - JSON output from `main.py` runs (gitignored).
+- `test_fixtures/` - the 3 real pages `test_parser.py` runs against,
+  saved as HTML so tests don't need network access and are tracked in
+  version control (unlike `cache/`).
+- `category_fetcher.py` - fetches a category's full member list via the
+  MediaWiki API (`list=categorymembers`, paginated), filtered down to
+  character pages. See "Batch scraping (Phase 3)" below.
+- `db.py` - SQLite storage (`powerscale.db`, gitignored) for scraped
+  characters. See "Batch scraping (Phase 3)" below for the schema.
+- `batch_scrape.py` - CLI: `python batch_scrape.py "Category Name"`.
+  Orchestrates fetch → parse → normalize → store for every character in
+  a category, in sequence (no parallel requests).
+- `vocab_sweep.py` - CLI: `python vocab_sweep.py`. Standalone,
+  exploratory scrape (no DB writes) that collects every tier/speed/AP/
+  durability string the normalizer's ladders don't recognize, grouped
+  and deduplicated for review. See "Vocabulary gap sweep (Phase 4
+  prep)" below.
+- `vocab_gaps_report.txt` - the saved output of the last `vocab_sweep.py`
+  run (gitignored - regenerate it by re-running the sweep).
+- `app.py` - Streamlit UI: pick 2-4 characters from the DB and compare
+  their normalized stats (radar/bar chart, raw stat text, abilities/
+  weaknesses). See "Comparison UI (Phase 4)" below.
+- `.claude/launch.json` - dev-server config so the app can be previewed
+  in an editor/agent's browser pane; not needed to just `streamlit run` it yourself.
+
+## Tests
+
+```bash
+./venv/bin/python3 test_parser.py
+# or, if pytest is installed:
+./venv/bin/python3 -m pytest test_parser.py -v
+```
+
+Tests run against 3 cached real pages chosen to stress different parts of
+the parser:
+
+- **Saitama** - multi-form tiered stats (`"9-B | At least 9-B... | 4-A..."`),
+  `Powers and Abilities` as a bulleted list nested inside tabs for
+  different training stages, and non-standard table-based sections
+  (`Feats`, `Notable Attacks/Techniques`) that sit right after
+  `Weaknesses` in the HTML and must not bleed into it.
+- **Kirby** - the largest page tested (~900KB HTML), `Powers and
+  Abilities` as a huge bulleted list nested across many form tabs.
+- **Flameskull** - a shorter page with a genuinely missing field
+  (`Classification` isn't on the page - must come back `None`, not
+  crash), and `Powers and Abilities` as flat inline comma-separated
+  text with no bullet points at all, which needed different handling
+  than the bulleted-list pages above.
+
+## Known limitations (Phase 1 scope)
+
+- Only the flat `<p><b>Label:</b> value</p>` layout (the convention on
+  every page sampled) is parsed. A page using an old-style wikitable
+  infobox instead would come back with unset fields rather than an error.
+
+## Numeric normalization (Phase 2)
+
+`normalizer.py` converts `Tier`, `Attack Potency`, `Speed`, and
+`Durability` strings into numeric scores so two characters can be
+compared. The scale's shape was reviewed and approved before the full
+ladder was written (see module docstring in `normalizer.py` for the
+full reasoning); the short version:
+
+- **Score = `log10(energy in joules)`** for Tier/Attack Potency/Durability,
+  anchored to real physics where the wiki's tier definitions actually
+  have one (10-C through 3-A "Universe level" - e.g. 5-B "Planet level"
+  is anchored to Earth's real gravitational binding energy). This is a
+  raw, physically-interpretable number, not rescaled to 0-100, and the
+  gaps between tiers are deliberately uneven because the real energy
+  gaps are uneven.
+- **Attack Potency and Durability reuse the exact same scale as Tier**
+  rather than getting their own ladder - VS Battles Wiki defines a
+  character's Tier *as* a function of AP and Durability, so all three
+  share one vocabulary, just expressed as a code (`"9-B"`) in the Tier
+  field vs. a name (`"Wall level"`) in AP/Durability. Both forms map to
+  the same score.
+- **Above 3-A**, tiers describe multiversal/dimensional concepts with no
+  real joule value (the wiki never assigns one). Scores continue with a
+  fixed, deliberately large synthetic step per tier - ordinal only, not
+  a real energy claim, and documented as such in the code.
+- **Speed** gets its own ladder (unrelated vocabulary - "Subsonic",
+  "Massively FTL+"), anchored to `log10(m/s)` the same way, with
+  synthetic sentinel scores for the immeasurable/infinite top end.
+  Includes one physically-precise anchor: **"Speed of Light"** at
+  `log10(299,792,458)` ≈ 8.4768 - exactly *c*, positioned as the
+  boundary between the sub-light tiers and FTL, distinct from the
+  nearby "Massively Relativistic" entry (which means *approaching*,
+  not touching, light speed).
+- **Aliases**: both ladders support mapping an alternate real-world
+  phrasing to an *existing* entry's score, rather than that phrasing
+  getting its own value. Three kinds so far, all added after a
+  [vocabulary gap sweep](#vocabulary-gap-sweep-phase-4-prep) rather
+  than guessed ahead of time: wiki-side typos of a term already on the
+  ladder (e.g. `"Relavistic"` → `"Relativistic"`, `"Sub-Relatvistic+"`
+  → `"Sub-Relativistic+"`, `"LargeTown level"` → `"Town level"`'s High
+  grade), informal synonyms (e.g. `"Human level"`, `"Average Human"`,
+  and `"Below Average Human level"` all alias to 10-C, whose canonical
+  name - `"Below Average level"` - doesn't itself say "Human"), and a
+  **superseded canonical name**: 10-A was originally modeled as
+  `"Peak Human level"`, but a later sweep found the wiki's own Tiering
+  System/Attack Potency pages now call it `"Athlete level"` - the
+  canonical label was renamed to match, with `"Peak Human level"` kept
+  as an alias pointing at it (same score, 2.8 - see [batch2
+  sweep](#vocabulary-gap-sweep-batch2-dragon-ball--jojos-bizarre-adventure)
+  below). An alias never overrides a ladder key that already has its
+  own independently-computed score.
+- **New anchors**: sometimes a gap isn't a phrasing variant of an
+  existing entry at all, but a real tier the ladder's coarser 24-rung
+  grid never modeled. `"Brown Dwarf level"` (wiki code `High 5-A`) is
+  the first case of this - added as its own anchor at **37.84**
+  (`log10` of the wiki's own published `High 5-A` lower energy bound,
+  ~6.906×10³⁷ J), strictly between `5-A` "Large Planet level" (36.0)
+  and `4-C` "Star level" (41.8), using the same real-physics anchoring
+  method as the Moon/Earth/Sun entries. Once added, the ladder's
+  existing Low/High/`+` auto-grading (see `_build_tier_ladder`)
+  produces `"Brown Dwarf level+"` automatically - no separate alias
+  needed for the `+` grade, since every other tier's `+` suffix is a
+  *computed* bump above baseline, not an identical-score alias.
+- **"Omnipresent" gets no numeric score at all**, by design - existing
+  everywhere at once isn't a point on a "how fast" scale, it's a
+  categorically different kind of claim, and forcing a number onto it
+  would misrepresent what the wiki text actually says. Instead
+  `NormalizedStats.is_omnipresent` is a separate boolean, detected
+  independently of the speed ladder lookup; a character with only
+  `"Omnipresent"` in their Speed field gets `is_omnipresent=True` and
+  `speed.baseline`/`speed.peak` left `None`, rather than an invented
+  "very high" number.
+
+**Parsing a raw string** (e.g. `"9-B | At least 9-B, up to at least
+6-A"`) strips parenthetical justification text, then scans for every
+occurrence of a known tier/speed label in the remainder (handling
+pipe-separated forms, comma-separated progressions, and labels embedded
+in plain prose like `"Hypersonic+ with High Hypersonic+ reactions"`
+alike). The **lowest-scoring match becomes `baseline`**, the
+**highest-scoring becomes `peak`**, and each carries whatever qualifier
+word ("At least", "Possibly", "Up to", ...) immediately preceded it in
+the source text - so a speculative peak stays visibly distinct from a
+confirmed one. A string with no recognizable label returns an all-`None`
+range and logs a warning, rather than raising.
+
+Not handled yet (unchanged from the original raw text): `Powers and
+Abilities` and `Weaknesses` need categorical, not numeric, normalization
+- planned for a later phase.
+
+## Vocabulary gap sweep (Phase 4 prep)
+
+Before building anything on top of the normalizer, `vocab_sweep.py`
+scraped 3 categories deliberately chosen to be unlike the two already
+covered (`Kages`, `One-Punch_Man`) - `Baki the Grappler` (mundane/low-tier,
+no superpowers), `Fairy Tail` (long-running shonen with a reputation for
+messy/inconsistent stat blocks), and `Puella Magi Verse` (small cast
+ascending to abstract/conceptual power) - and collected every
+tier/speed/AP/durability string neither ladder recognized, without
+writing anything to the DB. See `vocab_gaps_report.txt` for the full
+output.
+
+It chunks each raw field the same way the wiki formats it (top-level
+`|` for alternate forms, then top-level `,` for progressions, both
+bracket-aware) and checks each chunk independently - catching partial
+misses a whole-string check would hide, e.g. `"9-B | UnknownTerm"`
+where the first chunk parses fine but the second doesn't.
+
+Raw result: 801 misses, 212 unique strings. The overwhelming majority
+of those turned out not to be vocabulary gaps at all - they're the
+wiki's convention of writing `"<value>, higher with <character-specific
+technique>"` without ever stating the boosted value (e.g. `"higher with
+Dragon Force"`, `"Varies with Enchantments"`). There's genuinely
+nothing to extract there; "no token found" is correct behavior. After
+manually triaging that noise out, 5 real, recurring findings remained,
+reviewed and decided by the user (not this tool) and now implemented in
+`normalizer.py`:
+
+1. Two wiki-side typos aliased to their correct term: `"Sub-Relatvistic+"`
+   and `"Relavistic"`.
+2. The `"Human level"` family (`"Human level"`, `"Below Average Human
+   level"`, `"Average Human"`) aliased to the existing 10-C anchor. The
+   rest of `TIER_LADDER` was audited for the same "missing Human
+   qualifier" issue - 10-B (`"Athletic Human level"`) and 10-A
+   (`"Peak Human level"`) already say "Human" in their canonical
+   names, so only 10-C needed the fix.
+3. `"Speed of Light"` added as its own physically-precise anchor (see
+   above), with its ~10 phrasing variants (`"Speed of Light with Fairy
+   Law"`, etc.) needing no individual aliases - they all contain
+   `"Speed of Light"` as a substring, which the tokenizer already
+   matches anywhere in the text.
+4. `"Omnipresent"` handled as the `is_omnipresent` flag described
+   above, not a score.
+5. `"Infinite"` (standalone) aliased to the existing `"Infinite Speed"`
+   entry.
+
+Re-running the sweep afterward confirmed the fix cleanly: 801 → 754
+misses (−47, exactly matching the sum of all fixed occurrences: 2
+typos + 10 Human-level variants + 34 Speed-of-Light variants + 1
+Infinite), 212 → 192 unique strings, with `"Omnipresent"` still
+correctly appearing (3 occurrences) since the sweep only checks ladder
+scoring, not the separate flag - not a bug, expected by design. No new
+gaps were introduced.
+
+```bash
+./venv/bin/python3 vocab_sweep.py                                    # the 3 categories above
+./venv/bin/python3 vocab_sweep.py --categories "Kages" "Some Category"  # or your own pick
+```
+
+## Vocabulary gap sweep: batch2 (Dragon Ball / JoJo's Bizarre Adventure)
+
+A second round, triggered by batch-scraping 3 new categories (Dragon
+Ball, `Re:Zero kara Hajimeru Isekai Seikatsu`, JoJo's Bizarre
+Adventure - see [Batch scraping](#batch-scraping-phase-3)). Unlike the
+Phase 4 sweep, this one reused the just-scraped DB data instead of
+re-fetching pages over the network, and was extended to check
+per-*form* stat strings too, not just the flat top-level fields - the
+multi-form model didn't exist yet when `vocab_sweep.py` was originally
+written, so a form-only gap (like one buried in a Goku/Vegeta
+transformation) would previously have gone uncounted.
+
+Two real, recurring gaps came out of it, both reviewed and decided by
+the user, not guessed ahead of time:
+
+1. **`"Athlete level"`** (86 occurrences, JoJo Stand users' baseline
+   physical stats). Checking the live wiki directly (not just
+   assuming) showed this is the *current* official name for tier
+   10-A on both the Tiering System and Attack Potency pages - the
+   ladder's existing 10-A entry was labeled `"Peak Human level"`,
+   which no longer appears as live wiki terminology. **Decision:**
+   rename the canonical 10-A label to `"Athlete level"`, keep
+   `"Peak Human level"` as an alias to the same score (2.8) - see
+   [Numeric normalization](#numeric-normalization-phase-2).
+2. **`"Brown Dwarf level+"`** (22+ occurrences, Dragon Ball - Brocco,
+   Paragus, and several Goku/Vegeta transformation forms). Not an
+   alias case: the wiki's own Attack Potency chart defines this as a
+   real tier, code `High 5-A`, with a published energy range - one of
+   ~15 "Low X"/"High X" fractional sub-tiers the Phase 2 ladder never
+   modeled (it only covers the 24 whole-letter tiers, 10-C through
+   3-A). **Decision:** add it as its own new anchor at **37.84**
+   (see [Numeric normalization](#numeric-normalization-phase-2) for
+   the exact anchoring method), rather than rounding it down to the
+   nearest existing whole tier.
+
+**`"Small Star level"` (`Low 4-C`, the very next sub-tier up from
+Brown Dwarf) was deliberately *not* added.** It's a real, documented
+wiki tier and will likely surface as its own gap eventually, but
+hasn't actually shown up in any scraped character's data yet -
+adding it preemptively would mean guessing at a gap instead of
+reacting to one, the same policy that gated adding Brown Dwarf level
+itself (which only got added once real characters surfaced it). It
+stays a noted possibility, not a to-do.
+
+Regression tests for both fixes use real strings pulled straight from
+this sweep - Bobby Jean's `"Athlete level, Street level with
+USP-45..."`, Brocco's bare-code `"High 5-A"` Tier field alongside its
+`"Brown Dwarf level+"` AP/Durability, and Son Goku (Toei)'s
+"Beginning of Z" form finding the anchor correctly amid a lot of
+unrelated narrative prose (`"Varies"`, `"up to far higher with
+Kamehameha"`) - see `test_normalizer.py`'s "vocabulary gap sweep
+fixes (batch2...)" section. Re-running the sweep afterward confirmed
+both `"athlete level"` and `"brown dwarf level"`/`"brown dwarf
+level+"` no longer appear as misses anywhere in Dragon Ball or JoJo.
+
+One unrelated, single-character oddity turned up along the way and
+was *not* acted on: `Magent Magent` (JoJo) has `"Athlete level"`
+written directly in her **Speed** field (`"Athlete level, Massively
+FTL reaction time..."`), where it doesn't belong - Athlete level is a
+Tier/AP concept, and Speed uses a completely different vocabulary
+("Subsonic", "Superhuman", etc.). This is almost certainly a wiki
+authoring slip on that one page, not a systemic gap - aliasing
+`"Athlete level"` into `SPEED_LADDER` to "fix" it would be
+conceptually wrong and risk false matches elsewhere, so it's left as
+a correctly-unscored `"Unknown"`-equivalent miss.
+
+## Batch scraping (Phase 3)
+
+`batch_scrape.py` fetches every character page in a VS Battles Wiki
+category, running each one through the existing scraper → parser →
+normalizer pipeline, and stores the result in a local SQLite database
+(`powerscale.db`) so later phases can pull "all characters from series
+X" without looking them up one at a time.
+
+### Category member filtering
+
+`category_fetcher.py` fetches the category's member list via
+`action=query&list=categorymembers` (paginating through `cmcontinue` -
+categories can have hundreds of members and the API caps each request).
+The filtering rules came from actually inspecting two real categories
+first (`Category:One-Punch_Man`, 249 raw members; `Category:Naruto`,
+351 raw members) rather than guessing:
+
+1. **Keep only namespace 0** (the main article namespace). This alone
+   removes almost all the noise: community power-calculation blog posts
+   live in namespace 500 (161 of Naruto's 351 members: `User
+   blog:Therefir/One-Punch Man: Serious Sneeze` and similar), and nested
+   subcategory links (e.g. `Category:Tank Topper Army`) show up as
+   namespace 14.
+2. **Drop the series/franchise overview page**, which is always a
+   member of its own category. Its title is usually `"<Series> (Verse)"`
+   (disambiguated when the bare name would collide with a character,
+   e.g. `"Naruto (Verse)"`), but falls back to the bare series name when
+   there's no collision (e.g. `"One-Punch Man"` itself, confirmed by
+   fetching that exact title). Both forms are filtered.
+3. **What's deliberately *not* filtered here**: a handful of
+   ability/mechanic pages slip past both rules above (`Sharingan`,
+   `Chakra Cannon`, `Ōtsutsuki Physiology` all showed up in
+   `Category:Naruto`'s ns=0 members). They don't follow a reliable title
+   pattern, and guessing one risks excluding real character names by
+   accident. Instead, `batch_scrape.py` catches these at runtime: any
+   page where parsing finds *none* of Tier/Attack Potency/Speed/
+   Durability is logged as "skipped (no stats found)" rather than
+   stored or treated as a failure.
+
+### Database schema
+
+```sql
+CREATE TABLE characters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    source_url TEXT NOT NULL UNIQUE,   -- canonical wiki URL; the natural key
+    category TEXT,                     -- most recent category this was scraped under
+    last_scraped_at TEXT NOT NULL,     -- ISO 8601 UTC timestamp
+    raw_json TEXT NOT NULL,            -- CharacterStats.to_dict(), JSON
+    normalized_json TEXT NOT NULL      -- NormalizedStats.to_dict(), JSON
+);
+
+CREATE INDEX idx_characters_name ON characters(name);
+CREATE INDEX idx_characters_category ON characters(category);
+```
+
+Raw and normalized stats are stored as JSON blobs rather than individual
+columns - both schemas are still evolving (Phase 4+ will add categorical
+normalization for abilities/weaknesses), and a blob means a new field
+there never needs a DB migration. `source_url` is the unique key per
+character; re-scraping the same character upserts the existing row
+rather than duplicating it.
+
+**Known simplification**: `category` holds only the *most recent*
+category a character was scraped under, not a full membership list. A
+character that belongs to two categories you batch-scrape separately
+will just have its `category` column overwritten by whichever run went
+second. Fine for "pull all characters from series X" per-category
+queries; a join table would be needed if full multi-category membership
+ever matters.
+
+### Batch orchestration behavior
+
+- **Sequential only** - every page fetch goes through the same rate
+  limiter as `main.py` (`scraper.prepare_api_request`, 1.5s minimum
+  between live requests). Nothing in this batch path runs in parallel.
+- **Freshness skip** - before fetching, each title's canonical URL is
+  checked against the DB; if it was scraped within `--freshness-days`
+  (default 30), it's skipped. `--force` bypasses this and re-scrapes
+  everything.
+- **Per-character failures don't stop the batch** - a `try/except`
+  around each character's fetch+parse+normalize logs the title and
+  error, then moves on. The end-of-run summary reports counts for
+  scraped / skipped (fresh) / skipped (no stats found) / failed, plus
+  the title and error message for every failure.
+- **Progress output** - each character prints as `i/total: Name...
+  done` (or `skipped (...)` / `FAILED (...)`) while it runs.
+
+### Stress test: Category:Kages (17 members)
+
+First real test beyond the 3 hand-picked Phase 1/2 fixtures - a small,
+already-clean category:
+
+```
+Batch complete: 17 candidate page(s)
+  Scraped:                17
+  Skipped (already fresh): 0
+  Skipped (no stats found): 0
+  Failed:                 0
+```
+
+17/17 parsed successfully, including two different characters both
+literally named "A" (`A (Fourth Raikage)`, `A (Third Raikage)`) and
+title-style names like `Third Kazekage`. One character (`Muu`) has a
+`Tier` field that's literally the text `"Unknown"` - the normalizer
+correctly logged a warning and returned an all-`None` range for it
+instead of crashing or guessing.
+
+### Stress test: Category:One-Punch_Man (122 members)
+
+A larger, noisier category run, to actually stress the parser across a
+whole series' worth of real-world page variation rather than 3
+hand-picked fixtures. First pass:
+
+```
+Batch complete: 122 candidate page(s)
+  Scraped:                121
+  Skipped (already fresh): 0
+  Skipped (no stats found): 1
+  Failed:                 0
+```
+
+**The 1 skip was a real parser bug**, not a false positive from the
+category filter: `Promoted Rook`'s section heading is literally `"Power
+and Stats"` (singular "Power"), not the usual `"Powers and Stats"`, so
+`parser._find_stats_heading` never found it and the whole page came
+back empty. Fixed by matching both spellings
+(`^powers?\s+and\s+stats$`), added as a 4th tracked fixture
+(`test_fixtures/PromotedRook.html`) with a regression test. Re-running
+with `--force` after the fix:
+
+```
+Batch complete: 122 candidate page(s)
+  Scraped:                122
+  Skipped (already fresh): 0
+  Skipped (no stats found): 0
+  Failed:                 0
+```
+
+122/122, 0 failures, 0 skips. Along the way, the normalizer logged (but
+didn't crash on) warnings for text it can't map to a numeric score -
+worth noting since these are real coverage gaps, not bugs:
+
+- **Genuinely unrated stats** (~20 characters) - fields whose actual
+  wiki text is literally `"Unknown"` (e.g. `Crablante`, `Vaccine Man`).
+  This is correct behavior: there's nothing to parse, and returning an
+  all-`None` range with a logged warning is exactly what should happen.
+- **Vocabulary the ladder doesn't cover** - two real gaps: `King
+  (One-Punch Man)`'s Attack Potency is `"Human level"`, an informal
+  tier descriptor `TIER_LADDER` doesn't include; `Rafflesidon`'s is
+  `"LargeTown level"` (a wiki-side missing-space typo for "Large Town
+  level"). Both are legitimate scope gaps in the current ladder rather
+  than parser bugs - noted here rather than silently patched, since
+  expanding the ladder's vocabulary to match everything real pages
+  actually say is an ongoing, open-ended tail rather than a one-line
+  fix, and better scoped as deliberate follow-up work.
+
+## Comparison UI (Phase 4)
+
+```bash
+./venv/bin/streamlit run app.py
+```
+
+Pick 2-4 characters from the sidebar and compare their normalized stats
+visually. Purely a visualization/comparison layer on top of the existing
+DB - no "who would win" calculator yet (that's a later phase).
+
+### Layout
+
+- **Sidebar**: an "Add a character" form (name or URL + Fetch button -
+  runs the full scraper → parser → normalizer pipeline and upserts into
+  the DB, with a spinner and inline success/error message, never
+  crashing the page on a bad title); a searchable multiselect of
+  every character in the DB, labeled `"Name (Category)"` so same-named
+  characters from different series stay distinguishable, plus `"· N
+  forms"` for any character with more than one form; a **Forms** block
+  (only rendered when at least one selected character has more than one
+  form) with one dropdown per such character, defaulting to its first
+  form; a chart-type toggle (Radar/Bar); a plot-value toggle
+  (Peak/Baseline).
+- **Main area**: an empty-state prompt when fewer than 2 characters are
+  selected; otherwise the chart, a raw-stats table, and per-character
+  detail panels, in that order.
+
+### Multi-form characters
+
+Following up on the multi-form data model (parser.py/normalizer.py now
+always populate `forms`, one entry per story key/arc for characters
+like Genos/Vegeta/Goku/Garou/Erza Scarlet/Minato Namikaze - 8 in the
+current DB), every part of this page reads through
+`forms[selected_index]` rather than the old flat fields, so switching a
+character's form in the sidebar updates the chart, the raw-stats table,
+and the "Comparing: ..." header live, exactly like any other control.
+
+An ordinary single-`"Base"`-form character (the other ~493 characters)
+is completely unaffected - no Forms row, no name suffix, nothing new to
+look at. A multi-form character's display name only grows a suffix once
+a *non-default* form is actually selected (e.g. `"Genos, Demon Cyborg"`
+stays bare at its default form 0, `"Beginning of Series"`, but becomes
+`"Genos, Demon Cyborg (Post-Elder Centipede)"` the moment you pick that
+form) - this appears in the chart legend, the raw-stats table's
+Character column, and the header, all from one `display_name` computed
+once per row.
+
+Each multi-form character's detail panel also gets an **"All forms
+(N)"** expander (collapsed by default, placed above Powers and
+Abilities) listing every form's name and Tier value, with a `→` marker
+on whichever one is currently active in the comparison - so you can
+eyeball the character's full range without leaving the page. Abilities
+and Weaknesses stay character-level text either way (per-form ability
+extraction wasn't part of this data model change).
+
+Form selection is deliberately **not** remembered once a character
+leaves the comparison: each form dropdown is keyed per character id
+(`form_select_<id>`), and every rerun prunes any such key whose
+character isn't currently selected. Re-adding a character later always
+starts back at form 0, rather than silently resurrecting whatever form
+was picked the last time it was in the comparison.
+
+### The chart
+
+Three axes/groups: **Tier/AP** (Attack Potency's score, falling back to
+Tier's if AP itself didn't parse - they're nearly always close since
+Tier is derived from AP+Durability), **Durability**, **Speed**. Radar
+uses `plotly`'s `Scatterpolar` (`connectgaps=False`); Bar uses grouped
+`Bar` traces. Both plot the **Peak** score by default (a character's
+best stated capability) rather than Baseline, to avoid cluttering the
+chart with two traces per character - switch the sidebar toggle to see
+Baseline instead.
+
+**Missing values are never plotted as zero.** A `None` stat (an
+unrated/`"Unknown"` field, or nothing recognizable in the ladder) leaves
+a genuine gap in that character's shape/bars, and a caption under the
+chart spells out why per character and per stat (e.g. `"Genos, Demon
+Cyborg — Durability: no recognizable Durability value"`). The
+`is_omnipresent` flag from Phase 4 prep is surfaced independently of
+whether Speed also has a real numeric value - a character can have both
+a stated combat speed *and* a separate "exists everywhere" claim (e.g.
+Madoka Kaname has `"Massively Hypersonic+"` *and* is tagged Omnipresent
+from a different clause in the same field), so the note always appears
+when the flag is set rather than only when Speed is otherwise empty.
+
+### Raw stats table
+
+One row per character (reading its currently-selected form), one column
+per stat, each cell showing baseline → peak with qualifiers inline (e.g.
+`"9-B (confirmed) → 3-C (possibly)"`), reusing the labels/qualifiers
+Phase 2 already computed. The Speed column appends `"+ Omnipresent"`
+rather than overwriting the cell when both a real value and the flag
+are present, for the same reason as the chart caption above -
+`is_omnipresent` is itself a per-form value now, checked independently
+per form rather than once per character.
+
+### Detail panels
+
+One column per selected character: name/category header, an "All forms"
+expander for multi-form characters only (see above), Powers and
+Abilities as a list (collapsed by default past 5 items), Weaknesses as
+plain text - `"None listed."` rather than a blank space when a field is
+empty.
+
+### Who would win?
+
+A "Who would win?" section sits below the Details panels, wired
+directly to Phase 5's `calculator.py`. Deliberately **no second form
+picker** - it reuses whichever form is already active per character in
+the sidebar's own Forms picker (the exact `form` each `rows[i]` dict
+already carries for the chart/table), so the verdict is always
+computed from the same form the chart is currently plotting, never a
+silently different one. This means the *default* form used here is
+index 0 (this app's own convention), not `calculator.py`'s standalone
+default of "highest Tier" - a deliberate divergence for this app
+specifically (see `app.py`'s module docstring).
+
+Two dropdowns (`Character A`/`Character B`) let you pick any 2 of the
+currently-selected 2-4 characters for the verdict - reusing the
+existing selection rather than a separate character picker. Live-
+updates on every rerun (no button - `compare_forms()` is cheap, pure
+math over already-loaded data, so there's no reason to gate it), which
+is also what makes switching a character's form in the sidebar
+immediately flip the verdict, confirmed by testing this live with
+Genos across two forms: `"Clear favorite"` for Garou at Genos'
+weakest form, `"Too close to call"` once Genos' strongest (scored
+Durability) form is selected instead - matching `test_calculator.py`'s
+form-selection regression test with real data instead of a synthetic
+rival.
+
+The stat-breakdown table uses short `"A"`/`"B"` column headers rather
+than the full (often long, alias-heavy) display names - found by
+testing this live that two verbose names as side-by-side dataframe
+columns pushed the second one past the visible table width with no
+scroll indication. A caption above the table (`"A = ... | B = ..."`)
+and the verdict line itself already spell out which is which, so
+nothing is lost by keeping the columns short.
+
+Ability flags render exactly as `calculator.py` intends: a separate,
+clearly-labeled section below the stat table, never touching the
+verdict's numbers - see "Who would win calculator" above for why.
+
+### Notes from building/testing this
+
+- **`db.py` gained two read helpers** for this phase:
+  `get_all_characters()` (lightweight listing for the selector, no JSON
+  blobs) and `get_character_by_id()` (full row once selected).
+- **A character added via the sidebar form has no batch category**, so
+  it's stored under its parsed `Origin` field as a stand-in (e.g.
+  fetching "Vegeta" cold stores it under whatever `Origin` its page
+  parses to, or `"Uncategorized"` if that field is empty too) - more
+  meaningful than an actual `"Uncategorized"` bucket for everything.
+- **The multiselect needs an explicit `key`** (`"character_selector"`),
+  *and* its selected value needs to be explicitly re-asserted into
+  `st.session_state` after a successful add. Found by testing the add-
+  character flow end-to-end: clearing the character-list cache changes
+  the widget's `options` on that rerun, and Streamlit drops the current
+  selection when `options` changes under a multiselect even with a
+  stable key - so the fix captures the selection before the cache
+  clear and writes it straight back into session state afterward.
+- **`watchdog` is a real dependency, not just a suggestion** - without
+  it, Streamlit's file-change detection during development was
+  unreliable enough to cost real debugging time (a code fix would
+  sometimes silently not be running yet despite a page reload). Added
+  to `requirements.txt`.
+- **Two data-quality findings surfaced by using the UI** (`Genos`'s
+  Attack Potency/Durability coming back `None` despite Tier parsing
+  fine; Dragon Ball pages with no numeric stats at all) turned out to
+  be the same root cause: these pages split AP/Speed/Durability/Lifting
+  Strength/Striking Strength into a separate tabber, one tab per story
+  key/arc, with no flat fallback - confirmed directly against the raw
+  HTML for Genos, Vegeta, and Goku before writing any extraction logic.
+  Not Dragon-Ball-specific either - the same pattern turned up on 8
+  characters across the real DB once the fix landed (see "Multi-form
+  characters" above and `parser.py`'s module docstring for the full
+  design). `Piccolo` genuinely was a separate, simpler bug: a redirect
+  the scraper wasn't following, fixed in `scraper.py` (`redirects=1`).
+- **`db.get_form_counts()` and two small app.py helpers** support the
+  Forms UI: `option_label()` now takes a `form_counts` dict (one query,
+  cached, rather than loading every character's full JSON blob just to
+  badge a handful of them), and `_prune_stale_form_selections()` runs
+  every rerun to drop session-state keys for characters no longer
+  selected (see "Multi-form characters" above).
+
+## "Who would win" calculator (Phase 5)
+
+`calculator.py` estimates a winner between two characters (by DB id or
+exact name - name lookups that collide across source pages, e.g.
+multiple `"Son Goku"` variants, raise and list the ids to disambiguate
+rather than guessing). Built as a CLI plus a set of pure, testable
+functions (`compare_forms`, `select_form`, `ability_flags`) with no
+DB/Streamlit dependency of their own, then wired into `app.py` as a
+follow-up (see "Who would win?" below) - same pattern as the
+multi-form UI being a follow-up to the multi-form data model.
+
+**Form selection**: an explicit form name can be passed per character;
+if omitted, `select_form()` defaults to the form with the highest
+`tier.baseline` (forms with no Tier score at all sort last).
+Deliberately not "the fairest form for a matchup" - that has no
+objectively correct answer, so it isn't guessed at.
+
+**Weighting** (reviewed and signed off before implementation, same as
+the original tier ladder scale): Attack Potency 35%, Durability 25%,
+Speed 25%, Tier 15%. Tier is intentionally the lowest weight - VS
+Battles Wiki defines Tier *as a function of* AP and Durability, so
+weighting all three equally would partly double-count the same signal.
+Each axis's raw delta (in that axis's own log10 units) is squashed
+through `tanh(delta / 5.0)` into a bounded `[-1, +1]` "advantage"
+before weighting, so an absurdly lopsided axis (a 40-order-of-magnitude
+Tier gap) saturates toward the edge instead of mathematically drowning
+out the other axes just by having more zeros.
+
+**Missing stats**: baseline first, falling back to peak if baseline is
+`None` (flagged in the breakdown as peak-based, not silently swapped
+in). If neither side has *either* value for an axis, that axis is
+excluded and its weight is redistributed proportionally across the
+axes that do have data - explicitly not treated as a tie, since a
+missing stat is absence of evidence, not evidence of parity. Fewer
+than 2 comparable axes between the two characters returns an
+`"Insufficient data"` verdict outright rather than a confident-looking
+guess from one stat. With 2-3 axes, a verdict still computes but is
+capped below the top confidence band ("Overwhelming favorite" is
+unreachable off partial data - see `test_partial_data_caps_confidence_
+below_overwhelming` in `test_calculator.py`).
+
+**Confidence phrasing** is a fixed lookup from the weighted composite
+score to a label (`"Too close to call"` → `"Overwhelming favorite"`),
+each printed with a percentage-style hint (`"~65%"`) *and* an explicit
+disclaimer baked into the CLI output itself - `"Heuristic estimate
+from normalized stats - not a calibrated win probability"` - rather
+than only living in this README where a caller of the bare function
+might never see it.
+
+**Ability/weakness flags are score-free by design.** A curated list of
+~12 keywords (Regeneration, Immortality, Reality Warping, Acausality,
+Non-Corporeal, BFR, Existence Erasure, Petrification, Durability
+Negation, One-Hit-Kill/Instant Death, Probability Manipulation,
+Resistance) is scanned case-insensitively against each character's
+`powers_and_abilities` + `weaknesses` text and surfaced as flags -
+which character, which tag - in their own clearly-separated output
+section, alongside the full raw text. **They never touch the numeric
+composite.** A keyword match can't tell "Low-Godly regeneration" from
+a one-off scratch-heal, doesn't know if the opponent's kit already
+counters it, and isn't scoped to the specific form chosen for the
+numeric comparison (abilities/weaknesses live only on the flat
+top-level character record - see `parser.py`'s `CharacterForm`, which
+carries no textual fields at all) - so treating a match as a score
+bump would be pretending to a precision this system doesn't have.
+Considered and rejected: a keyword-triggered numeric modifier (would
+silently move a printed confidence number off a substring match) and a
+plain text-dump with no structure at all (honest, but throws away
+information a reader would otherwise have to re-derive every time).
+
+**`is_omnipresent`** gets the same treatment as a missing stat when it
+appears on the selected form - the Speed axis is excluded exactly as
+if Speed had no value at all (Omnipresent is categorically not a point
+on a numeric speed scale, so it earns no hidden bonus), and a note is
+attached explaining that the exclusion doesn't capture what Omnipresent
+actually means in a fight.
+
+```bash
+./venv/bin/python3 calculator.py "Saitama, \"Caped Baldy,\" \"The Abominable Fist That Turned Against God\"" "Vegeta III"
+./venv/bin/python3 calculator.py 116 642 --form-a "Base" --show-abilities
+./venv/bin/python3 -m pytest test_calculator.py -v   # or: ./venv/bin/python3 test_calculator.py
+```
+
+Tested against the required matchup range in `test_calculator.py`: a
+close/fair fight (small deltas on all four axes → `"Slight edge"` or
+below), a wildly lopsided one (`"Overwhelming favorite"`), sparse data
+(a single shared axis, and a fully-unscored character, both correctly
+returning `"Insufficient data"` rather than a guess), and a real
+multi-form character - Genos (DB id 62) compared against a fixed
+synthetic rival at his weakest form (`"Beginning of Series"`, no
+Durability score) versus his strongest (`"Post-Elder Centipede"`) -
+confirming the favored side actually flips between the two form
+choices, not just the printed numbers.
