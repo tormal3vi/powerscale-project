@@ -249,6 +249,18 @@ def test_peak_human_level_still_works_as_an_alias():
     assert r.baseline == TIER_LADDER["athlete level"] == 2.8
 
 
+def test_outerversal_aliases_to_outerverse_level():
+    # Varga Kolos (Crimson Cross, manual entry): Attack Potency said
+    # "Planet level (...); Outerversal (true, unexercised ceiling)" -
+    # "Outerversal" is the adjective form of the existing 1-A anchor,
+    # not a new concept. Without the alias, the peak silently collapsed
+    # to the baseline ("Planet level") instead of reaching 1-A.
+    r = parse_tier_range("Planet level (demonstrated baseline); Outerversal (true, unexercised ceiling)")
+    assert r.baseline_label == "planet level"
+    assert r.peak_label == "outerversal"
+    assert r.peak == TIER_LADDER["outerverse level"] == 160.0
+
+
 def test_bobby_jean_athlete_level_real_string():
     # Bobby Jean, Agent Bobby Jean (JoJo's Bizarre Adventure):
     # AP "Athlete level, Street level with USP-45 (...)"

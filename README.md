@@ -8,7 +8,9 @@ database (Phase 3), sweeps categories for tier/speed vocabulary the
 normalizer doesn't yet recognize (Phase 4 prep), compares characters
 side by side in a Streamlit UI (Phase 4), and estimates who would win
 a fight between two characters with a weighted stat comparison plus
-score-free ability flags (Phase 5).
+score-free ability flags (Phase 5). Characters with no wiki page at
+all (original fiction) can also be entered manually and flow through
+the exact same normalization/comparison pipeline as scraped ones.
 
 ## How it fetches pages (important context)
 
@@ -872,3 +874,58 @@ synthetic rival at his weakest form (`"Beginning of Series"`, no
 Durability score) versus his strongest (`"Post-Elder Centipede"`) -
 confirming the favored side actually flips between the two form
 choices, not just the printed numbers.
+
+## Manual character entry
+
+`manual_entry.py` adds a character with no wiki page at all (e.g.
+original fiction) - copy `characters/_template.yaml`, fill it in, run:
+
+```bash
+./venv/bin/python3 manual_entry.py characters/your_character.yaml
+```
+
+**Deliberately YAML, not interactive prompts or a Python dict to
+edit.** This was reviewed before building, same as the calculator's
+weighting scheme: prompts don't scale to ~13 flat fields plus a
+variable-length abilities list plus optional nested forms without
+turning into a long back-and-forth with no way to see the whole
+picture, or edit a mistake without starting over. A Python dict avoids
+a new dependency but means quoting and comma-matching for every string
+and every list item - real ability text is full of parentheses and
+commas (`"Regeneration (Mid; can recover from dismemberment)"`),
+which is exactly what YAML's indented list syntax avoids needing to
+escape. The one cost is a new dependency (`pyyaml`, added to
+`requirements.txt`) - small and justified by how much friction it
+removes for what's meant to be repeated, occasional use as a writing
+project's cast grows.
+
+**Bypasses `scraper.py`/`parser.py` entirely** (there's nothing to
+fetch or parse) but builds the *exact same* `CharacterStats`/
+`CharacterForm` objects `parser.parse_character()` would - stat fields
+are the same raw wiki-format strings (`"7-B"`, `"Massively
+Hypersonic+"`), fed through the same `normalizer.py` ladder, so a
+manually-entered character's score means the same thing as a scraped
+one's rather than a hand-picked number that might not line up with the
+ladder's actual scale. `forms:` is optional in the YAML and maps
+directly onto the same `CharacterForm` list multi-form wiki characters
+use (see "Multi-form characters" above) - omit it for an ordinary
+single-form character and `manual_entry.py` synthesizes the same single
+`"Base"` form `parser.py` would, so nothing downstream (`app.py`,
+`calculator.py`) needs to know or care that this character didn't come
+from a scrape.
+
+**`source_url`** (required non-null and unique by `db.py`'s schema,
+but there's no real URL) is synthesized as `manual://<category-slug>/
+<name-slug>` - obviously non-wiki at a glance, and unique the same way
+a real URL would be as long as (category, name) pairs don't collide.
+
+Verified end-to-end, not just unit-tested: ran a filled-in two-form
+example through `manual_entry.py`, confirmed the DB row's normalized
+scores matched the ladder exactly (`"City level"` → 15.6, `"Continent
+level"` → 23.0 - not approximations), clicked "Refresh character list"
+(see above) and confirmed it appeared in the picker with its category
+badge and multi-form "· 2 forms" tag with zero special-casing needed,
+then ran a real "Who would win?" matchup against a scraped character
+(Garou) and confirmed a live verdict, stat breakdown, and ability
+flags (its "Regeneration" ability text was correctly flagged) came
+back exactly like any wiki-sourced pairing.

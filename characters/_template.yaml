@@ -1,0 +1,67 @@
+# Manual character entry template - copy this file, fill in your
+# character's data, then run:
+#   ./venv/bin/python3 manual_entry.py characters/your_character.yaml
+#
+# Every stat field below (tier, attack_potency, speed, durability,
+# lifting_strength, striking_strength, stamina, range) takes the SAME
+# raw string format a VS Battles Wiki page uses - e.g. "7-B",
+# "Massively Hypersonic+", "Class 100" - because it's fed through the
+# exact same normalizer.py ladder every scraped character goes
+# through. Leave these as text, not hand-picked numbers, so this
+# character stays comparable to everyone else in the DB.
+#
+# Required: name, category. Everything else is optional - leave a
+# field out entirely (don't set it to "" or null) if it doesn't apply;
+# it'll just come back unscored/empty, same as a real wiki page that
+# doesn't list something.
+
+name: "Character Name"
+
+# Shows up as this character's category/tag in the DB and UI, so you
+# can filter/find your own cast separately from wiki-sourced ones.
+category: "Crimson Cross"
+
+origin: "Crimson Cross"
+gender: "Female"
+age: "24"
+classification: "Human, Blade-Sworn Knight"
+
+tier: "7-B"
+attack_potency: "City level"
+speed: "Massively Hypersonic+"
+durability: "City level"
+lifting_strength: "Class 50"
+striking_strength: "City Class"
+stamina: "Superhuman"
+range: "Extended Melee Range"
+standard_equipment: "The Crimson Blade"
+intelligence: "Gifted"
+
+powers_and_abilities:
+  - "Superhuman Physical Characteristics"
+  - "Weapon Mastery (Expert with the Crimson Blade)"
+  - "Regeneration (Mid; can recover from dismemberment)"
+
+weaknesses: "Must maintain physical contact with the Crimson Blade to access her full power."
+
+# Optional - only include this whole "forms:" key if the character has
+# multiple distinct power states/forms (like Genos or Vegeta having a
+# separate stat block per story arc). Omit it entirely for an ordinary
+# single-form character - don't leave it as an empty list.
+#
+# Each form only needs to list the fields that actually differ for it;
+# anything left out on a form falls back to that field's stats.* value
+# above is NOT automatic - each form is independent, so repeat a value
+# if it's unchanged between forms.
+#
+# forms:
+#   - name: "Unbound"
+#     tier: "7-B"
+#     attack_potency: "City level"
+#     speed: "Massively Hypersonic+"
+#     durability: "City level"
+#   - name: "Crimson Awakening"
+#     tier: "6-A"
+#     attack_potency: "Continent level"
+#     speed: "Massively Hypersonic+"
+#     durability: "Continent level"

@@ -233,6 +233,15 @@ _TIER_TERM_ALIASES: Dict[str, str] = {
     # terminology anymore, but kept as an alias since older pages may
     # still use it and the score (2.8) is unchanged either way.
     "Peak Human level": "Athlete level",
+    # Adjective form of the existing 1-A "Outerverse level" anchor, not
+    # a distinct concept - found manually entering Varga Kolos (Crimson
+    # Cross), whose Attack Potency/Durability said "...Outerversal
+    # (true ceiling)" while Tier said "High 1-A" for the same claim.
+    # Only Tier matched (the code form), so AP/Durability's peak
+    # silently collapsed to the baseline value instead of the intended
+    # ~1-A ceiling - a ~130-point internal inconsistency between Tier
+    # and the two fields it's supposed to be derived from.
+    "Outerversal": "Outerverse level",
 }
 _SPEED_TERM_ALIASES: Dict[str, str] = {
     # Standalone shorthand for the existing "Infinite Speed" entry.
