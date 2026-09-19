@@ -170,14 +170,21 @@ def _strip_citation_markers(soup: BeautifulSoup) -> None:
         sup.decompose()
 
 
-_STATS_HEADING_RE = re.compile(r"^powers?\s+and\s+stats$", re.IGNORECASE)
+_STATS_HEADING_RE = re.compile(r"^powers?\s+and\s+stat(s|istics)$", re.IGNORECASE)
 
 
 def _find_stats_heading(soup: BeautifulSoup):
     # Usually "Powers and Stats", but some pages spell it "Power and
     # Stats" (singular) - e.g. Promoted Rook, found while batch-scraping
-    # Category:One-Punch_Man. Match both the id and the headline text.
-    span = soup.find("span", id="Powers_and_Stats") or soup.find("span", id="Power_and_Stats")
+    # Category:One-Punch_Man - or spell the word out in full, "Powers
+    # and Statistics" - e.g. Hulk (Marvel Comics), found adding it
+    # individually. Match both the id and the headline text.
+    span = (
+        soup.find("span", id="Powers_and_Stats")
+        or soup.find("span", id="Power_and_Stats")
+        or soup.find("span", id="Powers_and_Statistics")
+        or soup.find("span", id="Power_and_Statistics")
+    )
     if span is None:
         for candidate in soup.find_all("span", class_="mw-headline"):
             if _STATS_HEADING_RE.match(candidate.get_text(strip=True)):
@@ -217,6 +224,28 @@ def _html_after(p, b) -> str:
     return "".join(parts)
 
 
+def _labeled_paragraphs_in(tabber) -> List[dict]:
+    """Direct-child <p>'s of a tabber div itself (not nested inside any
+    of its own tabs) that open with a recognized <b>Label:</b>. Some
+    pages tab the "Powers and Abilities" section itself (e.g. a
+    "Powers and Abilities"/"Resistances" split - Frieren; a two-persona
+    selector - Reze) and, on those pages, wrap the *entire rest* of the
+    flat stat block (Attack Potency, Speed, Durability, Weaknesses,
+    ...) inside that same tabber div too, as plain <p> siblings after
+    its wds-tab__content tabs - one level deeper than an ordinary
+    sibling walk looks, and not inside any specific tab either, so
+    they'd otherwise be silently absorbed as unparsed raw HTML into
+    whatever field was open when the tabber was reached (see
+    _collect_field_blocks). Confirmed against real HTML (Frieren, Reze)
+    before writing this, not assumed."""
+    blocks: List[dict] = []
+    for child in tabber.find_all("p", recursive=False):
+        b, label = _label_from_p(child)
+        if label:
+            blocks.append({"label": label, "html_parts": [_html_after(child, b)]})
+    return blocks
+
+
 def _collect_field_blocks(heading) -> List[dict]:
     """Walk siblings after `heading` until the next <h2>, grouping content
     into one block per labeled <p> (label + its own inline value + any
@@ -249,6 +278,13 @@ def _collect_field_blocks(heading) -> List[dict]:
             if table_field:
                 blocks.append(table_field)
             continue
+        if name == "div" and "tabber" in (sib.get("class") or []):
+            # See _labeled_paragraphs_in - additive only, and a no-op on
+            # every ordinary multi-form stats tabber (Genos, Vegeta,
+            # Goku, Denji, ...), whose <p>'s all live nested inside a
+            # wds-tab__content tab, never as direct children of the
+            # tabber div itself.
+            blocks.extend(_labeled_paragraphs_in(sib))
         if current is not None:
             current["html_parts"].append(str(sib))
     return blocks

@@ -569,16 +569,87 @@ form now correctly show their real per-arc forms (Denji: 4, Power: 3,
 etc.) - the same `Key:` progression pattern documented under
 "Multi-form characters" below.
 
-**2 characters still don't parse (`Reze`, `Samurai Sword`) - a
-different, unfixed issue, not the same bug.** Their stat block isn't
-inside a per-form tab at all: it sits as flat `<p>` siblings *after*
-an unrelated outer tabber (a Reze/"Bomb Girl" persona-selector, in
-Reze's case), with a second, seemingly-unrelated nested tabber further
-down the page. Reported here rather than patched - the shape is
-different enough from every other case handled so far that a quick
-fix risked being fragile or narrowly overfit to these two pages,
-better scoped as deliberate follow-up if more characters turn out to
-share this layout.
+**`Reze`/`Samurai Sword` were a third, different bug - deferred here,
+then fixed once it recurred.** Their stat block wasn't inside a
+per-form tab at all: it sat as flat `<p>` siblings *after* an unrelated
+outer tabber (a Reze/"Bomb Girl" persona-selector, in Reze's case).
+Originally reported rather than patched - it looked narrowly specific
+to these two pages, and a quick fix risked being fragile or overfit.
+It recurred on an unrelated category (`Frieren`, in
+`Frieren: Beyond Journey's End` - see that stress test below), which
+confirmed it as a real, identifiable DOM family rather than a one-off,
+and got fixed generally at that point (`_labeled_paragraphs_in` in
+`parser.py`). Both characters now parse correctly.
+
+### Stress test: Category:Frieren: Beyond Journey's End (12 members)
+
+Added alongside Mushoku Tensei and Hulk. Clean run (11 scraped, 1
+non-character page correctly skipped, 0 failed) - except `Frieren`
+herself, the title character, came back with the exact same
+"Insufficient data" symptom as the Chainsaw Man bug above, but a third
+distinct cause.
+
+**Root cause**: her "Powers and Abilities" section is itself tabbed
+(split into "Powers and Abilities" / "Resistances" tabs), and the page
+wraps the *entire rest* of the flat stat block - Attack Potency,
+Speed, Durability, Weaknesses, Standard Equipment, all of it - inside
+that same tabber `<div>` too, as plain `<p>` siblings positioned after
+its tabs. They're not nested inside any specific tab, and they're one
+level deeper than `_collect_field_blocks`'s ordinary heading-sibling
+walk looks, so they were previously silently absorbed as unparsed raw
+HTML into whichever field was open when the tabber was reached (in
+practice, "Powers and Abilities," since that's what preceded it) -
+without corrupting the extracted ability list, since that extraction
+only ever looks for `<li>` elements and simply ignored the extra `<p>`
+noise mixed into the same blob.
+
+This is the same DOM family as `Reze`/`Samurai Sword` (Chainsaw Man,
+above) - found there first but deferred as looking like a narrow
+2-character oddity. Recurring here, on a completely unrelated
+category, confirmed it as a real pattern worth fixing generally rather
+than a one-off: added `_labeled_paragraphs_in()` in `parser.py`,
+which scans any sibling `<div class="tabber">`'s *direct* children for
+labeled `<p>`'s and adds them as their own fields - purely additive,
+and a confirmed no-op on every ordinary multi-form stats tabber
+(Genos, Vegeta, Goku, Denji, ...), whose `<p>`'s all live nested one
+level deeper, inside a `wds-tab__content` tab, never as direct
+children of the tabber `<div>` itself. Fixing this also retroactively
+fixed `Reze`/`Samurai Sword` and `Frieren`'s own `Serie` once the
+Chainsaw Man and Frieren categories were re-parsed from cache.
+Regression test: `test_frieren_flat_fields_wrapped_in_an_unrelated_
+ability_tabber` in `test_parser.py`, using Frieren's real page as a
+new fixture.
+
+### Adding Hulk (Marvel Comics) individually
+
+A fourth, unrelated root cause, found the same day: Hulk's page spells
+the section heading out in full as **"Powers and Statistics"**, not
+"Powers and Stats" or the already-handled singular "Power and Stats"
+(Promoted Rook, Phase 3). `_STATS_HEADING_RE` matched `...stats$`
+specifically, which "statistics" doesn't satisfy at all (different
+suffix, not a superset) - so the whole section, and even `stats.name`,
+came back empty, since `parse_character` returns a blank
+`CharacterStats` when no heading is found. Fixed by widening the
+regex to `stat(s|istics)$` and adding the two `id="..._Statistics"`
+variants to the same id fast-path fix. Regression test:
+`test_hulk_powers_and_statistics_heading_variant`, using Hulk's real
+page (also genuinely multi-form - 5 personas - confirming the fix
+helps the multi-form path too, not just flat fields).
+
+**One further, narrower issue on the same page, reported not fixed**:
+all 5 of Hulk's forms come back with Durability unscored. Root cause
+is a wiki-authoring typo specific to this page, not a DOM pattern:
+right after Striking Strength's closing `</p>`, the editor never
+opened a new `<p>` before `<b>Durability</b>` - so it sits as loose
+inline text directly inside the tab's container `<div>`, invisible to
+every field-extraction path in `parser.py`, all of which only ever
+look for `<b>` labels inside `<p>` elements. Narrow enough (one field,
+one page, an apparent one-off editing mistake rather than a template
+pattern) that it's reported here rather than patched, same call as
+`Petra Leyte`'s bold-run label issue above.
+
+**Category:Mushoku Tensei ～Isekai Ittara Honki Dasu～ (3 members)**:
+scraped clean, 3/3, 0 failures, no new gaps.
 
 ## Comparison UI (Phase 4)
 

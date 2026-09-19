@@ -43,6 +43,17 @@ the multi-form work below didn't disturb the common case.
   were direct children - confirmed against the raw HTML (Genos' same
   fields are direct children; Denji's are one level deeper inside that
   wrapper) before fixing it.
+- Frieren (Frieren: Beyond Journey's End): a third, different root
+  cause behind the same "no verdict" symptom - her "Powers and
+  Abilities" section is itself tabbed, and the whole rest of the flat
+  stat block sits inside that same tabber div as plain <p> siblings
+  after its tabs, previously invisible to the ordinary heading-sibling
+  walk in `_collect_field_blocks`. Same DOM family as Chainsaw Man's
+  `Reze`/`Samurai Sword` (found and reported, but not fixed, while
+  diagnosing the Denji bug above - deferred as a narrow 2-character
+  case at the time, then fixed generally here once it recurred on a
+  second, unrelated category). Single-form, not multi-form - confirms
+  the fix doesn't misfire on an unrelated ability-category tabber.
 
 Run with: ./venv/bin/python3 -m pytest test_parser.py -v
 (or plain: ./venv/bin/python3 test_parser.py)
@@ -112,6 +123,24 @@ def test_promoted_rook_singular_power_and_stats_heading():
     assert stats.tier == "6-B"
     assert stats.origin == "One-Punch Man"
     _assert_single_default_form(stats)
+
+
+def test_hulk_powers_and_statistics_heading_variant():
+    # Found adding Hulk individually: his heading is spelled out in full
+    # as "Powers and Statistics", not "Powers and Stats"/"Power and
+    # Stats" - a third heading variant _STATS_HEADING_RE didn't cover
+    # (matching "...stats$" doesn't match "...statistics$" at all, a
+    # different suffix, not a superset). Without the fix, the whole
+    # section - and even stats.name - came back None, since
+    # parse_character returns an empty CharacterStats when no heading is
+    # found at all. Also genuinely multi-form (5 forms, his personas),
+    # confirming the heading fix doesn't just help the flat-field path.
+    stats = parse_character(_load("Hulk"))
+    assert stats.name and "Bruce Banner" in stats.name
+    assert len(stats.forms) == 5
+    assert stats.forms[0].name == "Bruce Banner"
+    assert all(f.stats.attack_potency for f in stats.forms)
+    assert all(f.stats.speed for f in stats.forms)
 
 
 def test_missing_powers_and_stats_section_degrades_gracefully():
@@ -233,6 +262,33 @@ def test_denji_multi_form_extraction_through_a_scrollable_wrapper():
     assert all(f.stats.attack_potency for f in stats.forms)
     assert all(f.stats.speed for f in stats.forms)
     assert all(f.stats.durability for f in stats.forms)
+
+
+def test_frieren_flat_fields_wrapped_in_an_unrelated_ability_tabber():
+    # Found while batch-scraping Category:Frieren: Beyond Journey's End -
+    # Frieren herself (the title character) got the same "no verdict"
+    # symptom as the Chainsaw Man bug, but a different root cause: her
+    # "Powers and Abilities" section is itself tabbed ("Powers and
+    # Abilities" / "Resistances"), and the page wraps the *entire rest*
+    # of the flat stat block (Attack Potency, Speed, Durability,
+    # Weaknesses, ...) inside that same tabber div too, as plain <p>
+    # siblings after its tabs - not nested in any tab, and one level
+    # deeper than the ordinary heading-sibling walk looks. Previously
+    # silently absorbed as unparsed raw HTML into whatever field was
+    # open when the tabber was reached. Same underlying DOM shape as
+    # Reze (see README's Chainsaw Man stress-test section) - confirmed
+    # there first, fixed generally via `_labeled_paragraphs_in`.
+    stats = parse_character(_load("Frieren"))
+    assert len(stats.forms) == 1  # not multi-form - an ability-category tabber, not a per-form one
+    assert stats.tier and "10-B" in stats.tier
+    assert stats.attack_potency and "Human level" in stats.attack_potency
+    assert stats.speed and "Average Human" in stats.speed
+    assert stats.durability and "Human level" in stats.durability
+    assert stats.weaknesses and "mana detection" in stats.weaknesses
+    # The ability list itself must stay clean - no stray stat-field text
+    # leaking in from the same tabber the fix now reaches into.
+    assert len(stats.powers_and_abilities) > 10
+    assert not any(a.startswith("Attack Potency") for a in stats.powers_and_abilities)
 
 
 if __name__ == "__main__":
