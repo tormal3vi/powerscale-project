@@ -6,6 +6,12 @@
       "runtimeExecutable": "./venv/bin/streamlit",
       "runtimeArgs": ["run", "app.py", "--server.headless", "true"],
       "port": 8501
+    },
+    {
+      "name": "backend-api",
+      "runtimeExecutable": "./venv/bin/uvicorn",
+      "runtimeArgs": ["backend.main:app", "--port", "8000"],
+      "port": 8000
     }
   ]
 }

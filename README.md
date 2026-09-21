@@ -6,11 +6,14 @@ normalizes the tier/speed/AP/durability strings into comparable numeric
 scores (Phase 2), batch-scrapes an entire category into a local SQLite
 database (Phase 3), sweeps categories for tier/speed vocabulary the
 normalizer doesn't yet recognize (Phase 4 prep), compares characters
-side by side in a Streamlit UI (Phase 4), and estimates who would win
-a fight between two characters with a weighted stat comparison plus
-score-free ability flags (Phase 5). Characters with no wiki page at
-all (original fiction) can also be entered manually and flow through
-the exact same normalization/comparison pipeline as scraped ones.
+side by side (Phase 4), and estimates who would win a fight between
+two characters with a weighted stat comparison plus score-free ability
+flags (Phase 5). Characters with no wiki page at all (original
+fiction) can also be entered manually and flow through the exact same
+normalization/comparison pipeline as scraped ones. The comparison UI
+is now a real FastAPI backend + a plain HTML/CSS/JS frontend (Phase
+6), replacing the original Streamlit app, which is kept around
+untouched as a fallback - see "Web UI (Phase 6)" below.
 
 ## How it fetches pages (important context)
 
@@ -38,6 +41,16 @@ python3 -m venv venv
 
 ### Deploying (e.g. Streamlit Community Cloud)
 
+This subsection is specifically about deploying the legacy Streamlit
+app (`app.py`) to Streamlit Community Cloud - it predates the FastAPI +
+static-frontend UI and doesn't apply to it. The current web UI is a
+plain ASGI app (`backend.main:app`); deploying it would mean an ASGI
+host (Render, Fly.io, a VPS behind `uvicorn`/`gunicorn`, etc.), not
+Streamlit Cloud specifically - not set up yet, since local use has
+been the only requirement so far. The `powerscale.db`-is-tracked-in-git
+reasoning below still applies equally to either UI, for the same
+reason (no way to run `batch_scrape.py` on most hosts).
+
 `app.py` calls `db.init_db()` on startup (a no-op if the schema already
 exists), so a fresh clone with no `powerscale.db` at all still runs -
 it just starts with an empty character list rather than crashing with
@@ -63,13 +76,28 @@ fetch against VS Battles Wiki via "Add a character," not just you.
 
 Prints the parsed dict as JSON and saves it to `data/<Character>.json`.
 
-### Comparison UI
+### Web UI (Compare + Browse)
+
+```bash
+./venv/bin/uvicorn backend.main:app --reload
+```
+
+One process, one port - serves both the JSON API (`/api/*`) and the
+static frontend. Open `http://localhost:8000/browse.html` to search/
+filter the roster and stage a comparison, or `http://localhost:8000/`
+to go straight to Compare. `/docs` gets you FastAPI's interactive
+Swagger UI for exercising every endpoint by hand. See "Web UI (Phase
+6)" below for the architecture.
+
+### Comparison UI (Streamlit, legacy)
 
 ```bash
 ./venv/bin/streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. See "Comparison UI (Phase 4)" below.
+Opens at `http://localhost:8501`. Superseded by the web UI above, but
+kept around untouched as a fallback - see "Comparison UI (Phase 4)"
+below for how it works.
 
 ### Batch-scraping a category
 
@@ -131,11 +159,21 @@ equivalent). See "Batch scraping (Phase 3)" below for details.
   prep)" below.
 - `vocab_gaps_report.txt` - the saved output of the last `vocab_sweep.py`
   run (gitignored - regenerate it by re-running the sweep).
-- `app.py` - Streamlit UI: pick 2-4 characters from the DB and compare
-  their normalized stats (radar/bar chart, raw stat text, abilities/
-  weaknesses). See "Comparison UI (Phase 4)" below.
-- `.claude/launch.json` - dev-server config so the app can be previewed
-  in an editor/agent's browser pane; not needed to just `streamlit run` it yourself.
+- `app.py` - Streamlit UI (legacy, kept but unused): pick 2-4 characters
+  from the DB and compare their normalized stats (radar/bar chart, raw
+  stat text, abilities/weaknesses). See "Comparison UI (Phase 4)" below.
+- `backend/main.py` / `backend/schemas.py` - the current UI's API: thin
+  FastAPI wrapper around `db.py`/`normalizer.py`/`calculator.py` (zero
+  business logic of its own), plus the Pydantic response models. Also
+  mounts `frontend/` as static files. See "Web UI (Phase 6)" below.
+- `frontend/` - the current UI itself: `browse.html`/`browse.js`
+  (search/filter/stage-a-comparison), `compare.html`/`compare.js`
+  (hero cards, radar chart, stat table, verdict panel), `styles.css`
+  (shared design tokens), `api.js` (shared fetch helpers). Plain HTML/
+  CSS/JS, no framework, no build step.
+- `.claude/launch.json` - dev-server config so either UI can be
+  previewed in an editor/agent's browser pane (`streamlit-app` and
+  `backend-api` entries); not needed to just run either yourself.
 
 ## Tests
 
@@ -1000,3 +1038,185 @@ then ran a real "Who would win?" matchup against a scraped character
 (Garou) and confirmed a live verdict, stat breakdown, and ability
 flags (its "Regeneration" ability text was correctly flagged) came
 back exactly like any wiki-sourced pairing.
+
+## Web UI (Phase 6)
+
+Replaces the Streamlit app (`app.py`, kept but no longer used) with a
+real frontend matching a finalized visual design - a FastAPI backend
+in front of the exact same `db.py`/`normalizer.py`/`calculator.py`
+every earlier phase already built, and a plain HTML/CSS/JS frontend
+with no framework and no build step. The architecture itself was
+proposed and signed off before any code was written, same process as
+the tier ladder scale and the calculator's weighting scheme.
+
+### Why FastAPI, why no frontend framework
+
+**FastAPI**, because it makes "verify before any frontend exists"
+free: its auto-generated `/docs` Swagger UI lets every endpoint be
+exercised by hand in a browser (used exactly this way for Stage (a),
+before `frontend/` had a single file), and Pydantic response models
+mean a malformed response is an error at request time, not a silent
+bug the frontend has to guess at. The backend's job is deliberately
+narrow - `backend/main.py` packs existing dataclasses/dicts into typed
+responses; it does not compute anything `calculator.py` doesn't
+already compute. The one exception, and it's presentational rather
+than a numeric decision: the radar chart's per-axis scaling and the
+ability-flag "dot" markers are frontend-only math, described below.
+
+**Plain HTML/CSS/JS**, because the actual surface area doesn't need
+more: two screens (Browse, Compare), a handful of interactive elements
+(search, category pills, form pills, add-to-comparison), and state
+simple enough for plain JS variables + DOM updates - nothing here
+benefits from a framework's data-binding. `frontend/browse.html`/
+`compare.html` are real, separate pages linking to each other with
+plain `<a href>`/`window.location`, same navigation model the design
+mockup itself used. Passing which two characters to compare from
+Browse to Compare is a URL param (`compare.html?a=<id>&b=<id>`) rather
+than any shared client state.
+
+### Running it
+
+```bash
+./venv/bin/uvicorn backend.main:app --reload
+```
+
+One process, one port, same-origin (FastAPI mounts `frontend/` as
+static files under `/`, so there's no CORS to configure). `/docs` for
+the raw API, `/browse.html` and `/compare.html` for the UI.
+
+### API surface (`backend/main.py`)
+
+All five endpoints are thin wrappers - see `backend/schemas.py` for
+the full typed shapes, which mirror `NormalizedForm`/`CharacterForm`/
+`calculator.Verdict` field-for-field rather than inventing a second
+data model:
+
+- `GET /api/categories` - names + counts, for Browse's filter pills
+- `GET /api/characters?q=&category=` - search/filter list (wraps
+  `get_all_characters()`; the Tier badge per card reuses
+  `calculator.select_form()` directly rather than re-deriving "which
+  form is the highest tier" a second time)
+- `GET /api/characters/{id}` - full detail, `forms[]` merging each
+  `CharacterForm`'s raw text with its matching `NormalizedForm`'s
+  scores (raw for display, normalized for the radar/bars)
+- `POST /api/characters/fetch` - the live scrape-and-add flow
+  (`scraper.fetch_page` → `parse_character` → `normalize_character` →
+  `db.upsert_character`), identical to the Streamlit sidebar's
+  version, including the `category = stats.origin or "Uncategorized"`
+  fallback
+- `POST /api/compare` - wraps `calculator.compare_characters()`
+  directly; a `ValueError` (ambiguous name, unknown form) becomes a
+  400 with `calculator.py`'s own message verbatim, not a re-written one
+
+### Design fidelity
+
+The mockup (`Browse.dc.html`/`Main.dc.html`, a design-tool export, not
+production code) was rendered live and compared pixel-for-pixel
+against the real implementation via computed styles, not eyeballed -
+colors, border radii, and fonts all matched exactly on the first pass
+(`rgb(29,26,21)` = `#1D1A15`, etc.), expressed as CSS custom properties
+in `styles.css` rather than copied as inline styles. Fraunces for
+names/headlines, Public Sans for body text, IBM Plex Mono for anything
+numeric. Six accent colors, assigned deterministically per character
+id (`api.js`'s `accentFor()`) so the same character always gets the
+same color across screens and reloads.
+
+One real gap found *after* the CSS already matched exactly: the
+perceived difference turned out to be content, not style - Browse's
+default (no search, no filter) view was dumping the full ~1,100-
+character roster in raw alphabetical order, an overwhelming wall of
+obscure names instead of the mockup's tidy, complete 12-card grid.
+Fixed by capping only that specific default state at 12 (matching the
+mockup exactly, zero scrolling) with an explicit "Showing 12 of
+N - search or pick a category to see the rest, or **show the full
+roster**" note, rather than silently hiding data. Search and category
+filters were never capped - confirmed live (searching "Son Goku"
+correctly returns all 9 real variants, uncapped).
+
+### Browse screen
+
+Fetches the full character list **once** (a ~146KB response for
+~1,100 characters - trivial to hold in memory) and does all search/
+category filtering **client-side**, so typing is instant rather than a
+network round-trip per keystroke. Comparison staging caps at **2**
+characters (a toast explains the cap rather than silently refusing a
+3rd), superseding the Streamlit version's 4-character *chart* cap -
+see "Why 2, not 4" below. "Add a character" is a toggleable panel in
+the top bar wired to `POST /api/characters/fetch`; on success it
+re-fetches both the character and category lists (not just splices the
+one row in), so a brand-new category shows up as a new filter pill
+immediately, same as a fresh page load would show.
+
+### Why 2, not 4
+
+The Streamlit app compared up to 4 characters on the chart, but the
+*verdict* was always pairwise underneath (`calculator.compare_forms`
+has no multi-way "who wins a 4-person fight" logic, and never did).
+The finalized design is built around a pairwise layout end to end - a
+literal "vs" divider, left/right card symmetry, a 2-column stat table,
+a verdict phrased as one binary outcome - with no natural extension to
+3-4 without becoming a different design. Decided explicitly (not
+assumed) before building: match the design's actual 2-character scope,
+formally retiring the old 4-character cap rather than bolting a second,
+unmocked UI mode onto it.
+
+### Compare screen
+
+Reads `?a=<id>&b=<id>`, defaults each character to its highest-tier
+form (`defaultFormIndex()` in `compare.js`, mirroring
+`calculator.select_form()`'s own rule exactly so the initial verdict
+matches what's displayed), and re-runs `POST /api/compare` with the
+explicit form names on every pill click - confirmed live that
+switching Genos from his strongest form to his weakest flips the
+displayed verdict from "Clear favorite" to a materially different
+composite, not just re-labeled numbers.
+
+**Radar chart and stat bars** use a **per-axis, per-matchup relative
+scale** - for each axis, the stronger of the two characters reaches
+~100% and the weaker sits proportionally between that and a 15% floor
+(never fully collapsed to the center, so a real value stays visible
+even when heavily outmatched). This is deliberately *not* an absolute
+scale against the ladder's full range (a Street-level vs. Street-level
+matchup would otherwise render as two invisible dots near the origin)
+- captioned honestly on the chart itself ("Scaled per-axis for this
+matchup, not an absolute scale") rather than left implicit. A `null`
+value (stat excluded, same rule as `calculator.py`'s own axis
+exclusion) plots at the center for that side, never fabricated as
+zero-but-different-from-missing.
+
+**Ability pills get a small colored dot** when their own text contains
+one of `calculator.ABILITY_TAGS`' keywords - this is a decorative,
+frontend-only heuristic (`ABILITY_KEYWORDS` in `compare.js`), *not* a
+re-derivation of which tags `calculator.ability_flags()` actually
+matched. The verdict panel's amber caveat box (built straight from the
+real `ability_flags` API response) is the authoritative source; the
+dot is just a visual pointer toward *why*, and can't be more precise
+than that without the backend telling it which pill triggered which
+tag, which it doesn't and isn't asked to.
+
+**Verdict panel** preserves every required behavior: the partial-data
+callout ("3/4 stats were comparable, so this can't reach the top
+confidence band") when `partial_data` is true, a distinct "Insufficient
+data" layout (no meter, no reasoning bullets, just the honest
+axes-used count) when `composite` is `null`, the Omnipresent flag
+handled as an excluded axis rather than a hidden bonus, and the
+"abilities aren't tracked per-form" note whenever ability flags are
+shown - all read straight from `VerdictOut.notes`/`.partial_data`
+rather than re-decided in the frontend. The reasoning bullets
+themselves (e.g. "Attack Potency strongly favors X") *are* new,
+frontend-only prose, generated from each axis's real `advantage`
+magnitude/sign (`reasonBullets()` in `compare.js`) - legitimate
+presentation logic, not a second scoring system.
+
+**One real bug found and fixed while testing live**: Garou's full name
+(with all his aliases, `"Garou, Hero Hunter, Human Monster, Awakened
+Garou, ..."`) wrapped across multiple lines in the radar chart's
+legend, since that element - unlike the character-card names - had no
+`overflow`/`white-space` constraint, inflating the whole radar card's
+height well past the stat table beside it. Fixed with the same
+ellipsis/truncation treatment already used elsewhere.
+
+Tested live at every stage (Browse search/filter/staging/add-character,
+Compare across a multi-form pairing, a single-form near-tie, and a
+genuine insufficient-data pairing), not just read over - see the
+per-stage descriptions above for exactly what was checked.

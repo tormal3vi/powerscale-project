@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Powerscale — Browse characters</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <a class="icon-button" href="compare.html" aria-label="Back to comparison">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M10 3 5 8l5 5" stroke="#F3EEE4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <div class="topbar-logo">Powerscale</div>
+    </div>
+    <div class="topbar-left">
+      <div class="topbar-meta" id="topbar-meta">Loading…</div>
+      <button class="pill-button" id="add-character-toggle" style="margin-left: 16px;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="#F3EEE4" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Add character
+      </button>
+    </div>
+  </div>
+
+  <div class="add-character-panel" id="add-character-panel" style="display:none;">
+    <form id="add-character-form">
+      <input id="add-character-input" type="text" placeholder="Character name or wiki URL — e.g. Genos" autocomplete="off">
+      <button type="submit" id="add-character-submit">Fetch</button>
+    </form>
+    <div class="add-character-status" id="add-character-status"></div>
+  </div>
+
+  <div class="page-content">
+    <div style="margin-bottom: 28px;">
+      <div class="page-title">Browse characters</div>
+      <div class="page-subtitle">Search the roster, or filter by series, and add up to two to a comparison.</div>
+    </div>
+
+    <label class="search-box" for="search-input">
+      <svg width="17" height="17" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;"><circle cx="7" cy="7" r="5" stroke="#7A7264" stroke-width="1.4"/><path d="m11 11 3.5 3.5" stroke="#7A7264" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <span class="visually-hidden">Search characters</span>
+      <input id="search-input" type="text" placeholder="Search by name — “Saitama”, “Silver Surfer”…">
+    </label>
+
+    <div class="filter-row" id="filter-row"></div>
+
+    <div class="grid-note" id="grid-note"></div>
+    <div class="character-grid" id="character-grid"></div>
+    <div class="empty-state" id="empty-state" style="display:none;">No characters match that search/filter.</div>
+  </div>
+
+  <div class="compare-bar" id="compare-bar" style="display:none;"></div>
+</div>
+
+<script src="api.js"></script>
+<script src="browse.js"></script>
+</body>
+</html>

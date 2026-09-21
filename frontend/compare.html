@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Powerscale — Compare</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <div style="width: 28px; height: 28px; border-radius: 6px; background: linear-gradient(135deg, #E15252, #4C8DE0);"></div>
+      <div class="topbar-logo">Powerscale</div>
+    </div>
+    <div class="topbar-left">
+      <a class="pill-button" href="browse.html">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="#F3EEE4" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Add character
+      </a>
+    </div>
+  </div>
+
+  <div id="root">
+    <div class="loading-state" id="loading-state">Loading…</div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="compare.js"></script>
+</body>
+</html>
