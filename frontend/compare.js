@@ -154,7 +154,7 @@ function heroCardHtml(side, char, accent) {
         </div>
         <div class="vs-card-tier">
           <div class="vs-card-tier-label">Tier</div>
-          <div class="vs-card-tier-value" style="color:${accent};" id="tier-value-${side}">${escapeHtml(prettifyLabel(form.tier.baseline_label) || '—')}</div>
+          <div class="vs-card-tier-value" style="color:${accent};" id="tier-value-${side}" title="${escapeHtml(form.tier_raw || '')}">${escapeHtml(prettifyLabel(form.tier.baseline_label) || '—')}</div>
         </div>
       </div>
       ${showForms ? `
@@ -223,8 +223,12 @@ function bindFormPills(side) {
 function renderHeroTiers() {
   const formA = activeForm('a');
   const formB = activeForm('b');
-  document.getElementById('tier-value-a').textContent = prettifyLabel(formA.tier.baseline_label) || '—';
-  document.getElementById('tier-value-b').textContent = prettifyLabel(formB.tier.baseline_label) || '—';
+  const tierValueA = document.getElementById('tier-value-a');
+  const tierValueB = document.getElementById('tier-value-b');
+  tierValueA.textContent = prettifyLabel(formA.tier.baseline_label) || '—';
+  tierValueA.title = formA.tier_raw || '';
+  tierValueB.textContent = prettifyLabel(formB.tier.baseline_label) || '—';
+  tierValueB.title = formB.tier_raw || '';
 }
 
 // --- radar + stat table (driven by verdict.axis_comparisons) --------------
@@ -286,17 +290,26 @@ function renderStatTable() {
     const rawLabelB = axis === 'tier' ? formB.tier.baseline_label : formB[axis].baseline_label;
     const textA = comp.a_value === null ? 'Unscored' : (prettifyLabel(rawLabelA) || '—') + (axis === 'speed' && formA.is_omnipresent ? ' + Omnipresent' : '');
     const textB = comp.b_value === null ? 'Unscored' : (prettifyLabel(rawLabelB) || '—') + (axis === 'speed' && formB.is_omnipresent ? ' + Omnipresent' : '');
+    // The badge shows only the (deliberately conservative) baseline value -
+    // see calculator.py's select_form() docstring - so a character whose
+    // wiki entry splits low/high across two different conditions (e.g.
+    // "Street level physically, Island level with magic") can look weaker
+    // here than their page actually describes. The full raw wiki phrasing
+    // is always available in the API response, so surface it as a hover
+    // tooltip rather than silently dropping the peak side of the range.
+    const rawTextA = formA[`${axis}_raw`] || '';
+    const rawTextB = formB[`${axis}_raw`] || '';
 
     return `
       <div class="stat-row">
         <div class="stat-row-label">${AXIS_LABELS[axis]}</div>
         <div class="stat-row-grid">
           <div>
-            <div class="stat-value-text">${escapeHtml(textA)}</div>
+            <div class="stat-value-text" title="${escapeHtml(rawTextA)}">${escapeHtml(textA)}</div>
             <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${ta * 100}%; background:${accentA};"></div></div>
           </div>
           <div>
-            <div class="stat-value-text">${escapeHtml(textB)}</div>
+            <div class="stat-value-text" title="${escapeHtml(rawTextB)}">${escapeHtml(textB)}</div>
             <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${tb * 100}%; background:${accentB};"></div></div>
           </div>
         </div>
