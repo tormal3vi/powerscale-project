@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 import calculator
@@ -233,6 +234,14 @@ def compare(payload: CompareIn):
 
 
 # --- static frontend (mounted once frontend/ exists) -------------------
+# StaticFiles(html=True) serves index.html for a directory request, but
+# frontend/ has no index.html (browse.html is the real landing page) - so
+# "/" itself 404s unless something redirects it first. Registered before
+# the mount so this exact-path route wins over the mount's catch-all.
 
 if FRONTEND_DIR.exists():
+    @app.get("/", include_in_schema=False)
+    def _root():
+        return RedirectResponse(url="/browse.html")
+
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
