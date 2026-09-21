@@ -689,6 +689,41 @@ pattern) that it's reported here rather than patched, same call as
 **Category:Mushoku Tensei ～Isekai Ittara Honki Dasu～ (3 members)**:
 scraped clean, 3/3, 0 failures, no new gaps.
 
+### Found via the web UI: colon outside the bold tag
+
+Not from a batch scrape - a user question about why Son Goku (Classic
+Toei)'s "23rd Tournament" form showed unscored Attack Potency in the
+Compare screen. Checked the real HTML rather than guessing: the usual
+markup is `<b>Attack Potency:</b> value`, but this page writes
+`<b>Attack potency</b>: value` instead - the colon sits just outside
+the bold tag. Confirmed systemic on this specific page (5 of its 7
+forms, all missing Attack Potency the same way) before generalizing
+the fix, not patched as a one-off: `_label_text()` in `parser.py` now
+also recognizes a label when the colon is the first character
+immediately *after* `</b>`, consuming it in place so downstream
+"everything after the label" extraction doesn't see a stray leading
+`:`. Both call sites (`_label_from_p` for flat fields,
+`_extract_forms_from_stats_tabber` for per-form fields) share the one
+helper.
+
+Checked whether this recurred elsewhere before calling it done: scanned
+every already-cached page (1,145 files) for the same pattern - 5 hits
+total, all already-scraped characters (`Garou`, `Minato Namikaze`,
+`Son Goku (Classic Toei)`, `Son Goku (Toei)`, `Power` from Chainsaw
+Man), re-parsed from cache and re-stored with the fix applied.
+
+**A real bug introduced and caught while fixing this**: the first pass
+used the same variable name (`label`) for both the outer per-form loop
+and the inner per-field loop in `_extract_forms_from_stats_tabber` -
+since Python doesn't scope `for` loops separately, the inner loop
+silently overwrote the outer one, so every form's `name` came out as
+whatever the last stat field happened to be (`"Stamina"` for all 7
+Goku forms) instead of its real tab name. Caught immediately by
+checking the actual output rather than assuming the fix worked;
+`test_son_goku_classic_toei_colon_outside_bold_tag` in
+`test_parser.py` asserts against it directly (`"Stamina" not in
+names`) so it can't silently return.
+
 ## Comparison UI (Phase 4)
 
 ```bash

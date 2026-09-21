@@ -125,6 +125,24 @@ def test_promoted_rook_singular_power_and_stats_heading():
     _assert_single_default_form(stats)
 
 
+def test_son_goku_classic_toei_colon_outside_bold_tag():
+    # Found by a user question ("why is 23rd Tournament's Attack Potency
+    # unscored?") - this page's stat labels are usually "<b>Label:</b>
+    # value", but 5 of its 7 forms write Attack Potency specifically as
+    # "<b>Attack potency</b>: value" instead - the colon sits just
+    # outside the bold tag. Not a one-off typo: confirmed systemic
+    # across this page (and, checked against the whole cache/, 4 other
+    # already-scraped characters - Garou, Minato Namikaze, Power) before
+    # generalizing the fix (_label_text() in parser.py) rather than
+    # patching this one page.
+    stats = parse_character(_load("SonGokuClassicToei"))
+    assert len(stats.forms) == 7
+    names = [f.name for f in stats.forms]
+    assert "23rd Tournament" in names
+    assert "Stamina" not in names  # regression guard for a variable-shadowing bug hit while fixing this
+    assert all(f.stats.attack_potency for f in stats.forms), [f.name for f in stats.forms if not f.stats.attack_potency]
+
+
 def test_hulk_powers_and_statistics_heading_variant():
     # Found adding Hulk individually: his heading is spelled out in full
     # as "Powers and Statistics", not "Powers and Stats"/"Power and

@@ -195,8 +195,28 @@ def _find_stats_heading(soup: BeautifulSoup):
     return span.find_parent(["h2", "h3"])
 
 
+def _label_text(b) -> Optional[str]:
+    """If `b` is a field label, return its text (colon stripped); else
+    None. Normally the colon is the last character inside `<b>Label:
+    </b>`, but some pages put it just outside instead - `<b>Label</b>:
+    value` - found systemically across most of Son Goku (Classic
+    Toei)'s forms (5 of 7 tabs, all missing Attack Potency the same
+    way) rather than as a one-off typo, so it's worth recognizing
+    generally rather than per-page. When the colon sits outside, it's
+    consumed from that sibling node in place so downstream "everything
+    after b" extraction doesn't see a stray leading ":"."""
+    text = b.get_text(strip=True)
+    if text.endswith(":"):
+        return text[:-1].strip()
+    nxt = b.next_sibling
+    if isinstance(nxt, NavigableString) and nxt.lstrip().startswith(":"):
+        nxt.replace_with(nxt.lstrip()[1:])
+        return text
+    return None
+
+
 def _label_from_p(p):
-    """If `p` opens with a `<b>Label:</b>`, return (b_tag, label); else
+    """If `p` opens with a labeled `<b>`, return (b_tag, label); else
     (None, None). Leading whitespace/<br> before the <b> is tolerated."""
     for child in p.children:
         if isinstance(child, NavigableString):
@@ -206,9 +226,9 @@ def _label_from_p(p):
         if child.name == "br":
             continue
         if child.name == "b":
-            text = child.get_text(strip=True)
-            if text.endswith(":"):
-                return child, text.rstrip(":").strip()
+            label = _label_text(child)
+            if label is not None:
+                return child, label
         return None, None
     return None, None
 
@@ -371,16 +391,16 @@ def _extract_forms_from_stats_tabber(tabber, flat_tier: Optional[str]) -> List[C
     aligned_tiers = tier_segments if len(tier_segments) == len(tab_labels) else None
 
     forms = []
-    for i, (label, content) in enumerate(zip(tab_labels, top_contents)):
+    for i, (tab_label, content) in enumerate(zip(tab_labels, top_contents)):
         stat_values: Dict[str, str] = {}
         for p in _stat_paragraphs(content):
             b = p.find("b")
             if b is None:
                 continue
-            label_text = b.get_text(strip=True)
-            if not label_text.endswith(":"):
+            field_label = _label_text(b)
+            if field_label is None:
                 continue
-            field_key = STAT_FIELD_MAP.get(label_text.rstrip(":").strip().lower())
+            field_key = STAT_FIELD_MAP.get(field_label.lower())
             if field_key is None:
                 continue
             fragment = BeautifulSoup(_html_after(p, b), "lxml")
@@ -388,7 +408,7 @@ def _extract_forms_from_stats_tabber(tabber, flat_tier: Optional[str]) -> List[C
             if value:
                 stat_values[field_key] = value
         forms.append(CharacterForm(
-            name=label,
+            name=tab_label,
             tier=aligned_tiers[i].strip() if aligned_tiers else None,
             stats=StatBlock(**stat_values),
         ))
