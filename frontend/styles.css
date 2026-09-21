@@ -239,6 +239,11 @@ input::placeholder { color: var(--text-placeholder); }
 }
 
 .character-card {
+  min-width: 0; /* grid items default to min-width:auto, which sizes the
+    column to fit the longest un-wrapped .character-card-name (white-space:
+    nowrap) across every card sharing that column - fine at 4/2 columns
+    where that's never the bottleneck, but at the single-column mobile
+    breakpoint it blows the whole grid out to that name's full width. */
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
@@ -642,6 +647,57 @@ input::placeholder { color: var(--text-placeholder); }
   text-align: center;
   color: var(--text-tertiary);
   font-size: 14px;
+}
+
+/* --- Mobile layout --------------------------------------------------
+   Everything above assumes desktop-width fixed side padding (40-64px)
+   and, on the Compare screen, two hero cards side by side - both break
+   down under ~640px (padding alone eats most of the viewport; two
+   flex:1 cards squeeze into unreadable slivers). This block reflows
+   the same markup/data for a single narrow column instead of
+   introducing a separate mobile template. */
+@media (max-width: 640px) {
+  .topbar {
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: 10px;
+    padding: 14px 20px;
+  }
+  .topbar-left:last-child { flex-wrap: wrap; }
+
+  .add-character-panel { padding: 16px 20px; }
+  .add-character-panel form { max-width: none; }
+
+  .page-content { padding: 28px 20px 48px; }
+  .page-title { font-size: 26px; }
+
+  .vs-hero {
+    padding: 24px 20px 0;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .vs-card { padding: 22px; }
+  .vs-card-head { align-items: flex-start; }
+  .vs-card-name { font-size: 19px; }
+  .vs-mark {
+    width: auto;
+    flex-direction: row;
+    padding: 0 4px;
+  }
+  .vs-mark-line { width: 100%; height: 1px; }
+
+  .analysis-row { padding: 8px 20px 0; gap: 16px; }
+  .radar-card { width: 100%; padding: 20px; }
+  .radar-card svg { width: 100%; height: auto; }
+  .stat-table-card { min-width: 0; padding: 20px; }
+
+  .verdict-section { padding: 8px 20px 40px; }
+  .verdict-card { padding: 24px 20px; }
+  .verdict-headline { font-size: 22px; }
+  .verdict-disclaimer { text-align: left; max-width: none; }
+  .verdict-reasons { grid-template-columns: 1fr; }
+
+  .compare-bar { margin: 24px 0 0; max-width: none; }
 }
 
 .toast {
