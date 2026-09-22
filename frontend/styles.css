@@ -453,6 +453,13 @@ input::placeholder { color: var(--text-placeholder); }
   cursor: help;
 }
 
+.stat-peak-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-quaternary);
+  margin-bottom: 6px;
+}
+
 .section-label {
   font-size: 11px;
   color: var(--text-quaternary);

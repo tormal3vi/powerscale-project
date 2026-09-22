@@ -32,6 +32,18 @@ function prettifyLabel(label) {
     .join(' ');
 }
 
+function peakHintHtml(range) {
+  // The badge/row only ever shows the baseline (lower) value of a
+  // range - deliberate, see calculator.py's select_form() docstring -
+  // so a character whose wiki entry splits low/high across two
+  // conditions (e.g. Rudeus Greyrat: "Street level physically, Island
+  // level with magic") can look weaker here than their page actually
+  // describes. A hover tooltip alone doesn't help on touch devices, so
+  // show the peak inline instead whenever it differs from the baseline.
+  if (!range || !range.peak_label || range.peak_label === range.baseline_label) return '';
+  return `<div class="stat-peak-hint">up to ${escapeHtml(prettifyLabel(range.peak_label))}</div>`;
+}
+
 function defaultFormIndex(forms) {
   // Mirrors calculator.select_form()'s own default exactly: highest
   // tier.baseline, unscored forms sort last, first tie wins.
@@ -155,6 +167,7 @@ function heroCardHtml(side, char, accent) {
         <div class="vs-card-tier">
           <div class="vs-card-tier-label">Tier</div>
           <div class="vs-card-tier-value" style="color:${accent};" id="tier-value-${side}" title="${escapeHtml(form.tier_raw || '')}">${escapeHtml(prettifyLabel(form.tier.baseline_label) || '—')}</div>
+          <div id="tier-peak-${side}">${peakHintHtml(form.tier)}</div>
         </div>
       </div>
       ${showForms ? `
@@ -229,6 +242,8 @@ function renderHeroTiers() {
   tierValueA.title = formA.tier_raw || '';
   tierValueB.textContent = prettifyLabel(formB.tier.baseline_label) || '—';
   tierValueB.title = formB.tier_raw || '';
+  document.getElementById('tier-peak-a').innerHTML = peakHintHtml(formA.tier);
+  document.getElementById('tier-peak-b').innerHTML = peakHintHtml(formB.tier);
 }
 
 // --- radar + stat table (driven by verdict.axis_comparisons) --------------
@@ -299,6 +314,8 @@ function renderStatTable() {
     // tooltip rather than silently dropping the peak side of the range.
     const rawTextA = formA[`${axis}_raw`] || '';
     const rawTextB = formB[`${axis}_raw`] || '';
+    const rangeA = axis === 'tier' ? formA.tier : formA[axis];
+    const rangeB = axis === 'tier' ? formB.tier : formB[axis];
 
     return `
       <div class="stat-row">
@@ -306,10 +323,12 @@ function renderStatTable() {
         <div class="stat-row-grid">
           <div>
             <div class="stat-value-text" title="${escapeHtml(rawTextA)}">${escapeHtml(textA)}</div>
+            ${peakHintHtml(rangeA)}
             <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${ta * 100}%; background:${accentA};"></div></div>
           </div>
           <div>
             <div class="stat-value-text" title="${escapeHtml(rawTextB)}">${escapeHtml(textB)}</div>
+            ${peakHintHtml(rangeB)}
             <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${tb * 100}%; background:${accentB};"></div></div>
           </div>
         </div>
