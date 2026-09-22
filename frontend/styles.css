@@ -29,17 +29,6 @@
   --radius-pill: 999px;
 }
 
-/* Character accent colors - the mockup's selectable palette. Assigned
-   deterministically per character (see api.js accentFor()) so the same
-   character always gets the same color across screens/sessions. */
-:root {
-  --accent-0: #E15252; /* red */
-  --accent-1: #D9A441; /* gold */
-  --accent-2: #8FBF6B; /* green */
-  --accent-3: #C777D6; /* purple */
-  --accent-4: #4C8DE0; /* blue */
-  --accent-5: #4CC2B0; /* teal */
-}
 
 * { box-sizing: border-box; }
 
