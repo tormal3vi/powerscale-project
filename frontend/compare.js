@@ -32,7 +32,27 @@ function prettifyLabel(label) {
     .join(' ');
 }
 
-function peakHintHtml(range) {
+function peakConditionSuffix(rawText, peakLabel) {
+  // The clean peak_label alone ("Island Level") drops WHY it's higher
+  // - normalizer only tracks probabilistic qualifiers (possibly, at
+  // least, ...) as structured data, not domain conditions like "with
+  // magic"/"physically". Pull that phrase straight from the raw wiki
+  // text instead: from the peak label up to the next comma/pipe/open-
+  // paren, e.g. "Island level with magic" out of "Street level
+  // physically, Island level with magic (...)".
+  if (!rawText || !peakLabel) return null;
+  const idx = rawText.toLowerCase().indexOf(peakLabel.toLowerCase());
+  if (idx === -1) return null;
+  let end = rawText.length;
+  for (const stop of [',', '|', '(']) {
+    const stopIdx = rawText.indexOf(stop, idx);
+    if (stopIdx !== -1 && stopIdx < end) end = stopIdx;
+  }
+  const suffix = rawText.slice(idx, end).trim();
+  return suffix || null;
+}
+
+function peakHintHtml(range, rawText) {
   // The badge/row only ever shows the baseline (lower) value of a
   // range - deliberate, see calculator.py's select_form() docstring -
   // so a character whose wiki entry splits low/high across two
@@ -41,7 +61,10 @@ function peakHintHtml(range) {
   // describes. A hover tooltip alone doesn't help on touch devices, so
   // show the peak inline instead whenever it differs from the baseline.
   if (!range || !range.peak_label || range.peak_label === range.baseline_label) return '';
-  return `<div class="stat-peak-hint">up to ${escapeHtml(prettifyLabel(range.peak_label))}</div>`;
+  const suffix = peakConditionSuffix(rawText, range.peak_label);
+  const qualifier = range.peak_qualifier ? range.peak_qualifier + ' ' : '';
+  const text = suffix ? qualifier + suffix : qualifier + (prettifyLabel(range.peak_label) || '');
+  return `<div class="stat-peak-hint">up to ${escapeHtml(text)}</div>`;
 }
 
 function defaultFormIndex(forms) {
@@ -167,7 +190,7 @@ function heroCardHtml(side, char, accent) {
         <div class="vs-card-tier">
           <div class="vs-card-tier-label">Tier</div>
           <div class="vs-card-tier-value" style="color:${accent};" id="tier-value-${side}" title="${escapeHtml(form.tier_raw || '')}">${escapeHtml(prettifyLabel(form.tier.baseline_label) || '—')}</div>
-          <div id="tier-peak-${side}">${peakHintHtml(form.tier)}</div>
+          <div id="tier-peak-${side}">${peakHintHtml(form.tier, form.tier_raw)}</div>
         </div>
       </div>
       ${showForms ? `
@@ -242,8 +265,8 @@ function renderHeroTiers() {
   tierValueA.title = formA.tier_raw || '';
   tierValueB.textContent = prettifyLabel(formB.tier.baseline_label) || '—';
   tierValueB.title = formB.tier_raw || '';
-  document.getElementById('tier-peak-a').innerHTML = peakHintHtml(formA.tier);
-  document.getElementById('tier-peak-b').innerHTML = peakHintHtml(formB.tier);
+  document.getElementById('tier-peak-a').innerHTML = peakHintHtml(formA.tier, formA.tier_raw);
+  document.getElementById('tier-peak-b').innerHTML = peakHintHtml(formB.tier, formB.tier_raw);
 }
 
 // --- radar + stat table (driven by verdict.axis_comparisons) --------------
@@ -323,12 +346,12 @@ function renderStatTable() {
         <div class="stat-row-grid">
           <div>
             <div class="stat-value-text" title="${escapeHtml(rawTextA)}">${escapeHtml(textA)}</div>
-            ${peakHintHtml(rangeA)}
+            ${peakHintHtml(rangeA, rawTextA)}
             <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${ta * 100}%; background:${accentA};"></div></div>
           </div>
           <div>
             <div class="stat-value-text" title="${escapeHtml(rawTextB)}">${escapeHtml(textB)}</div>
-            ${peakHintHtml(rangeB)}
+            ${peakHintHtml(rangeB, rawTextB)}
             <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${tb * 100}%; background:${accentB};"></div></div>
           </div>
         </div>
