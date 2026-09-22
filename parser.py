@@ -41,6 +41,22 @@ convention, not a technical guarantee). When the counts don't match,
 `tier` stays None on every form rather than forcing a guessed
 correspondence; the flat, whole-page `CharacterStats.tier` summary is
 unaffected either way.
+
+Flat-page multi-form pages (Saitama - found while investigating why he
+showed as flatly "Wall level" despite the page describing Galaxy level
+feats): no tabber at all, but every stat `<p>` packs all forms into one
+string, '|'-separated in the same order as a parallel "Key:" field
+(e.g. Tier: "9-B | At least 9-B... | 4-A..." with Key: "Pre-Training |
+During Training | Post-Balding | Parallel Timeline"). Without special
+handling this collapses to a single synthetic "Base" form whose fields
+are the raw, unsplit multi-segment string - normalizer.parse_tier_range
+then just grabs the lowest/highest tier token found anywhere in it,
+which for a growth-arc character means "lowest" is an early, weak stage
+rather than a real floor. `_extract_forms_from_flat_key` splits this the
+same way the tabber path does: Key's segments name the forms, and each
+field's own '|' segments are trusted only when their count matches the
+Key's count exactly, checked per field independently (a page can list
+one field's variation without meaning to split every field into forms).
 """
 
 import re
@@ -415,6 +431,42 @@ def _extract_forms_from_stats_tabber(tabber, flat_tier: Optional[str]) -> List[C
     return forms
 
 
+def _extract_forms_from_flat_key(stats: "CharacterStats") -> List[CharacterForm]:
+    """Fallback for flat (non-tabber) pages whose stat fields pack every
+    form into one '|'-separated string, named by a parallel "Key:" field
+    (see module docstring). Only fires when Key has 2+ segments and Tier's
+    own '|' segments line up with it exactly - Tier is the field always
+    present, so it decides whether this page is multi-form at all."""
+    key_text = stats.extra_fields.get("Key")
+    if not key_text:
+        return []
+    key_segments = _split_top_level(key_text, "|")
+    tier_segments = _split_top_level(stats.tier, "|") if stats.tier else []
+    if len(key_segments) < 2 or len(tier_segments) != len(key_segments):
+        return []
+
+    n = len(key_segments)
+    # Trusted only per field, independently - a page can vary one field
+    # across forms (e.g. just Speed) without every other field following
+    # the same split, so a count mismatch on one field shouldn't block
+    # the others.
+    field_segments: Dict[str, List[Optional[str]]] = {}
+    for field_key in STAT_FIELD_MAP.values():
+        flat_value = getattr(stats, field_key)
+        segments = _split_top_level(flat_value, "|") if flat_value else []
+        field_segments[field_key] = segments if len(segments) == n else [None] * n
+
+    forms = []
+    for i, name in enumerate(key_segments):
+        stat_values = {field_key: field_segments[field_key][i] for field_key in STAT_FIELD_MAP.values()}
+        forms.append(CharacterForm(
+            name=name,
+            tier=tier_segments[i].strip(),
+            stats=StatBlock(**stat_values),
+        ))
+    return forms
+
+
 def _extract_ability_list(fragment: BeautifulSoup) -> List[str]:
     # Exclude tabber widget tab-headers (e.g. "Base", "Ghost Kirby ▾") -
     # they're navigation chrome for alternate forms/timelines, not abilities.
@@ -502,7 +554,7 @@ def parse_character(html: str, source: Optional[str] = None) -> CharacterStats:
     if stats_tabber is not None:
         forms = _extract_forms_from_stats_tabber(stats_tabber, stats.tier)
     else:
-        forms = []
+        forms = _extract_forms_from_flat_key(stats)
     stats.forms = forms if forms else [_default_form(stats)]
 
     return stats

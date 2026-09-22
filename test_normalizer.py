@@ -95,13 +95,16 @@ def test_normalize_character_end_to_end():
 
 
 def test_single_form_normalization_matches_top_level_exactly():
-    # Consistency check across all 4 single-form fixtures: forms is
-    # exactly 1 entry, and every value on it - including is_omnipresent
-    # - agrees with the corresponding top-level field. forms[0] is
-    # supposed to be the exact same data as the flat fields, just
-    # wrapped uniformly; this would catch any drift between the two
-    # normalization paths.
-    for name in ["Saitama", "Kirby", "Flameskull", "PromotedRook"]:
+    # Consistency check across the genuinely single-form fixtures: forms
+    # is exactly 1 entry, and every value on it - including
+    # is_omnipresent - agrees with the corresponding top-level field.
+    # forms[0] is supposed to be the exact same data as the flat fields,
+    # just wrapped uniformly; this would catch any drift between the two
+    # normalization paths. Saitama and Kirby used to be here too, but
+    # both turned out to be genuinely multi-form pages using parser.py's
+    # flat-key '|'-segment convention (see test_parser.py) - moved to
+    # test_saitama_and_kirby_flat_key_forms_normalize_independently below.
+    for name in ["Flameskull", "PromotedRook"]:
         stats = _load_stats(name)
         normalized = normalize_character(stats)
         assert len(normalized.forms) == 1, name
@@ -111,6 +114,27 @@ def test_single_form_normalization_matches_top_level_exactly():
         assert form.speed == normalized.speed, name
         assert form.durability == normalized.durability, name
         assert form.is_omnipresent == normalized.is_omnipresent, name
+
+
+def test_saitama_and_kirby_flat_key_forms_normalize_independently():
+    # Saitama and Kirby both use parser.py's flat-key '|'-segment
+    # convention (no stats tabber - see test_parser.py), which produces
+    # real per-form CharacterForms even though the top-level flat fields
+    # also stay populated (unlike the tabber pages, where they're None).
+    # This checks normalize_character() picks up each form's own slice
+    # rather than reusing the flat top-level range for every form.
+    saitama = normalize_character(_load_stats("Saitama"))
+    assert len(saitama.forms) == 4
+    assert [f.name for f in saitama.forms] == ["Pre-Training", "During Training", "Post-Balding", "Parallel Timeline"]
+    # Power rises monotonically across his training arc.
+    assert saitama.forms[0].attack_potency.baseline_label == "wall level"
+    assert saitama.forms[2].attack_potency.baseline_label == "multi-solar system level"
+    assert saitama.forms[0].attack_potency.baseline < saitama.forms[2].attack_potency.baseline
+    assert saitama.forms[0].tier.baseline < saitama.forms[2].tier.baseline
+
+    kirby = normalize_character(_load_stats("Kirby"))
+    assert len(kirby.forms) == 3
+    assert kirby.forms[0].tier.baseline < kirby.forms[-1].tier.baseline
 
 
 # --- hand-built edge cases --------------------------------------------------

@@ -1,13 +1,16 @@
 """Parser robustness tests against real character pages with
 deliberately different infobox layouts:
 
-- Saitama: multi-value tiered stats ("9-B | At least 9-B... | 4-A...."),
-  Powers and Abilities as a bulleted <li> list nested inside tabs for
-  different training stages, plus non-field table sections ("Feats",
-  "Notable Attacks/Techniques") sitting right after Weaknesses that must
-  NOT bleed into it.
+- Saitama: Powers and Abilities as a bulleted <li> list nested inside
+  tabs for different training stages, plus non-field table sections
+  ("Feats", "Notable Attacks/Techniques") sitting right after
+  Weaknesses that must NOT bleed into it. Also genuinely multi-form -
+  see the flat-key bullet below.
 - Kirby: the largest/most complex page tested (~900KB of HTML), Powers
   and Abilities as a huge nested-tab bulleted list across many forms.
+  Also genuinely multi-form via the same flat-key pattern as Saitama -
+  found as a side effect of that fix rather than looked for
+  deliberately, once it was clear the bug wasn't Saitama-specific.
 - Flameskull: a shorter page with a genuinely missing field
   (Classification) and Powers and Abilities as flat inline
   comma-separated text with no <li> bullets at all.
@@ -17,10 +20,11 @@ deliberately different infobox layouts:
   parser originally missed entirely (it was skipped as "no stats
   found"). Kept as a regression test for that heading variant.
 
-These four are all single-form pages (Attack Potency/Speed/Durability
-etc. are flat top-level fields) - each also gets a `forms` assertion
-(exactly one synthetic "Base" form matching the flat fields) to confirm
-the multi-form work below didn't disturb the common case.
+Flameskull and Promoted Rook are single-form pages (Attack Potency/
+Speed/Durability etc. are flat top-level fields) - each also gets a
+`forms` assertion (exactly one synthetic "Base" form matching the flat
+fields) to confirm the multi-form work below didn't disturb the common
+case.
 
 - Genos, Vegeta (Dragon Ball Z), Goku (Dragon Ball Z): genuine
   multi-form pages, found while diagnosing why their Attack Potency/
@@ -54,6 +58,19 @@ the multi-form work below didn't disturb the common case.
   case at the time, then fixed generally here once it recurred on a
   second, unrelated category). Single-form, not multi-form - confirms
   the fix doesn't misfire on an unrelated ability-category tabber.
+- Saitama again, this time for `_extract_forms_from_flat_key`: found
+  from a user question ("why does Saitama show as Wall level?") - his
+  page has no stats tabber at all; every stat field packs all 4 of his
+  training-arc forms into one flat '|'-separated string, named by a
+  parallel "Key:" field. Without this, the whole multi-segment string
+  collapsed into a single synthetic "Base" form, and normalizer just
+  grabbed the lowest tier token anywhere in it - his early, 12-year-old
+  "Wall level" stage - as if it were his only/current power level.
+  Unlike the tabber pages above, the flat top-level fields (tier,
+  attack_potency, ...) stay populated here rather than None, since
+  they're genuinely flat <p> fields on this page, not tabber-only ones.
+  Kirby turned out to have the exact same bug (see above) - checked
+  once this fix was confirmed general, not assumed from Saitama alone.
 
 Run with: ./venv/bin/python3 -m pytest test_parser.py -v
 (or plain: ./venv/bin/python3 test_parser.py)
@@ -79,7 +96,6 @@ def test_saitama_core_fields():
     assert len(stats.powers_and_abilities) > 10
     # tab-header chrome must not leak into the ability list
     assert not any(a in ("Base", "Post-Balding ▾", "Pre-/During Training ▾") for a in stats.powers_and_abilities)
-    _assert_single_default_form(stats)
 
 
 def test_saitama_weaknesses_does_not_absorb_unrelated_tables():
@@ -99,7 +115,15 @@ def test_kirby_handles_a_large_multi_form_page():
     assert all(isinstance(a, str) and a for a in stats.powers_and_abilities)
     # "Standard Tactics" and "Note N" aren't in the standard field list
     assert "Standard Tactics" in stats.extra_fields
-    _assert_single_default_form(stats)
+    # Also a flat-key multi-form page (Key: "Pre-Canvas Curse |
+    # Pre-Star Allies | Post-Star Allies", Tier: "5-A | 2-C | 2-C") -
+    # found as a side effect of the Saitama fix rather than looked for
+    # deliberately: same bug class, caught here for free.
+    assert len(stats.forms) == 3
+    assert [f.name for f in stats.forms] == ["Pre-Canvas Curse", "Pre-Star Allies", "Post-Star Allies"]
+    assert all(f.stats.attack_potency for f in stats.forms)
+    assert "Large Planet level" in stats.forms[0].stats.attack_potency
+    assert "Low Multiverse level" in stats.forms[-1].stats.attack_potency
 
 
 def test_flameskull_missing_field_and_inline_abilities():
@@ -259,6 +283,33 @@ def test_goku_multi_form_extraction():
     assert all(f.tier for f in stats.forms)
     assert len({f.tier for f in stats.forms}) == 8
     assert stats.attack_potency is None
+
+
+def test_saitama_flat_key_multi_form_extraction():
+    # No stats tabber on this page at all (see module docstring) - Tier/
+    # Attack Potency/Speed/Durability are each one flat <p> whose value
+    # packs all 4 forms into a single '|'-separated string, named by a
+    # parallel "Key:" field. Before _extract_forms_from_flat_key, this
+    # collapsed into one synthetic "Base" form wrapping the whole
+    # unsplit string, and normalizer picked up "Wall level" - his
+    # earliest, weakest stage - as if it were his only Attack Potency.
+    stats = parse_character(_load("Saitama"))
+    assert len(stats.forms) == 4
+    names = [f.name for f in stats.forms]
+    assert names == ["Pre-Training", "During Training", "Post-Balding", "Parallel Timeline"]
+    assert all(f.tier for f in stats.forms)
+    assert len({f.tier for f in stats.forms}) == 4
+    assert all(f.stats.attack_potency for f in stats.forms)
+    assert all(f.stats.durability for f in stats.forms)
+    assert "Wall level" in stats.forms[0].stats.attack_potency
+    assert "Galaxy level" in stats.forms[2].stats.attack_potency
+    # Unlike the tabber pages above, this page's flat top-level fields
+    # are genuinely flat <p>'s (no tabber to hide them inside), so they
+    # stay populated - just as the unsplit multi-segment string, since
+    # nothing downstream reads them once forms exist (see module
+    # docstring's "flat, whole-page ... summary is unaffected either way").
+    assert stats.attack_potency is not None
+    assert "|" in stats.attack_potency
 
 
 def test_denji_multi_form_extraction_through_a_scrollable_wrapper():
