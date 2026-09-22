@@ -36,15 +36,18 @@ const Api = {
     apiPost('/api/compare', { char_a: charA, char_b: charB, form_a: formA || null, form_b: formB || null }),
 };
 
-// The mockup's 6-color accent palette, assigned deterministically per
-// character id so the same character always gets the same color -
-// same idea as the mockup's per-character accent picker, just derived
-// instead of manually chosen per card.
-const ACCENT_VARS = ['--accent-0', '--accent-1', '--accent-2', '--accent-3', '--accent-4', '--accent-5'];
-
+// One distinct color per character id, generated rather than picked from
+// a small fixed palette - a 6-color cycle meant any two characters
+// exactly 6 ids apart (common in a matchup, since ids are assigned in
+// scrape order within a category) landed on the identical accent, which
+// is exactly the ambiguity color-coding exists to prevent. The golden-
+// angle hue step (~137.5 degrees) spreads consecutive ids across the
+// full hue wheel with no visible clustering, so distinct ids reliably
+// look distinct; a given id always maps to the same hue, so a
+// character's color still stays stable across screens/sessions.
 function accentFor(id) {
-  const varName = ACCENT_VARS[id % ACCENT_VARS.length];
-  return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  const hue = (id * 137.508) % 360;
+  return `hsl(${hue.toFixed(1)}, 65%, 58%)`;
 }
 
 function initialFor(name) {
