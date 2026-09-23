@@ -388,6 +388,30 @@ def test_madara_bare_label_fields_outside_any_p():
     assert stats.forms[-1].tier.startswith("Low 5-B")
 
 
+def test_goku_dbs_manga_several_fields_in_one_paragraph():
+    # Found by a whole-DB audit: on 6 of this page's tabs, Speed, Lifting
+    # Strength, Striking Strength, Durability and Stamina share ONE <p>,
+    # separated only by <br> - so everything after Speed was swallowed
+    # into Speed's value and Durability was lost.
+    stats = parse_character(_load("SonGokuDBSManga"))
+    for form in stats.forms:
+        assert "Durability:" not in (form.stats.speed or ""), form.name
+    battle_of_gods = next(f for f in stats.forms if f.name.startswith("Battle of Gods"))
+    assert battle_of_gods.stats.durability.startswith("At least Solar System level")
+    assert battle_of_gods.stats.stamina and battle_of_gods.stats.lifting_strength
+
+
+def test_bickslow_flat_fields_inside_a_top_level_scroll_box():
+    # Found by the same audit: Attack Potency through Stamina sit inside a
+    # top-level div.scrollable right under the stats heading, which the
+    # sibling walk never looked into - all 4 forms had only a Tier.
+    stats = parse_character(_load("Bickslow"))
+    assert [f.name for f in stats.forms] == ["In X784", "In X791", "In X792", "In X793"]
+    assert all(f.stats.attack_potency and f.stats.speed for f in stats.forms)
+    assert stats.forms[0].stats.attack_potency.startswith("Large Mountain level+")
+    assert stats.weaknesses  # fields after the scroll box still parse
+
+
 def test_denji_multi_form_extraction_through_a_scrollable_wrapper():
     # Found while diagnosing why Chainsaw Man characters got "Insufficient
     # data" verdicts from calculator.py: Denji's page (and most of the

@@ -104,6 +104,10 @@ def _base_name(name: str, source_url: str) -> str:
     "Unknown", Megath's "Varies", Sherry Blendy's "Yuka Suzuki". Only
     ~18 of 1550 characters trip this, and the rest just switch to the
     wiki's own spelling (Nidhogg, Gorgon)."""
+    # A '|' in the Name field separates per-FORM names, same convention as
+    # every stat field ("Homura Akemi | Same | Homulily | Akuma Homura",
+    # "Uub | Majuub") - the first is the character's own name.
+    name = re.split(r"\s*\|\s*", name, maxsplit=1)[0]
     if not source_url.startswith("http"):
         return name
     bare = re.sub(r"\s*\([^)]*\)\s*$", "", scraper.page_title(source_url))

@@ -294,6 +294,45 @@ def _label_from_p(p):
     return None, None
 
 
+def _peek_label(b) -> Optional[str]:
+    """What _label_text would return for `b`, without changing the tree."""
+    text = b.get_text(strip=True)
+    if text.endswith(":"):
+        return text[:-1].strip()
+    nxt = b.next_sibling
+    if isinstance(nxt, NavigableString) and nxt.lstrip().startswith(":"):
+        return text
+    m = _FUSED_LABEL_RE.match(text)
+    return m.group(1).strip() if m else None
+
+
+def _p_fields(p, b, label: str) -> List[tuple]:
+    """(label, value_html) for every field in paragraph `p`, starting at its
+    opening label `b`. Normally just one - but a few pages pack several
+    fields into one <p>, separated only by <br> (Son Goku (DBS Manga):
+    Speed, Lifting Strength, Striking Strength, Durability and Stamina in
+    a single paragraph on 6 of his forms), which used to swallow the rest
+    into the first field's value. A new field starts at any later <b>
+    that is a KNOWN field label; other bold text ending in ":" stays part
+    of the value."""
+    fields, cur_label, parts, found = [], label, [], False
+    for child in list(p.children):
+        if child is b:
+            found = True
+            continue
+        if not found:
+            continue
+        if getattr(child, "name", None) == "b":
+            peek = _peek_label(child)
+            if peek and peek.lower() in FIELD_MAP:
+                fields.append((cur_label, "".join(parts)))
+                cur_label, parts = _label_text(child), []
+                continue
+        parts.append(str(child))
+    fields.append((cur_label, "".join(parts)))
+    return fields
+
+
 def _html_after(p, b) -> str:
     parts, found = [], False
     for child in p.children:
@@ -327,13 +366,29 @@ def _labeled_paragraphs_in(tabber) -> List[dict]:
     return blocks
 
 
+def _stat_siblings(heading):
+    """Siblings after the stats heading, with a top-level `div.scrollable`
+    wrapper flattened into its children when it holds labeled fields.
+    Bickslow and Evergreen (Fairy Tail) wrap Attack Potency through
+    Stamina in one such scroll box, which the sibling walk used to treat
+    as a single opaque block - every form came back with only a Tier.
+    Same wrapper _stat_paragraphs already looks through inside tabs."""
+    for sib in heading.find_next_siblings():
+        if getattr(sib, "name", None) == "div" and "scrollable" in (sib.get("class") or []):
+            if any((_peek_label(p.find("b")) or "").lower() in FIELD_MAP
+                   for p in sib.find_all("p", recursive=False) if p.find("b")):
+                yield from list(sib.children)
+                continue
+        yield sib
+
+
 def _collect_field_blocks(heading) -> List[dict]:
     """Walk siblings after `heading` until the next <h2>, grouping content
     into one block per labeled <p> (label + its own inline value + any
     following non-labeled siblings, which belong to that field)."""
     blocks: List[dict] = []
     current = None
-    for sib in heading.find_next_siblings():
+    for sib in _stat_siblings(heading):
         name = getattr(sib, "name", None)
         if name == "h2":
             break
@@ -346,8 +401,9 @@ def _collect_field_blocks(heading) -> List[dict]:
         if name == "p":
             b, label = _label_from_p(sib)
             if label:
-                current = {"label": label, "html_parts": [_html_after(sib, b)]}
-                blocks.append(current)
+                for field_label, value_html in _p_fields(sib, b, label):
+                    current = {"label": field_label, "html_parts": [value_html]}
+                    blocks.append(current)
                 continue
         if name == "table":
             # Tables here (e.g. a "Feats" or "Notable Attacks/Techniques"
@@ -489,16 +545,16 @@ def _extract_forms_from_stats_tabber(tabber, flat_tier: Optional[str]) -> List[C
             b = p.find("b")
             if b is None:
                 continue
-            field_label = _label_text(b)
-            if field_label is None:
+            first_label = _label_text(b)
+            if first_label is None:
                 continue
-            field_key = STAT_FIELD_MAP.get(field_label.lower())
-            if field_key is None:
-                continue
-            fragment = BeautifulSoup(_html_after(p, b), "lxml")
-            value = _clean_text(fragment.get_text())
-            if value:
-                stat_values[field_key] = value
+            for field_label, value_html in _p_fields(p, b, first_label):
+                field_key = STAT_FIELD_MAP.get(field_label.lower())
+                if field_key is None:
+                    continue
+                value = _clean_text(BeautifulSoup(value_html, "lxml").get_text())
+                if value:
+                    stat_values[field_key] = value
         for container in [content] + content.find_all("div", class_="scrollable", recursive=False):
             for field_label, value in _bare_label_fields(container):
                 field_key = STAT_FIELD_MAP.get(field_label.lower())

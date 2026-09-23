@@ -93,8 +93,16 @@ _TIER_ANCHORS: List[Tuple[str, str, float]] = [
     ("2-C", "Low Multiverse level", 85.0),
     ("2-B", "Multiverse level", 100.0),
     ("2-A", "Multiverse level+", 115.0),
-    ("1-C", "Low Complex Multiverse level", 130.0),
-    ("1-B", "Complex Multiverse level", 145.0),
+    # 1-C/1-B names follow the wiki's current tiering, confirmed from how
+    # real pages pair Tier codes with AP names: "1-C" <-> "Complex
+    # Multiverse level" 72 times (vs. once for "Low Complex Multiverse
+    # level"), and "Low 1-C" <-> "Low Complex Multiverse level" 30 times.
+    # These used to be one step off (1-C = "Low Complex", 1-B =
+    # "Complex"), so every "Complex Multiverse level" AP/Durability
+    # scored a whole tier above the same page's own Tier (e.g. most of
+    # God of War's pantheon: Tier 1-C, AP scored as 1-B).
+    ("1-C", "Complex Multiverse level", 130.0),
+    ("1-B", "Hyperverse level", 145.0),
     ("1-A", "Outerverse level", 160.0),
 ]
 _ABSTRACT_STEP = 15.0  # synthetic per-tier gap used above 3-A and for 1-A's own grading
@@ -213,6 +221,9 @@ _TIER_TYPO_ALIASES: Dict[str, str] = {
     "City-Block level+": "City Block level+",
     "Multi City-Block level": "Multi-City Block level",  # 5
     "County level": "Country level",                     # 2, missing 'r'
+    # Found by the whole-DB audit (one or two occurrences each):
+    "LargeTown level": "High 7-C",                       # missing space
+    "Low Multiverse leve": "Low Multiverse level",       # truncated
 }
 _SPEED_TYPO_ALIASES: Dict[str, str] = {
     "Sub-Relatvistic+": "Sub-Relativistic+",  # missing 'i' - Jackal, Fairy Tail
@@ -251,8 +262,11 @@ _TIER_TERM_ALIASES: Dict[str, str] = {
     # Same adjective-form pattern, found adding Naruto (Hagoromo
     # Ōtsutsuki): "At least Universal+ level", "likely Low Complex
     # Multiversal level".
-    "Universal+ level": "Universe level+",
-    "Low Complex Multiversal level": "Low Complex Multiverse level",
+    "Universal+ level": "Low 2-C",
+    "Universal+": "Low 2-C",
+    "Low Complex Multiversal level": "Low 1-C",
+    "Low Complex Multiversal": "Low 1-C",
+    "Complex Multiversal": "Complex Multiverse level",   # Mimir (God of War)
     # The wiki's own descriptive names for Low/High sub-grades. The
     # ladder only held each tier's plain name, and the tokenizer matches
     # the longest KNOWN label, so e.g. "Multi-Continent level" silently
@@ -279,10 +293,18 @@ _TIER_TERM_ALIASES: Dict[str, str] = {
 _SPEED_TERM_ALIASES: Dict[str, str] = {
     # Standalone shorthand for the existing "Infinite Speed" entry.
     "Infinite": "Infinite Speed",
+    # AP-style wording used in a Speed field (Launch, Dragon Ball).
+    "Human level": "Average Human",
 }
 
 
 TIER_LADDER: Dict[str, float] = _build_tier_ladder()
+# "Universe level+" is the wiki's name for Low 2-C (pages pair them 18
+# times), but pass 2 had already synthesized it as a "+" grade of 3-A
+# with its own guessed score. It's a named sub-grade, like "Multi-
+# Continent level", so it takes Low 2-C's score - overriding only that
+# synthesized guess, never a real anchor.
+TIER_LADDER[_normalize_label("Universe level+")] = TIER_LADDER[_normalize_label("Low 2-C")]
 _apply_aliases(TIER_LADDER, _TIER_TYPO_ALIASES)
 _apply_aliases(TIER_LADDER, _TIER_TERM_ALIASES)
 

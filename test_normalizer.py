@@ -369,6 +369,19 @@ def test_casters_are_scored_by_their_magic_value_not_physical():
     assert parse_tier_range("9-B | At least 9-B, up to at least 6-A | 4-A, possibly 3-C").baseline_label == "9-b"
 
 
+def test_top_tier_names_match_the_codes_pages_pair_them_with():
+    # Found by a whole-DB audit: pages pair "1-C" with "Complex Multiverse
+    # level" (72 times) and "Low 1-C" with "Low Complex Multiverse level"
+    # (30), and "Low 2-C" with "Universe level+" (18). The ladder had the
+    # 1-X names one step off, so e.g. God of War's Zeus (Tier 1-C, AP
+    # "Complex Multiverse level") had his AP scored a tier above his Tier.
+    assert TIER_LADDER["complex multiverse level"] == TIER_LADDER["1-c"]
+    assert TIER_LADDER["low complex multiverse level"] == TIER_LADDER["low 1-c"]
+    assert TIER_LADDER["hyperverse level"] == TIER_LADDER["1-b"]
+    assert TIER_LADDER["universe level+"] == TIER_LADDER["low 2-c"]
+    assert TIER_LADDER["3-a"] < TIER_LADDER["universe level+"] < TIER_LADDER["2-c"]
+
+
 def test_sub_grade_names_no_longer_collapse_to_their_plain_tier():
     # Regression for the whole class, using real strings: "Multi-Continent
     # level" (Bambietta Basterbine's Attack Potency) used to score as
