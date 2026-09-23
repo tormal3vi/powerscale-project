@@ -245,12 +245,15 @@ def test_genos_multi_form_extraction():
     assert stats.forms[0].stats.attack_potency.startswith("Town level")
     assert "Mountain level" in stats.forms[-1].stats.attack_potency
 
-    # Genos' Durability is only documented in his LAST form - the other
-    # 5 tabs genuinely don't have it (wiki-side sparsity, not a bug) -
-    # each form must handle that independently, not fall back to
-    # another form's value.
-    assert stats.forms[0].stats.durability is None
-    assert stats.forms[-1].stats.durability is not None
+    # Genos' Durability IS on the wiki for all 6 tabs - this test used to
+    # assert only the last tab had it ("wiki-side sparsity, not a bug"),
+    # but that was itself a bug: in the other 5 tabs it's a bare
+    # <b>Durability:</b> with no <p> around it, which a <p>-only scan
+    # never saw (see _bare_label_fields). Each tab still gets its OWN
+    # value, never another tab's.
+    assert all(f.stats.durability for f in stats.forms)
+    assert stats.forms[0].stats.durability.startswith("At least Town level")
+    assert stats.forms[-1].stats.durability.startswith("At least Country level")
 
     # The flat top-level fields stay None for a genuine multi-form page
     # - never collapsed to any one form's values.
@@ -348,6 +351,22 @@ def test_ichigo_hybrid_tabber_page_fills_flat_fields_outside_the_tabs():
     # Speed has 7 '|' segments for 8 forms - no safe way to line them
     # up, so it stays unscored rather than being guessed.
     assert not any(f.stats.speed for f in stats.forms)
+
+
+def test_madara_bare_label_fields_outside_any_p():
+    # Found adding the Naruto category: Madara's Durability showed as
+    # unscored on every form. In each stats tab, every field is a proper
+    # <p> except Durability (and Range), which are a bare <b>Label:</b>
+    # plus loose text directly inside the tab. 34 cached pages had this
+    # (Kratos, Dante, Hashirama, several Gokus, Genos).
+    stats = parse_character(_load("MadaraUchiha"))
+    assert len(stats.forms) >= 3
+    assert all(f.stats.durability for f in stats.forms)
+    assert stats.forms[0].stats.durability.startswith("Country level")
+    # The bare run stops at the next label - Range must not bleed into
+    # Durability or vice versa.
+    assert all("Range" not in f.stats.durability for f in stats.forms)
+    assert all(f.stats.range for f in stats.forms)
 
 
 def test_denji_multi_form_extraction_through_a_scrollable_wrapper():

@@ -394,11 +394,11 @@ def test_genos_forms_normalize_independently_and_increase_in_power():
     assert ap_scores == sorted(ap_scores)
     assert ap_scores[0] < ap_scores[-1]
 
-    # Genos' Durability is only documented on his last form - the other
-    # 5 must independently come back unscored, not inherit a value.
+    # Genos' Durability is on all 6 forms (bare-label markup in 5 of them
+    # used to hide it - see test_parser.py), each scored independently.
     durability_scores = [f.durability.baseline for f in normalized.forms]
-    assert durability_scores[:-1] == [None] * 5
-    assert durability_scores[-1] is not None
+    assert all(v is not None for v in durability_scores)
+    assert durability_scores[0] < durability_scores[-1]
 
     # top-level stays unscored for a genuine multi-form character
     assert normalized.attack_potency.baseline is None

@@ -397,6 +397,37 @@ def _find_stats_tabber(heading):
     return None
 
 
+_BLOCK_TAGS = {"p", "div", "table", "ul", "ol", "h2", "h3", "h4", "center", "figure"}
+
+
+def _bare_label_fields(container) -> List[tuple]:
+    """(label, value) for fields written as a bare <b>Label:</b> plus loose
+    inline nodes directly inside `container`, with no <p> around them -
+    malformed wiki markup found on 34 cached pages (Madara Uchiha, Kratos,
+    Dante, Hashirama, several Gokus): every other field in the same tab
+    is a proper <p>, but e.g. Durability isn't, so a <p>-only scan never
+    saw it. A value runs until the next block element or next label."""
+    fields = []
+    label, parts = None, []
+    for node in list(container.children):
+        name = getattr(node, "name", None)
+        new_label = _label_text(node) if name == "b" else None
+        if name in _BLOCK_TAGS or new_label:
+            if label:
+                value = _clean_text(BeautifulSoup("".join(parts), "lxml").get_text())
+                if value:
+                    fields.append((label, value))
+            label, parts = new_label, []
+            continue
+        if label is not None:
+            parts.append(str(node))
+    if label:
+        value = _clean_text(BeautifulSoup("".join(parts), "lxml").get_text())
+        if value:
+            fields.append((label, value))
+    return fields
+
+
 def _extract_forms_from_stats_tabber(tabber, flat_tier: Optional[str]) -> List[CharacterForm]:
     top_ul = tabber.find("ul", class_="wds-tabs")
     top_contents = tabber.find_all("div", class_="wds-tab__content", recursive=False)
@@ -427,6 +458,11 @@ def _extract_forms_from_stats_tabber(tabber, flat_tier: Optional[str]) -> List[C
             value = _clean_text(fragment.get_text())
             if value:
                 stat_values[field_key] = value
+        for container in [content] + content.find_all("div", class_="scrollable", recursive=False):
+            for field_label, value in _bare_label_fields(container):
+                field_key = STAT_FIELD_MAP.get(field_label.lower())
+                if field_key and field_key not in stat_values:
+                    stat_values[field_key] = value
         forms.append(CharacterForm(
             name=tab_label,
             tier=aligned_tiers[i].strip() if aligned_tiers else None,

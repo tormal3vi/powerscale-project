@@ -60,16 +60,16 @@ def test_wildly_lopsided_fight_is_overwhelming_favorite():
 # --- multi-form character: form choice must change the outcome -------------
 
 def test_genos_real_forms_flip_the_verdict_against_a_fixed_rival():
-    # Real DB data (id 62, "Genos, Demon Cyborg") - his weakest form has no
-    # scored Durability at all (5/6 forms don't; only "Post-Elder Centipede"
-    # does - see test_normalizer.py's Genos test), his strongest form does.
+    # Real DB data (id 62, "Genos, Demon Cyborg"). This used to also check
+    # that his weakest form had no scored Durability - that turned out to
+    # be a parser bug (bare-label markup, see test_parser.py's Genos
+    # test), and every form now has its own Durability.
     raw, normalized = calc.load_character(62)
     assert "Genos" in raw["name"]
 
     weakest = calc.select_form(normalized, "Beginning of Series")
     strongest = calc.select_form(normalized, "Post-Elder Centipede")
-    assert weakest["durability"]["baseline"] is None
-    assert strongest["durability"]["baseline"] is not None
+    assert weakest["durability"]["baseline"] < strongest["durability"]["baseline"]
     assert strongest["tier"]["baseline"] > weakest["tier"]["baseline"]
 
     rival = _form("Rival", tier=15.0, ap=15.0, dur=15.0, speed=4.5)
@@ -83,11 +83,10 @@ def test_genos_real_forms_flip_the_verdict_against_a_fixed_rival():
     assert v_strong.favored == "Genos"
     assert v_weak.composite < 0 < v_strong.composite
 
-    # The weak form's Durability axis was genuinely excluded (not defaulted
-    # to a tie). Default selection (no override) must land on *a* form
-    # tied for Genos' highest Tier score (17.5 - three of his forms share
-    # it) - which specific tied form isn't promised, only the tier value.
-    assert v_weak.axes_used == 3
+    # Default selection (no override) must land on *a* form tied for
+    # Genos' highest Tier score (17.5 - three of his forms share it) -
+    # which specific tied form isn't promised, only the tier value.
+    assert v_weak.axes_used == 4
     assert v_strong.axes_used == 4
     default_pick = calc.select_form(normalized)
     assert default_pick["tier"]["baseline"] == strongest["tier"]["baseline"] == 17.5

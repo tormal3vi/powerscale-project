@@ -207,7 +207,13 @@ def _apply_aliases(ladder: Dict[str, float], aliases: Dict[str, str]) -> None:
 
 # Wiki-side typos of existing terms - same class of fix as the "LargeTown
 # level" catch in Phase 3, found by the Phase 4 vocabulary gap sweep.
-_TIER_TYPO_ALIASES: Dict[str, str] = {}
+_TIER_TYPO_ALIASES: Dict[str, str] = {
+    # Found adding the Naruto category (occurrence counts at the time):
+    "City-Block level": "City Block level",              # ~38, hyphenated
+    "City-Block level+": "City Block level+",
+    "Multi City-Block level": "Multi-City Block level",  # 5
+    "County level": "Country level",                     # 2, missing 'r'
+}
 _SPEED_TYPO_ALIASES: Dict[str, str] = {
     "Sub-Relatvistic+": "Sub-Relativistic+",  # missing 'i' - Jackal, Fairy Tail
     "Relavistic": "Relativistic",             # missing 'ti' - Tsukuyo Amane, Puella Magi Verse
@@ -242,6 +248,11 @@ _TIER_TERM_ALIASES: Dict[str, str] = {
     # ~1-A ceiling - a ~130-point internal inconsistency between Tier
     # and the two fields it's supposed to be derived from.
     "Outerversal": "Outerverse level",
+    # Same adjective-form pattern, found adding Naruto (Hagoromo
+    # Ōtsutsuki): "At least Universal+ level", "likely Low Complex
+    # Multiversal level".
+    "Universal+ level": "Universe level+",
+    "Low Complex Multiversal level": "Low Complex Multiverse level",
     # The wiki's own descriptive names for Low/High sub-grades. The
     # ladder only held each tier's plain name, and the tokenizer matches
     # the longest KNOWN label, so e.g. "Multi-Continent level" silently
