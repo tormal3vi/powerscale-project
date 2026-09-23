@@ -360,17 +360,41 @@ def _qualifier_before(lowered_text: str, match_start: int, window: int = 25) -> 
     return None
 
 
+# Abilities that ARE the character's real fighting level, the way magic is
+# for a caster: "Multi-Solar System level with Reality Overwrite" (Heaven
+# Ascension DIO), "1-C via Plot Manipulation" (Arale). Deliberately a short
+# list (user decision): a blanket "with <anything>" rule would also score
+# transformations, one-off finishers and self-destructs as the baseline -
+# 284 characters moved, some from 9-B to 1-C.
+_POWER_ABILITIES = (
+    "reality overwrite", "reality warping", "plot manipulation", "wish granting", "weather manipulation",
+)
+_POWER_RE = re.compile(r"(?:with|via|using)\s+(?:his |her |their |its )?(" + "|".join(_POWER_ABILITIES) + r")\b")
+
+
 def _condition_after(lowered_text: str, match_end: int) -> Optional[str]:
     """Tag a token by the condition written right after it: "physical"
-    for "... physically", "magic" for "... with magic". The only two
-    physical-vs-caster phrasings found in the data (checked across every
-    stored Tier/AP/Speed/Durability string before writing this)."""
-    tail = lowered_text[match_end:match_end + 20].lstrip()
+    for "... physically", "magic" for "... with magic", and "power" for
+    "... with Reality Overwrite" and the other _POWER_ABILITIES. The
+    physical/magic phrasings are the only two found in the data (checked
+    across every stored Tier/AP/Speed/Durability string before writing
+    this)."""
+    tail = lowered_text[match_end:match_end + 60].lstrip()
     if tail.startswith("physically"):
         return "physical"
-    if tail.startswith("with magic"):
+    # Not "with Magician's Red" (Avdol's Stand) - that's no caster split.
+    if re.match(r"with magic(?!ian)", tail):
         return "magic"
+    if _POWER_RE.match(tail):
+        return "power"
     return None
+
+
+# "3-A, likely Low 2-C with Reality Overwrite": the condition is written
+# once, after the last value, but covers the whole hedged range.
+# Only a real hedge word counts: a bare comma separates two different
+# claims ("At least 9-A, Low 7-C with magic" - Ainz's 9-A is physical).
+_HEDGE_GAP_RE = re.compile(r"^\s*,?\s*(?:likely|possibly|probably|potentially)(?:\s+to)?\s*$")
 
 
 def _find_all_tokens(text: str, ladder: Dict[str, float]) -> List[Tuple[Optional[str], str, float, Optional[str]]]:
@@ -380,6 +404,7 @@ def _find_all_tokens(text: str, ladder: Dict[str, float]) -> List[Tuple[Optional
     lowered = text.lower()
     labels_by_len = sorted(ladder.keys(), key=len, reverse=True)
     results = []
+    spans = []
     i, n = 0, len(lowered)
     while i < n:
         matched = None
@@ -395,9 +420,18 @@ def _find_all_tokens(text: str, ladder: Dict[str, float]) -> List[Tuple[Optional
             qualifier = _qualifier_before(lowered, i)
             condition = _condition_after(lowered, i + len(matched))
             results.append((qualifier, matched, ladder[matched], condition))
+            spans.append((i, i + len(matched)))
             i += len(matched)
         else:
             i += 1
+    # A value joined to a magic/power one only by a hedge ("X, likely Y
+    # with magic") shares its condition - otherwise the "likely" value
+    # alone would be scored as the caster's baseline.
+    for k in range(len(results) - 2, -1, -1):
+        nxt = results[k + 1][3]
+        if nxt in ("magic", "power") and results[k][3] is None \
+                and _HEDGE_GAP_RE.match(lowered[spans[k][1]:spans[k + 1][0]]):
+            results[k] = results[k][:3] + (nxt,)
     return results
 
 
@@ -421,14 +455,15 @@ def _caster_baseline(tokens: list) -> tuple:
     so scoring it made every caster look several tiers weaker than their
     page says (user decision: score casters by their magic value). The
     baseline is raised to the lowest value NOT tagged "physically" (when
-    any value is), and to the lowest value tagged "with magic" (when any
-    is). It only ever moves up - the peak is untouched."""
+    any value is), and to the lowest value tagged "with magic" or with one
+    of the _POWER_ABILITIES (when any is). It only ever moves up - the
+    peak is untouched."""
     chosen = tokens[0]
     if any(t[3] == "physical" for t in tokens):
         non_physical = [t for t in tokens if t[3] != "physical"]
         if non_physical and non_physical[0][2] > chosen[2]:
             chosen = non_physical[0]
-    magic = [t for t in tokens if t[3] == "magic"]
+    magic = [t for t in tokens if t[3] in ("magic", "power")]
     if magic and magic[0][2] > chosen[2]:
         chosen = magic[0]
     return chosen

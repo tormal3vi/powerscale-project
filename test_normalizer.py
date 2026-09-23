@@ -369,6 +369,30 @@ def test_casters_are_scored_by_their_magic_value_not_physical():
     assert parse_tier_range("9-B | At least 9-B, up to at least 6-A | 4-A, possibly 3-C").baseline_label == "9-b"
 
 
+def test_reality_warping_abilities_are_scored_like_magic():
+    # User decision: Reality Overwrite / Reality Warping / Plot Manipulation /
+    # Wish Granting / Weather Manipulation count like "with magic". Real
+    # strings: Heaven Ascension DIO (both forms), Jotaro (Over Heaven).
+    dio = parse_tier_range("At least High 8-C. At least High 8-C, likely far higher with The World Over Heaven, "
+                           "4-A with Reality Overwrite")
+    assert dio.baseline_label == "4-a"
+    # The condition is written once but covers the hedged range before it:
+    # score the definite 3-A, not the "likely" Low 2-C.
+    souls = parse_tier_range("At least High 8-C. At least High 8-C, likely far higher with The World Over Heaven. "
+                             "3-A, likely Low 2-C with Reality Overwrite")
+    assert (souls.baseline_label, souls.peak_label) == ("3-a", "low 2-c")
+    jotaro = parse_tier_range("9-B. At least High 8-C, likely far higher with Star Platinum Over Heaven. "
+                              "3-A, likely to Low 2-C with Reality Overwrite")
+    assert jotaro.baseline_label == "3-a"
+    # A bare comma is not a hedge - Ainz's 9-A stays out of his magic value.
+    assert parse_tier_range("At least 9-A, Low 7-C with magic").baseline_label == "low 7-c"
+    # Deliberately NOT: Stands, transformations, one-off moves - and
+    # "Magician's Red" (Avdol's Stand) is not "with magic".
+    assert parse_tier_range("9-C, likely High 8-C with Magician's Red").baseline_label == "9-c"
+    assert parse_tier_range("7-A, up to 5-C with Fighting Spirit").baseline_label == "7-a"
+    assert parse_tier_range("9-B, Low 2-C with Star Platinum").baseline_label == "9-b"
+
+
 def test_top_tier_names_match_the_codes_pages_pair_them_with():
     # Found by a whole-DB audit: pages pair "1-C" with "Complex Multiverse
     # level" (72 times) and "Low 1-C" with "Low Complex Multiverse level"
