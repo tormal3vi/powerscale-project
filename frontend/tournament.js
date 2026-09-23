@@ -14,10 +14,6 @@ const state = {
 const $ = (id) => document.getElementById(id);
 const searchInput = $('t-search');
 
-function fold(s) {
-  return (s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
-}
-
 // "HIGH 3-A" -> "High 3-A", as the design writes tiers.
 function tierText(c) {
   if (!c.tier_label) return '—';

@@ -18,7 +18,7 @@ let formIndex = 0;
 let accent = '';
 
 function valueHtml(range, raw, { omnipresent = false } = {}) {
-  const value = labelAsWritten(range.baseline_label, raw) || 'Unscored';
+  const value = labelAsWritten(range.baseline_label, raw) || missingStatText(raw);
   const peak = peakHintText(range, raw);
   return `${escapeHtml(value)}${omnipresent ? ' + Omnipresent' : ''}${peak ? ` <span class="cs-peak">(${escapeHtml(peak)})</span>` : ''}`;
 }

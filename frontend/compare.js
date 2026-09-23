@@ -139,14 +139,14 @@ function heroCardHtml(side, char, accent) {
     <div class="vs-card">
       <div class="vs-card-head">
         <div class="avatar avatar-lg" style="background:${accent};">${escapeHtml(initialFor(char.name))}</div>
-        <div style="min-width:0;">
+        <div class="vs-card-ident">
           <a class="vs-card-name" href="character.html?id=${char.id}" title="${escapeHtml(char.name)}">${escapeHtml(char.name)}</a>
           <div class="vs-card-subtitle">${escapeHtml(char.category)}${char.classification ? ' · ' + escapeHtml(char.classification) : ''}</div>
         </div>
         <div class="vs-card-tier">
           <div class="vs-card-tier-label">Tier</div>
           <div class="vs-card-tier-value" style="color:${accent};" id="tier-value-${side}" title="${escapeHtml(form.tier_raw || '')}">${escapeHtml(prettifyLabel(form.tier.baseline_label) || '—')}</div>
-          <div id="tier-peak-${side}">${peakHintHtml(form.tier, form.tier_raw)}</div>
+          <div class="vs-card-tier-peak" id="tier-peak-${side}">${peakHintHtml(form.tier, form.tier_raw)}</div>
         </div>
       </div>
       ${showForms ? `
@@ -280,8 +280,8 @@ function renderStatTable() {
     const { ta, tb } = axisScale(comp);
     const rawLabelA = axis === 'tier' ? formA.tier.baseline_label : formA[axis].baseline_label;
     const rawLabelB = axis === 'tier' ? formB.tier.baseline_label : formB[axis].baseline_label;
-    const textA = comp.a_value === null ? 'Unscored' : (prettifyLabel(rawLabelA) || '—') + (axis === 'speed' && formA.is_omnipresent ? ' + Omnipresent' : '');
-    const textB = comp.b_value === null ? 'Unscored' : (prettifyLabel(rawLabelB) || '—') + (axis === 'speed' && formB.is_omnipresent ? ' + Omnipresent' : '');
+    const textA = comp.a_value === null ? missingStatText(formA[`${axis}_raw`]) : (prettifyLabel(rawLabelA) || '—') + (axis === 'speed' && formA.is_omnipresent ? ' + Omnipresent' : '');
+    const textB = comp.b_value === null ? missingStatText(formB[`${axis}_raw`]) : (prettifyLabel(rawLabelB) || '—') + (axis === 'speed' && formB.is_omnipresent ? ' + Omnipresent' : '');
     // The badge shows only the (deliberately conservative) baseline value -
     // see calculator.py's select_form() docstring - so a character whose
     // wiki entry splits low/high across two different conditions (e.g.
@@ -329,8 +329,17 @@ function reasonBullets(v) {
     if (c.advantage === null) {
       // Say WHOSE stat is missing - "unscored on one side" read as if
       // the character you were looking at was the one without it.
-      const missing = [c.a_value === null ? nameA : null, c.b_value === null ? nameB : null].filter(Boolean);
-      lines.push(`${AXIS_LABELS[axis]} isn't compared — unscored for ${missing.join(' and ')}`);
+      // Group by why it's missing: "Unknown" on the wiki reads very
+      // differently from a value the site couldn't score.
+      const groups = {};
+      [['a', nameA, c.a_value], ['b', nameB, c.b_value]].forEach(([side, name, value]) => {
+        if (value !== null) return;
+        const why = missingStatText(activeForm(side)[`${axis}_raw`]);
+        const phrase = why === 'Unknown' ? 'Unknown on the wiki' : why === 'Not listed' ? 'not listed' : 'unscored';
+        (groups[phrase] = groups[phrase] || []).push(name);
+      });
+      const parts = Object.entries(groups).map(([phrase, names]) => `${phrase} for ${names.join(' and ')}`);
+      lines.push(`${AXIS_LABELS[axis]} isn't compared — ${parts.join('; ')}`);
       continue;
     }
     const mag = Math.abs(c.advantage);

@@ -1,6 +1,7 @@
-// Message board: a feed of posts, each optionally carrying a matchup
-// (arriving here from the compare page's "Share to board" as
-// board.html?a=&b=&fa=&fb=), with likes and one level of replies.
+// Message board: a feed of posts, each optionally carrying a matchup -
+// picked right in the composer, or arriving from the compare page's
+// "Share to board" as board.html?a=&b=&fa=&fb= (which prefills the same
+// picker) - with likes and one level of replies.
 // Everything users write goes through escapeHtml/textContent.
 
 renderTopbar([]);
@@ -12,7 +13,7 @@ const feed = document.getElementById('feed');
 const loadMore = document.getElementById('load-more');
 let nextBefore = null;
 let me = null;
-let attached = null; // {label, payload} from the URL
+let attached = null; // {char_a, char_b, form_a, form_b} once the picker has both sides
 
 function userColor(name) {
   let h = 0;
@@ -45,16 +46,203 @@ function matchupSideHtml(label, fullName, category) {
   return `${escapeHtml(label)}${extra ? `<span class="mu-series"> (${escapeHtml(extra)})</span>` : ''}`;
 }
 
-function matchupHtml(m) {
+// The card links to the full comparison; the composer's preview of it
+// doesn't (a click there would throw away the half-written post).
+function matchupHtml(m, { link = true } = {}) {
   const verdict = m.overruled_winner
     ? `<div class="mu-overruled">${escapeHtml(m.overruled_winner)} wins — overruled<span class="mu-series"> by admins</span></div>
        <div class="mu-calc">Calculator's estimate: ${escapeHtml(m.calc_verdict)}</div>`
     : `<div class="mu-verdict">${escapeHtml(m.calc_verdict)}</div>`;
+  const tag = link ? 'a' : 'div';
   return `
-    <a class="post-matchup ${m.overruled_winner ? 'overruled' : ''}" href="${matchupHref(m)}">
+    <${tag} class="post-matchup ${m.overruled_winner ? 'overruled' : ''}" ${link ? `href="${matchupHref(m)}"` : ''}>
       <div class="mu-title">${matchupSideHtml(m.label_a, m.name_a, m.category_a)} vs ${matchupSideHtml(m.label_b, m.name_b, m.category_b)}</div>
       ${verdict}
-    </a>`;
+    </${tag}>`;
+}
+
+// --- matchup picker ---------------------------------------------------------
+// Both sides chosen right in the composer: search (names, aliases, series;
+// accent-insensitive), a form dropdown for multi-form characters, and a
+// live preview of the exact card the post will carry.
+
+let rosterPromise = null;
+function roster() {
+  if (!rosterPromise) {
+    rosterPromise = Api.listCharacters().then((r) => r.characters.map((c) => ({
+      ...c, _name: fold(c.name), _aliases: fold(c.aliases), _cat: fold(c.category),
+    })));
+  }
+  return rosterPromise;
+}
+
+// Name prefix first, then anywhere in the name, then aliases, then series.
+function searchRoster(all, q, excludeId) {
+  const hits = [];
+  for (const c of all) {
+    if (c.id === excludeId) continue;
+    const rank = c._name.startsWith(q) ? 0 : c._name.includes(q) ? 1
+      : c._aliases.includes(q) ? 2 : c._cat.includes(q) ? 3 : -1;
+    if (rank >= 0) hits.push([rank, c]);
+  }
+  hits.sort((x, y) => x[0] - y[0] || x[1].name.localeCompare(y[1].name));
+  return hits.slice(0, 8).map((h) => h[1]);
+}
+
+function matchupPickerEl({ onChange, onClose }) {
+  const el = document.createElement('div');
+  el.className = 'mu-picker';
+  el.innerHTML = `
+    <div class="mu-picker-head">
+      <span class="mu-picker-title">Matchup</span>
+      <span class="mu-picker-tools">
+        <button type="button" data-act="random">Random</button>
+        <button type="button" data-act="remove">Remove</button>
+      </span>
+    </div>
+    <div class="mu-picker-sides">
+      <div class="mu-slot" data-side="a"></div>
+      <span class="mu-picker-vs">vs</span>
+      <div class="mu-slot" data-side="b"></div>
+    </div>
+    <div class="mu-picker-preview"></div>`;
+  const picks = { a: null, b: null }; // {c: full character, formIndex}
+  const preview = el.querySelector('.mu-picker-preview');
+  const slotEl = (side) => el.querySelector(`.mu-slot[data-side="${side}"]`);
+  const other = (side) => picks[side === 'a' ? 'b' : 'a'];
+  let seq = 0; // drops stale previews when picks change mid-request
+
+  async function refresh() {
+    const my = ++seq;
+    if (!picks.a || !picks.b) { preview.innerHTML = ''; onChange(null); return; }
+    const fa = picks.a.c.forms[picks.a.formIndex].name;
+    const fb = picks.b.c.forms[picks.b.formIndex].name;
+    preview.innerHTML = '<div class="mu-picker-note">Getting the verdict…</div>';
+    onChange(null);
+    try {
+      const m = await Api.matchupPreview(picks.a.c.id, picks.b.c.id, fa, fb);
+      if (my !== seq) return;
+      preview.innerHTML = matchupHtml(m, { link: false });
+      onChange({ char_a: m.char_a, char_b: m.char_b, form_a: m.form_a, form_b: m.form_b });
+    } catch (err) {
+      if (my !== seq) return;
+      preview.innerHTML = `<div class="form-error">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function choose(side, id, formName) {
+    slotEl(side).innerHTML = '<div class="mu-picker-note">Loading…</div>';
+    try {
+      const c = await Api.getCharacter(id);
+      let formIndex = formName ? c.forms.findIndex((f) => f.name === formName) : -1;
+      if (formIndex < 0) formIndex = defaultFormIndex(c.forms);
+      picks[side] = { c, formIndex };
+    } catch {
+      picks[side] = null; // bad id (e.g. from an old link) - just search instead
+    }
+    renderSlot(side);
+    refresh();
+  }
+
+  function renderPicked(slot, side) {
+    const { c, formIndex } = picks[side];
+    const own = /\(([^)]*)\)/.exec(shortName(c.name));
+    slot.innerHTML = `
+      <div class="mu-pick">
+        <span class="mu-pick-dot" style="background:${accentFor(c.id)}"></span>
+        <span class="mu-pick-name">${escapeHtml(bareName(c.name))}<span class="mu-pick-cat"> · ${escapeHtml(own ? own[1] : c.category)}</span></span>
+        <button type="button" class="mu-pick-clear" aria-label="Change character">×</button>
+      </div>
+      ${c.forms.length > 1 ? '<select class="mu-pick-form" aria-label="Form"></select>' : ''}`;
+    slot.querySelector('.mu-pick-clear').addEventListener('click', () => {
+      picks[side] = null;
+      renderSlot(side, { focus: true });
+      refresh();
+    });
+    const select = slot.querySelector('select');
+    if (select) {
+      c.forms.forEach((f, i) => {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = f.name;
+        select.appendChild(opt);
+      });
+      select.value = formIndex;
+      select.addEventListener('change', () => { picks[side].formIndex = Number(select.value); refresh(); });
+    }
+  }
+
+  function renderSearch(slot, side, focus) {
+    slot.innerHTML = `
+      <input type="text" class="mu-search" autocomplete="off" spellcheck="false"
+        placeholder="${side === 'a' ? 'First' : 'Second'} character…" aria-label="${side === 'a' ? 'First' : 'Second'} character">
+      <div class="mu-results" role="listbox"></div>`;
+    const input = slot.querySelector('input');
+    const results = slot.querySelector('.mu-results');
+    let items = [];
+    let active = 0;
+    const paint = () => results.querySelectorAll('.mu-result').forEach((b, i) => b.classList.toggle('active', i === active));
+    const show = async () => {
+      const q = fold(input.value.trim());
+      if (!q) { results.innerHTML = ''; items = []; return; }
+      if (!items.length) results.innerHTML = '<div class="mu-picker-note">Searching…</div>';
+      const all = await roster();
+      if (fold(input.value.trim()) !== q) return; // typed on while loading
+      items = searchRoster(all, q, other(side)?.c.id);
+      active = 0;
+      results.innerHTML = items.length
+        ? items.map((c, i) => `
+            <button type="button" class="mu-result" role="option" data-i="${i}">
+              <span class="mu-result-name">${escapeHtml(shortName(c.name))}</span>
+              <span class="mu-result-cat">${escapeHtml(c.category)}</span>
+            </button>`).join('')
+        : '<div class="mu-picker-note">No characters match that.</div>';
+      paint();
+    };
+    input.addEventListener('input', show);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!items.length) return;
+        e.preventDefault();
+        active = (active + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+        paint();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (items[active]) choose(side, items[active].id);
+      }
+    });
+    results.addEventListener('click', (e) => {
+      const b = e.target.closest('.mu-result');
+      if (b) choose(side, items[Number(b.dataset.i)].id);
+    });
+    if (focus) input.focus();
+  }
+
+  function renderSlot(side, { focus = false } = {}) {
+    const slot = slotEl(side);
+    if (picks[side]) renderPicked(slot, side);
+    else renderSearch(slot, side, focus);
+  }
+
+  el.querySelector('[data-act="random"]').addEventListener('click', async () => {
+    const pool = (await roster()).filter((c) => c.scorable);
+    const a = pool[Math.floor(Math.random() * pool.length)];
+    let b = a;
+    while (b.id === a.id) b = pool[Math.floor(Math.random() * pool.length)];
+    picks.a = null; picks.b = null;
+    await Promise.all([choose('a', a.id), choose('b', b.id)]);
+  });
+  el.querySelector('[data-act="remove"]').addEventListener('click', () => {
+    seq += 1;
+    onChange(null);
+    onClose();
+  });
+
+  renderSlot('a');
+  renderSlot('b');
+  el.prefill = (a, b, fa, fb) => Promise.all([choose('a', a, fa), choose('b', b, fb)]);
+  el.focusFirst = () => slotEl('a').querySelector('input')?.focus();
+  return el;
 }
 
 // --- composer ---------------------------------------------------------------
@@ -75,48 +263,62 @@ function composerEl(onPosted) {
     <div class="composer-attach"></div>
     <label><span class="visually-hidden">Write a post</span><textarea rows="3" maxlength="${MAX_CHARS}" placeholder="What's your take?"></textarea></label>
     <div class="composer-row">
-      <span class="composer-count"></span>
-      <button class="btn-gold">Post</button>
+      <button type="button" class="composer-add-mu">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Matchup
+      </button>
+      <span class="composer-right">
+        <span class="composer-count"></span>
+        <button class="btn-gold">Post</button>
+      </span>
     </div>
     <div class="form-error"></div>`;
   const ta = wrap.querySelector('textarea');
   const count = wrap.querySelector('.composer-count');
   const btn = wrap.querySelector('button.btn-gold');
   const err = wrap.querySelector('.form-error');
+  const addBtn = wrap.querySelector('.composer-add-mu');
+  const attachSlot = wrap.querySelector('.composer-attach');
   const updateCount = () => { count.textContent = `${ta.value.length}/${MAX_CHARS}`; };
   ta.addEventListener('input', updateCount);
   updateCount();
 
-  const attachSlot = wrap.querySelector('.composer-attach');
-  const renderAttach = () => {
+  let picker = null;
+  const closePicker = () => {
+    attached = null;
+    picker = null;
     attachSlot.innerHTML = '';
-    if (!attached) return;
-    attachSlot.innerHTML = `<span class="attach-chip"><span></span><button aria-label="Remove matchup">×</button></span>`;
-    attachSlot.querySelector('.attach-chip > span').textContent = `Matchup: ${attached.label}`;
-    attachSlot.querySelector('button').addEventListener('click', () => {
-      attached = null;
-      history.replaceState(null, '', 'board.html');
-      renderAttach();
-    });
+    addBtn.style.display = '';
+    if (location.search) history.replaceState(null, '', 'board.html');
   };
-  renderAttach();
+  const openPicker = () => {
+    roster(); // start the ~1600-character fetch before the first keystroke
+    picker = matchupPickerEl({ onChange: (m) => { attached = m; }, onClose: closePicker });
+    attachSlot.innerHTML = '';
+    attachSlot.appendChild(picker);
+    addBtn.style.display = 'none';
+    return picker;
+  };
+  addBtn.addEventListener('click', () => openPicker().focusFirst());
+
+  // From Compare's "Share to board": open the picker already filled in.
+  const p = new URLSearchParams(location.search);
+  if (Number(p.get('a')) && Number(p.get('b'))) {
+    openPicker().prefill(Number(p.get('a')), Number(p.get('b')), p.get('fa'), p.get('fb'));
+  }
 
   btn.addEventListener('click', async () => {
     const body = ta.value.trim();
     if (!body) { err.textContent = 'Write something first.'; return; }
+    if (picker && !attached) { err.textContent = 'Finish picking the matchup, or remove it.'; return; }
     btn.disabled = true;
     err.textContent = '';
-    const payload = { body };
-    if (attached) Object.assign(payload, attached.payload);
+    const payload = { body, ...(attached || {}) };
     try {
       const post = await Api.createPost(payload);
       ta.value = '';
       updateCount();
-      if (attached) {
-        attached = null;
-        history.replaceState(null, '', 'board.html');
-        renderAttach();
-      }
+      if (picker) closePicker();
       onPosted(post);
     } catch (e) {
       err.textContent = e.message;
@@ -272,25 +474,10 @@ async function loadPage() {
   }
 }
 
-async function loadAttachment() {
-  const p = new URLSearchParams(location.search);
-  const a = Number(p.get('a'));
-  const b = Number(p.get('b'));
-  if (!a || !b) return;
-  try {
-    const v = await Api.compare(a, b, p.get('fa'), p.get('fb'));
-    attached = {
-      label: `${shortName(v.character_a)} (${v.form_a}) vs ${shortName(v.character_b)} (${v.form_b})`,
-      payload: { char_a: a, char_b: b, form_a: v.form_a, form_b: v.form_b },
-    };
-  } catch { /* bad ids in the URL - just post without a matchup */ }
-}
-
 loadMore.addEventListener('click', loadPage);
 
 (async () => {
   me = await currentUser();
-  await loadAttachment();
   document.getElementById('composer-slot').appendChild(composerEl((post) => {
     const empty = feed.querySelector('.board-empty');
     if (empty) empty.remove();

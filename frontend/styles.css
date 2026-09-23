@@ -465,11 +465,17 @@ input::placeholder { color: var(--text-placeholder); }
   gap: 20px;
 }
 
+/* Grid, so the tier's "up to High 6-A with Tandem Paper Bombs" hint gets
+   its own full-width row: sitting beside the name, it used to squeeze the
+   name down to nothing on narrow cards. */
 .vs-card-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 18px;
   align-items: center;
-  gap: 18px;
 }
+.vs-card-head > .avatar { grid-row: 1 / 3; }
+.vs-card-ident { grid-column: 2; grid-row: 1 / 3; min-width: 0; }
 
 .vs-card-name {
   display: block;
@@ -492,12 +498,11 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
   white-space: nowrap;
 }
 
-.vs-card-tier {
-  margin-left: auto;
-  text-align: right;
-  flex-shrink: 0;
-}
+.vs-card-tier { display: contents; }
+.vs-card-tier-peak { grid-column: 1 / -1; grid-row: 3; text-align: right; }
+.vs-card-tier-peak .stat-peak-hint { margin: 12px 0 0; }
 .vs-card-tier-label {
+  grid-column: 3; grid-row: 1; align-self: end; text-align: right;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-tertiary);
@@ -505,6 +510,7 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
   letter-spacing: 0.08em;
 }
 .vs-card-tier-value {
+  grid-column: 3; grid-row: 2; align-self: start; text-align: right;
   font-family: var(--font-mono);
   font-size: 20px;
   font-weight: 600;
@@ -887,16 +893,57 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
 .composer-row .btn-gold { padding: 10px 22px; font-size: 14px; }
 .composer-login { padding: 24px; text-align: center; font-size: 14.5px; color: var(--text-tertiary); }
 .composer-login a { color: var(--accent-gold); font-weight: 600; border-bottom: 1px solid rgba(217, 164, 65, 0.4); }
-.attach-chip {
-  display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
-  background: var(--pill-bg); border-radius: var(--radius-pill); padding: 6px 6px 6px 14px;
-  font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;
+.composer-right { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+.composer-add-mu {
+  display: inline-flex; align-items: center; gap: 6px; background: none; cursor: pointer;
+  border: 1px solid var(--control-border); border-radius: var(--radius-pill); padding: 6px 12px 6px 10px;
+  font: 600 12.5px var(--font-sans); color: var(--text-secondary);
 }
-.attach-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attach-chip button {
-  width: 20px; height: 20px; border-radius: var(--radius-pill); border: none; flex-shrink: 0;
-  background: var(--bg); color: var(--text-tertiary); font-size: 13px; line-height: 1; cursor: pointer;
+.composer-add-mu:hover { border-color: var(--text-quaternary); color: var(--text-primary); }
+
+/* Matchup picker (inside the composer) */
+.mu-picker { background: var(--bg); border: 1px solid var(--card-border); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+.mu-picker-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.mu-picker-title { font-size: 11px; color: var(--text-quaternary); text-transform: uppercase; letter-spacing: 0.08em; }
+.mu-picker-tools { display: flex; gap: 14px; }
+.mu-picker-tools button { background: none; border: none; padding: 0; cursor: pointer; font: 600 12.5px var(--font-sans); color: var(--text-tertiary); }
+.mu-picker-tools button:hover { color: var(--text-primary); }
+.mu-picker-sides { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: start; }
+.mu-picker-vs { font-family: var(--font-serif); font-weight: 700; font-size: 13px; color: var(--text-quaternary); padding-top: 10px; }
+.mu-slot { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.mu-search, .mu-pick-form {
+  width: 100%; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-sm);
+  padding: 9px 12px; color: var(--text-primary); font: 14px var(--font-sans); outline: none;
 }
+.mu-search::placeholder { color: var(--text-placeholder); }
+.mu-search:focus, .mu-pick-form:focus { border-color: var(--text-quaternary); }
+.mu-pick-form { font-size: 13px; padding: 7px 10px; cursor: pointer; }
+.mu-pick-form option { background: var(--card); }
+.mu-results { display: flex; flex-direction: column; max-height: 264px; overflow-y: auto; }
+.mu-results:empty { display: none; }
+.mu-result {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; width: 100%;
+  background: none; border: none; border-radius: var(--radius-xs); padding: 7px 10px; cursor: pointer; font-family: inherit;
+}
+.mu-result.active, .mu-result:hover { background: var(--pill-bg); }
+.mu-result-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mu-result-cat { font-size: 11.5px; color: var(--text-quaternary); }
+.mu-pick {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  background: var(--pill-bg); border-radius: var(--radius-sm); padding: 8px 8px 8px 12px;
+}
+.mu-pick-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.mu-pick-name { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mu-pick-cat { font-weight: 400; color: var(--text-quaternary); }
+.mu-pick-clear {
+  width: 22px; height: 22px; border-radius: var(--radius-pill); border: none; flex-shrink: 0;
+  background: var(--bg); color: var(--text-tertiary); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.mu-picker-note { font-size: 12.5px; color: var(--text-quaternary); padding: 6px 2px; }
+.mu-picker-preview:not(:empty) { margin-top: 12px; }
+.mu-picker-preview .post-matchup { margin: 0; background: var(--card); }
+.mu-picker-preview .post-matchup:hover { border-color: transparent; }
+.mu-picker-preview .post-matchup.overruled { border-color: var(--control-border); }
 .form-error { font-size: 13px; color: #E15252; }
 .form-error:empty { display: none; }
 .composer .form-error { margin-top: 8px; }
@@ -996,14 +1043,10 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
 .auth-hint { display: block; font-size: 11.5px; color: var(--text-quaternary); margin-top: 6px; }
 .auth-form .btn-gold { margin-top: 6px; padding: 13px; font-size: 14.5px; }
 
-/* --- Mobile layout --------------------------------------------------
-   Everything above assumes desktop-width fixed side padding (40-64px)
-   and, on the Compare screen, two hero cards side by side - both break
-   down under ~640px (padding alone eats most of the viewport; two
-   flex:1 cards squeeze into unreadable slivers). This block reflows
-   the same markup/data for a single narrow column instead of
-   introducing a separate mobile template. */
-@media (max-width: 640px) {
+/* Tablets: the full topbar (nav + up to three page actions + account)
+   stops fitting well before phone width - Compare overflowed by ~200px
+   at 800px - so the hamburger menu takes over from 1024px down. */
+@media (max-width: 1024px) {
   .topbar { min-height: 56px; padding: 0 16px; gap: 12px; flex-wrap: wrap; }
   .topbar-mark { width: 26px; height: 26px; }
   .topbar-logo, .topbar-nav, .topbar-right { display: none; }
@@ -1021,6 +1064,22 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
   .topbar.menu-open .topbar-actions { flex-direction: column; align-items: stretch; }
   .topbar.menu-open .topbar-account { justify-content: space-between; }
   .topbar.menu-open .topbar-divider { display: none; }
+}
+
+@media (max-width: 900px) {
+  .vs-hero { padding: 32px 32px 0; flex-direction: column; gap: 16px; }
+  .vs-mark { width: auto; flex-direction: row; padding: 0 4px; }
+  .vs-mark-line { width: 100%; height: 1px; }
+}
+
+/* --- Mobile layout --------------------------------------------------
+   Everything above assumes desktop-width fixed side padding (40-64px)
+   and, on the Compare screen, two hero cards side by side - both break
+   down under ~640px (padding alone eats most of the viewport; two
+   flex:1 cards squeeze into unreadable slivers). This block reflows
+   the same markup/data for a single narrow column instead of
+   introducing a separate mobile template. */
+@media (max-width: 640px) {
 
   .add-character-panel { padding: 16px 20px; }
   .add-character-panel form { max-width: none; }
@@ -1028,20 +1087,10 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
   .page-content { padding: 28px 20px 48px; }
   .page-title { font-size: 26px; }
 
-  .vs-hero {
-    padding: 24px 20px 0;
-    flex-direction: column;
-    gap: 16px;
-  }
+  .vs-hero { padding: 24px 20px 0; }
   .vs-card { padding: 22px; }
-  .vs-card-head { align-items: flex-start; }
-  .vs-card-name { font-size: 19px; }
-  .vs-mark {
-    width: auto;
-    flex-direction: row;
-    padding: 0 4px;
-  }
-  .vs-mark-line { width: 100%; height: 1px; }
+  .vs-card-head { align-items: start; column-gap: 14px; }
+  .vs-card-name { font-size: 19px; line-height: 1.25; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 
   .analysis-row { padding: 8px 20px 0; gap: 16px; }
   .radar-card { width: 100%; padding: 20px; }
@@ -1056,7 +1105,7 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
   .compare-bar { margin: 24px 0 0; max-width: none; }
 
   .page-head-actions { width: 100%; }
-  .page-head-actions > * { flex: 1; }
+  .page-head-actions > * { flex: 1; min-width: 0; padding-left: 10px; padding-right: 10px; }
 
   .char-page { padding: 16px; }
   .char-main, .char-layout, .char-side { gap: 16px; }
@@ -1110,6 +1159,11 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
   .composer textarea { font-size: 14.5px; }
   .composer-count { font-size: 11.5px; }
   .composer-row .btn-gold { padding: 9px 18px; font-size: 13px; }
+  .composer-right { gap: 10px; }
+  .mu-picker { padding: 12px; }
+  .mu-picker-sides { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .mu-picker-vs { padding: 0; text-align: center; }
+  .mu-search { font-size: 16px; } /* under 16px, iOS zooms the page on focus */
   .post { gap: 10px; padding: 0 0 18px; margin-bottom: 20px; }
   .post-avatar { width: 34px; height: 34px; border-radius: 9px; font-size: 13px; }
   .post-author, .post-time { font-size: 13.5px; }

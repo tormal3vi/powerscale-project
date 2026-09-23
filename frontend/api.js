@@ -59,6 +59,8 @@ const Api = {
   createPost: (post) => apiPost('/api/posts', post),
   deletePost: (id) => apiDelete(`/api/posts/${id}`),
   likePost: (id) => apiPost(`/api/posts/${id}/like`, {}),
+  matchupPreview: (a, b, fa, fb) =>
+    apiGet(`/api/matchups/preview?${new URLSearchParams({ a, b, ...(fa ? { fa } : {}), ...(fb ? { fb } : {}) })}`),
 };
 
 // The logged-in user (or null), fetched once per page load and shared.
@@ -106,6 +108,11 @@ const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'
 // title="..." / href="..." attributes too.
 function escapeHtml(s) {
   return (s == null ? '' : String(s)).replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
+}
+
+// Accent-insensitive, so "Onoki" finds "Ōnoki" and "kugo" finds "Kūgo".
+function fold(s) {
+  return (s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
 function shortName(name) {
@@ -162,7 +169,10 @@ function peakConditionSuffix(rawText, peakLabel) {
 function peakHintText(range, rawText) {
   if (!range || !range.peak_label || range.peak_label === range.baseline_label) return '';
   const suffix = peakConditionSuffix(rawText, range.peak_label);
-  const qualifier = range.peak_qualifier ? range.peak_qualifier + ' ' : '';
+  // The qualifier can itself be "up to" ("7-A, up to 5-C with Fighting
+  // Spirit") - don't say it twice.
+  const q = (range.peak_qualifier || '').replace(/^up to\b\s*/i, '');
+  const qualifier = q ? q + ' ' : '';
   return 'up to ' + (suffix ? qualifier + suffix : qualifier + (prettifyLabel(range.peak_label) || ''));
 }
 
@@ -192,6 +202,14 @@ function defaultFormIndex(forms) {
     if (val > bestVal) { bestVal = val; bestIdx = i; }
   });
   return bestIdx;
+}
+
+// What to show in place of a stat value the calculator couldn't score.
+// Most often the wiki itself says "Unknown" (e.g. Dhruv Lakdawalla's
+// Speed/Durability) - say so, rather than implying the site failed to read it.
+function missingStatText(raw) {
+  if (!raw || !raw.trim()) return 'Not listed';
+  return /^\s*unknown\b/i.test(raw) ? 'Unknown' : 'Unscored';
 }
 
 function initialFor(name) {

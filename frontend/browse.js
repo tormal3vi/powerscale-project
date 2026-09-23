@@ -46,11 +46,6 @@ function showToast(message) {
   setTimeout(() => toast.remove(), 2600);
 }
 
-// Accent-insensitive, so "Onoki" finds "Ōnoki" and "kugo" finds "Kūgo".
-function fold(s) {
-  return (s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
-}
-
 // "HIGH 6-A" / "LOW 1-C" / "10-B" -> 6 / 1 / 10.
 function tierNumber(label) {
   const m = /(\d+)-[ABC]/i.exec(label || '');

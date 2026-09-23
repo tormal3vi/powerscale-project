@@ -189,6 +189,18 @@ def _bare(name: str) -> str:
     return re.sub(r"\s*\([^)]*\)", "", characters.short_name(name)).strip() or name
 
 
+@router.get("/api/matchups/preview", response_model=MatchupOut)
+def matchup_preview(a: int, b: int, fa: Optional[str] = None, fb: Optional[str] = None):
+    """The matchup card a post would carry, built exactly as the feed builds
+    it - so the board's composer can show it before anything is posted."""
+    if a == b:
+        raise HTTPException(status_code=400, detail="Pick two different characters")
+    m = _matchup_out({"char_a": a, "char_b": b, "form_a": fa, "form_b": fb}, {})
+    if m is None:
+        raise HTTPException(status_code=404, detail="Character or form not found")
+    return m
+
+
 def _post_out(row: dict, viewer: Optional[dict], cache: dict) -> PostOut:
     can_delete = viewer is not None and (viewer["id"] == row["user_id"] or viewer["is_admin"])
     return PostOut(
@@ -230,6 +242,8 @@ def create_post(payload: PostIn, user: dict = Depends(require_user)):
         raise HTTPException(status_code=400, detail=f"Posts are limited to {MAX_POST_CHARS} characters")
     has_matchup = payload.char_a is not None and payload.char_b is not None
     if has_matchup:
+        if payload.char_a == payload.char_b:
+            raise HTTPException(status_code=400, detail="Pick two different characters")
         for cid in (payload.char_a, payload.char_b):
             if db.get_character_by_id(cid) is None:
                 raise HTTPException(status_code=404, detail=f"No character with id {cid}")
