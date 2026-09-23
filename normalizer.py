@@ -242,6 +242,28 @@ _TIER_TERM_ALIASES: Dict[str, str] = {
     # ~1-A ceiling - a ~130-point internal inconsistency between Tier
     # and the two fields it's supposed to be derived from.
     "Outerversal": "Outerverse level",
+    # The wiki's own descriptive names for Low/High sub-grades. The
+    # ladder only held each tier's plain name, and the tokenizer matches
+    # the longest KNOWN label, so e.g. "Multi-Continent level" silently
+    # scored as plain "Continent level" (6-A instead of High 6-A) with no
+    # warning at all - found diagnosing a Bambietta-vs-Ainz verdict, then
+    # confirmed data-driven by scanning every stored AP/Durability string
+    # for an unrecognized Multi-/Small/Large prefix on a known name (the
+    # counts are real occurrences across the DB at the time). Each target
+    # is the code the SAME page pairs it with in its Tier field (e.g.
+    # "Small Country level" appears alongside "Low 6-B"), not guessed.
+    "Multi-Continent level": "High 6-A",   # 1015 occurrences, 179 characters
+    "Large Building level": "High 8-C",    # 268 / 51
+    "Large Mountain level": "High 7-A",    # 250 / 60
+    "Large Star level": "High 4-C",        # 202 / 33
+    "Large Country level": "High 6-B",     # 190 / 39
+    "Small Town level": "Low 7-C",         # 140 / 33
+    "Large Town level": "High 7-C",        # 119 / 33
+    "Large Island level": "High 6-C",      # 106 / 24
+    "Small Star level": "Low 4-C",         # 100 / 17
+    "Small City level": "Low 7-B",         # 82 / 25
+    "Small Planet level": "Low 5-B",       # 18 / 3
+    "Small Country level": "Low 6-B",      # 8 / 3
 }
 _SPEED_TERM_ALIASES: Dict[str, str] = {
     # Standalone shorthand for the existing "Infinite Speed" entry.

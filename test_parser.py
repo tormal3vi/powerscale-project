@@ -312,6 +312,29 @@ def test_saitama_flat_key_multi_form_extraction():
     assert "|" in stats.attack_potency
 
 
+def test_bambietta_per_field_tabber_and_shared_unsplit_field():
+    # Found diagnosing a Bambietta-vs-Ainz verdict: Key "Alive | Zombie",
+    # but two different things went wrong on this one page -
+    # 1. Her Attack Potency value lives in its OWN small Alive/Zombie
+    #    tabber under an empty "Attack Potency:" label, which plain
+    #    get_text() mashed into "AliveZombieMulti-Continent level..."
+    #    (no '|', so every form's AP came back None).
+    # 2. Her Speed is a single unsplit value ("Massively Hypersonic"),
+    #    the wiki's shorthand for "same for every form" - but the first
+    #    version of _extract_forms_from_flat_key only trusted exact
+    #    count matches and dropped it to None on every form instead.
+    #    Checked across the whole DB: 349 multi-form characters had at
+    #    least one field dropped this way.
+    stats = parse_character(_load("BambiettaBasterbine"))
+    assert [f.name for f in stats.forms] == ["Alive", "Zombie"]
+    alive, zombie = stats.forms
+    assert alive.stats.attack_potency.startswith("Multi-Continent level")
+    assert zombie.stats.attack_potency.startswith("Country level")
+    assert "AliveZombie" not in stats.attack_potency
+    assert alive.stats.speed == zombie.stats.speed
+    assert alive.stats.speed.startswith("Massively Hypersonic")
+
+
 def test_denji_multi_form_extraction_through_a_scrollable_wrapper():
     # Found while diagnosing why Chainsaw Man characters got "Insufficient
     # data" verdicts from calculator.py: Denji's page (and most of the

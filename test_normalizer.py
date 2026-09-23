@@ -339,14 +339,28 @@ def test_son_goku_toei_beginning_of_z_form_finds_brown_dwarf_amid_prose():
     assert ap.baseline == ap.peak == TIER_LADDER["brown dwarf level+"]
 
 
-def test_small_star_level_deliberately_not_added_yet():
-    # Low 4-C's real name per the wiki - not observed in scraped data yet,
-    # so (per explicit instruction) it gets no anchor or alias of its own.
-    # "low 4-c" still resolves via the ladder's automatic Low/High grading,
-    # just recalculated against the new, closer Brown Dwarf neighbor.
-    assert "small star level" not in TIER_LADDER
-    assert "low 4-c" in TIER_LADDER
+def test_small_star_level_added_once_real_data_surfaced_it():
+    # Low 4-C's real name per the wiki. Originally deliberately NOT added
+    # (per explicit instruction) until it showed up in scraped data -
+    # it had, 100 times across 17 characters, but never got flagged:
+    # the vocab sweep only reports unrecognized text, and "Small Star
+    # level" was silently matched as plain "Star level" (4-C) instead.
+    # Now an alias for the ladder's automatic Low 4-C grade, not a new
+    # anchor - same score "low 4-c" already had.
+    assert TIER_LADDER["small star level"] == TIER_LADDER["low 4-c"]
     assert TIER_LADDER["high 5-a"] < TIER_LADDER["low 4-c"] < TIER_LADDER["4-c"]
+
+
+def test_sub_grade_names_no_longer_collapse_to_their_plain_tier():
+    # Regression for the whole class, using real strings: "Multi-Continent
+    # level" (Bambietta Basterbine's Attack Potency) used to score as
+    # plain "Continent level", and "Small Town level" (Ainz Ooal Gown's
+    # Durability) as plain "Town level" - no warning either time, since
+    # a shorter known label was always found inside the longer one.
+    assert parse_tier_range("Multi-Continent level").baseline == TIER_LADDER["high 6-a"]
+    assert parse_tier_range("Small Town level").baseline == TIER_LADDER["low 7-c"]
+    assert parse_tier_range("Multi-Continent level").baseline > parse_tier_range("Continent level").baseline
+    assert parse_tier_range("Small Town level").baseline < parse_tier_range("Town level").baseline
 
 
 # --- multi-form normalization (Phase 4 follow-up) ---------------------------

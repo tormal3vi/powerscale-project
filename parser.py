@@ -98,6 +98,10 @@ STAT_FIELD_MAP = {
     "range": "range",
 }
 
+# Fields whose value can differ per form - the only ones worth splitting
+# out of a per-field tabber (see _per_tab_field_value).
+_PER_FORM_KEYS = set(STAT_FIELD_MAP.values()) | {"tier"}
+
 # Sentinel form name for ordinary, non-tabbed pages - chosen because
 # it's a real tab label the wiki itself already uses for "no special
 # form" (see e.g. Kirby's ability-tabber tabs).
@@ -431,6 +435,37 @@ def _extract_forms_from_stats_tabber(tabber, flat_tier: Optional[str]) -> List[C
     return forms
 
 
+def _per_tab_field_value(fragment: BeautifulSoup) -> Optional[str]:
+    """Some pages put ONE field's value in its own small tabber, one tab
+    per form, under an otherwise-empty label - e.g. Bambietta
+    Basterbine's "Attack Potency:" followed by an "Alive"/"Zombie"
+    tabber. Plain get_text() mashes the tab labels and every tab's
+    content into one run ("AliveZombieMulti-Continent level..."). Rejoin
+    the tabs with the same '|' convention flat multi-form fields already
+    use, in tab order, so _extract_forms_from_flat_key splits it like any
+    other field. Returns None (caller falls back to plain text) unless
+    the value lives entirely inside that tabber, and the tabber isn't a
+    full stats tabber (tabs holding their own labeled stat fields)."""
+    tabber = fragment.find("div", class_="tabber")
+    if tabber is None:
+        return None
+    contents = tabber.find_all("div", class_="wds-tab__content", recursive=False)
+    if len(contents) < 2:
+        return None
+    for content in contents:
+        for b in content.find_all("b"):
+            if b.get_text(strip=True).endswith(":"):
+                return None
+    outside = BeautifulSoup(str(fragment), "lxml")
+    outside.find("div", class_="tabber").decompose()
+    if _clean_text(outside.get_text()):
+        return None
+    parts = [_clean_text(c.get_text()) for c in contents]
+    if not all(parts):
+        return None
+    return " | ".join(parts)
+
+
 def _extract_forms_from_flat_key(stats: "CharacterStats") -> List[CharacterForm]:
     """Fallback for flat (non-tabber) pages whose stat fields pack every
     form into one '|'-separated string, named by a parallel "Key:" field
@@ -446,15 +481,24 @@ def _extract_forms_from_flat_key(stats: "CharacterStats") -> List[CharacterForm]
         return []
 
     n = len(key_segments)
-    # Trusted only per field, independently - a page can vary one field
+    # Handled per field, independently - a page can vary one field
     # across forms (e.g. just Speed) without every other field following
-    # the same split, so a count mismatch on one field shouldn't block
-    # the others.
+    # the same split. A field with exactly one (unsplit) value is the
+    # wiki's shorthand for "same for every form" - e.g. Bambietta
+    # Basterbine's Speed, "Massively Hypersonic" with no '|' at all -
+    # so it's shared across all forms rather than dropped. Only a
+    # genuine count mismatch (2+ segments, but not n) stays None, since
+    # there's no safe way to know which segment belongs to which form.
     field_segments: Dict[str, List[Optional[str]]] = {}
     for field_key in STAT_FIELD_MAP.values():
         flat_value = getattr(stats, field_key)
         segments = _split_top_level(flat_value, "|") if flat_value else []
-        field_segments[field_key] = segments if len(segments) == n else [None] * n
+        if len(segments) == n:
+            field_segments[field_key] = segments
+        elif len(segments) == 1:
+            field_segments[field_key] = segments * n
+        else:
+            field_segments[field_key] = [None] * n
 
     forms = []
     for i, name in enumerate(key_segments):
@@ -542,7 +586,9 @@ def parse_character(html: str, source: Optional[str] = None) -> CharacterStats:
             stats.powers_and_abilities = _extract_ability_list(fragment)
             continue
 
-        value = _clean_text(fragment.get_text())
+        value = _per_tab_field_value(fragment) if key in _PER_FORM_KEYS else None
+        if value is None:
+            value = _clean_text(fragment.get_text())
         if not value:
             continue
         if key:
