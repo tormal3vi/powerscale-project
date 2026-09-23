@@ -188,10 +188,14 @@ class MatchupOut(BaseModel):
     char_b: int
     form_a: Optional[str] = None
     form_b: Optional[str] = None
-    name_a: str
+    name_a: str          # display name, e.g. "Dante (Devil May Cry)"
     name_b: str
-    verdict: str  # e.g. "Kratos favored - Overwhelming favorite (~90%+)"
-    overruled: bool = False
+    label_a: str         # short name with no "(...)", e.g. "Dante"
+    label_b: str
+    category_a: str
+    category_b: str
+    calc_verdict: str    # the calculator's own call, e.g. "Kratos favored — Overwhelming favorite"
+    overruled_winner: Optional[str] = None  # short name of the admins' pick, if overruled
 
 
 class PostIn(BaseModel):

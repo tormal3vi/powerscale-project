@@ -11,50 +11,58 @@
 <body>
 <div class="page">
   <div id="topbar"></div>
-  <div class="page-content">
-    <div style="margin-bottom: 28px;">
-      <div class="page-title">Tournament</div>
-      <div class="page-subtitle">Pick 8 or 16 characters and let the calculator run a single-elimination bracket.</div>
-    </div>
+  <div class="t-page">
 
     <div id="setup">
-      <div class="toolbar-row" style="margin-top: 0;">
-        <label class="select-label">Size
-          <select id="size-select">
-            <option value="8">8 characters</option>
-            <option value="16">16 characters</option>
-          </select>
-        </label>
-        <div class="toolbar-spacer"></div>
-        <button class="pill-button" id="fill-random">Fill randomly</button>
-        <button class="pill-button" id="clear-all">Clear</button>
-        <button class="compare-bar-cta" id="run-tournament" disabled>Run tournament →</button>
+      <div class="t-setup-head">
+        <div class="t-title">New tournament</div>
+        <div class="t-size">
+          <span>Size</span>
+          <div class="t-seg" role="group" aria-label="Tournament size">
+            <button data-size="8" class="active">8</button>
+            <button data-size="16">16</button>
+          </div>
+        </div>
       </div>
-
-      <div class="tournament-setup">
-        <div class="stat-table-card">
-          <div class="section-label">Add characters</div>
-          <label class="search-box" for="t-search" style="margin-bottom: 12px;">
-            <input id="t-search" type="text" placeholder="Search by name…" autocomplete="off">
+      <div class="t-setup-grid">
+        <div class="t-card">
+          <label class="t-search">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="#7A7264" stroke-width="1.4"/><path d="m11 11 3.5 3.5" stroke="#7A7264" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <span class="visually-hidden">Search characters</span>
+            <input id="t-search" type="text" placeholder="Search characters to add…" autocomplete="off">
           </label>
           <div id="t-results" class="t-results"></div>
         </div>
-        <div class="stat-table-card">
-          <div class="section-label" id="t-picked-label">Entrants</div>
-          <ol id="t-picked" class="t-picked"></ol>
+        <div class="t-card t-entrants">
+          <div class="t-entrants-head">
+            <div id="t-picked-label">Entrants (0/8)</div>
+            <button class="t-text-btn" id="clear-all">Clear</button>
+          </div>
+          <div id="t-picked" class="t-picked"></div>
+          <button class="pill-button t-full" id="fill-random">Fill randomly</button>
+          <button class="btn-gold t-full t-run" id="run-tournament" disabled>Run tournament →</button>
         </div>
       </div>
     </div>
 
     <div id="bracket-wrap" style="display:none;">
-      <div class="toolbar-row" style="margin-top: 0;">
-        <div class="t-status" id="t-status"></div>
-        <div class="toolbar-spacer"></div>
-        <button class="pill-button" id="copy-bracket">Copy link</button>
-        <button class="pill-button" id="new-tournament">New tournament</button>
+      <div class="t-champion">
+        <div class="t-champ-left">
+          <div class="t-champ-avatar" id="t-champ-avatar"></div>
+          <div>
+            <div class="t-champ-label" id="t-champ-label">Champion</div>
+            <div class="t-champ-name" id="t-champ-name"></div>
+          </div>
+        </div>
+        <div class="t-champ-actions">
+          <button class="pill-button" id="copy-bracket">Copy link</button>
+          <button class="btn-gold" id="new-tournament">New tournament</button>
+        </div>
       </div>
+      <div class="t-scroll-hint">Scroll to see all rounds →</div>
       <div class="bracket" id="bracket"></div>
     </div>
+
   </div>
 </div>
 

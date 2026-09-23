@@ -15,11 +15,10 @@ const state = {
   showAllDefault: false, // "show the full roster" override for the capped default view
 };
 
-const topbarMeta = document.createElement('div');
-topbarMeta.className = 'topbar-meta';
-topbarMeta.textContent = 'Loading…';
 const addToggle = pillButton('+ Add character');
-renderTopbar([topbarMeta, addToggle]);
+renderTopbar([addToggle]);
+const pageSubtitle = document.getElementById('page-subtitle');
+const DEFAULT_SUBTITLE = pageSubtitle.textContent;
 
 const grid = document.getElementById('character-grid');
 const emptyState = document.getElementById('empty-state');
@@ -142,9 +141,11 @@ function characterCard(c, rank) {
   head.appendChild(nameBlock);
   if (rank) {
     const rankEl = document.createElement('div');
-    rankEl.className = 'rank-badge';
+    rankEl.className = 'rank-badge' + (rank === 1 ? ' first' : '');
     rankEl.textContent = `#${rank}`;
-    head.appendChild(rankEl);
+    card.appendChild(rankEl);
+    card.classList.add('ranked');
+    if (rank === 1) card.classList.add('rank-first');
   }
   card.appendChild(head);
 
@@ -200,6 +201,9 @@ function renderGrid() {
   } else {
     gridNote.textContent = '';
   }
+  const where = state.activeCategory === 'All' ? 'across every category' : `in ${state.activeCategory}`;
+  pageSubtitle.textContent = state.sort === 'strong' ? `Sorted by strength, ${where}.`
+    : state.sort === 'weak' ? `Sorted weakest first, ${where}.` : DEFAULT_SUBTITLE;
 
   const ranked = state.sort !== 'alpha';
   const frag = document.createDocumentFragment();
@@ -270,15 +274,10 @@ document.getElementById('daily-matchup').addEventListener('click', () => {
 
 // --- loading ------------------------------------------------------------
 
-function setMeta(total, categoryCount) {
-  topbarMeta.textContent = `${total.toLocaleString()} characters · ${categoryCount} categories`;
-}
-
 async function loadLists() {
   const [categoriesRes, charactersRes] = await Promise.all([Api.listCategories(), Api.listCharacters()]);
   state.categories = categoriesRes;
   state.characters = charactersRes.characters;
-  setMeta(charactersRes.total, categoriesRes.length);
 }
 
 async function init() {
@@ -292,7 +291,6 @@ async function init() {
     renderGrid();
     renderCompareBar();
   } catch (err) {
-    topbarMeta.textContent = 'Failed to load';
     emptyState.textContent = 'Could not reach the API: ' + err.message;
     emptyState.style.display = 'block';
   }

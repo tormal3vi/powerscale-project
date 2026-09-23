@@ -114,6 +114,11 @@ function shortName(name) {
   return (name || '').split(/[;,]/)[0].trim();
 }
 
+// "Dante (Devil May Cry)" -> "Dante": for tight spots like "Dante wins".
+function bareName(name) {
+  return shortName(name).replace(/\s*\([^)]*\)/g, '').trim() || shortName(name);
+}
+
 function prettifyLabel(label) {
   if (!label) return null;
   // Tier codes ("7-b", "low 2-c", "high 1-a") read best fully upper-cased;
@@ -150,15 +155,30 @@ function peakConditionSuffix(rawText, peakLabel) {
   return suffix || null;
 }
 
-function peakHintHtml(range, rawText) {
-  // Badges/rows show the baseline (lower) value of a range - deliberate,
-  // see calculator.py's select_form() docstring - so show the peak inline
-  // whenever it differs (a hover tooltip alone doesn't help on touch).
+// "up to possibly Galaxy level" - or '' when the range has no higher peak.
+// Badges/rows show the baseline (lower) value of a range - deliberate,
+// see calculator.py's select_form() docstring - so the peak is shown
+// alongside whenever it differs (a hover tooltip alone doesn't help on touch).
+function peakHintText(range, rawText) {
   if (!range || !range.peak_label || range.peak_label === range.baseline_label) return '';
   const suffix = peakConditionSuffix(rawText, range.peak_label);
   const qualifier = range.peak_qualifier ? range.peak_qualifier + ' ' : '';
-  const text = suffix ? qualifier + suffix : qualifier + (prettifyLabel(range.peak_label) || '');
-  return `<div class="stat-peak-hint">up to ${escapeHtml(text)}</div>`;
+  return 'up to ' + (suffix ? qualifier + suffix : qualifier + (prettifyLabel(range.peak_label) || ''));
+}
+
+function peakHintHtml(range, rawText) {
+  const text = peakHintText(range, rawText);
+  return text ? `<div class="stat-peak-hint">${escapeHtml(text)}</div>` : '';
+}
+
+// A normalized label as the wiki itself wrote it ("Wall level", not the
+// lower-cased ladder key) when it appears in the raw text; tier codes and
+// anything not found fall back to prettifyLabel.
+function labelAsWritten(label, rawText) {
+  if (!label) return null;
+  if (/\d/.test(label) || !rawText) return prettifyLabel(label);
+  const idx = rawText.toLowerCase().indexOf(label.toLowerCase());
+  return idx === -1 ? prettifyLabel(label) : rawText.slice(idx, idx + label.length);
 }
 
 function defaultFormIndex(forms) {

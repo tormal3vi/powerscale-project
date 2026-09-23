@@ -346,11 +346,11 @@ function reasonBullets(v) {
 function overrideBannerHtml(v) {
   if (!v.override) return '';
   const o = v.override;
+  const date = new Date(o.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   return `
     <div class="override-banner">
-      <div class="override-title">Overruled by admins: ${escapeHtml(shortName(o.winner_name))} wins</div>
       ${o.note ? `<div class="override-note">“${escapeHtml(o.note)}”</div>` : ''}
-      <div class="override-meta">— ${escapeHtml(o.admin)}, ${escapeHtml(new Date(o.created_at).toLocaleDateString())}. The calculator's own estimate is below.</div>
+      <div class="override-meta">— ${escapeHtml(o.admin)}, admin · ${escapeHtml(date)}</div>
     </div>`;
 }
 
@@ -361,20 +361,27 @@ async function renderAdminPanel(card) {
   const panel = document.createElement('div');
   panel.className = 'admin-panel';
   panel.innerHTML = `
-    <div class="section-label">Admin · overrule this exact matchup (these two forms)</div>
+    <div class="admin-head">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 1.5 14 4.5v4c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8v-4L8 1.5Z" stroke="#D9A441" stroke-width="1.3" stroke-linejoin="round"/></svg>
+      <span>Admin panel</span>
+      <span class="admin-scope">applies to these two forms only</span>
+    </div>
     <div class="admin-row">
       <label><input type="radio" name="ov-winner" value="${state.a.id}"> <span></span></label>
       <label><input type="radio" name="ov-winner" value="${state.b.id}"> <span></span></label>
     </div>
-    <input class="admin-note" type="text" maxlength="300" placeholder="Reason (optional) — e.g. “group vote after the Discord argument”">
-    <div class="admin-row">
-      <button class="compare-bar-cta" data-act="save">${v.override ? 'Update overrule' : 'Save overrule'}</button>
+    <label class="admin-reason">
+      <span>Reason</span>
+      <textarea class="admin-note" rows="2" maxlength="300"></textarea>
+    </label>
+    <div class="admin-row admin-buttons">
+      <button class="btn-gold" data-act="save">${v.override ? 'Update overrule' : 'Save overrule'}</button>
       ${v.override ? '<button class="pill-button" data-act="remove">Remove overrule</button>' : ''}
     </div>
     <div class="add-character-status error"></div>`;
   const [spanA, spanB] = panel.querySelectorAll('.admin-row label span');
-  spanA.textContent = shortName(v.character_a);
-  spanB.textContent = shortName(v.character_b);
+  spanA.textContent = `${bareName(v.character_a)} wins`;
+  spanB.textContent = `${bareName(v.character_b)} wins`;
   if (v.override) {
     panel.querySelector(`input[value="${v.override.winner_id}"]`).checked = true;
     panel.querySelector('.admin-note').value = v.override.note;
@@ -433,17 +440,18 @@ function renderVerdict() {
   const fillColor = leansLeft ? accentA : accentB;
 
   const calcHeadline = `${favored ? escapeHtml(favored) + ' favored — ' : ''}${escapeHtml(v.label)}${v.confidence_hint !== 'n/a' ? ' (' + v.confidence_hint + ')' : ''}`;
+  const calcShort = `${favored ? escapeHtml(shortName(favored)) + ' favored — ' : ''}${escapeHtml(v.label)}`;
   card.innerHTML = `
     <div class="verdict-head">
       <div>
         <div class="section-label">Who would win?</div>
         <div class="verdict-headline">${overruledHeadline || calcHeadline}</div>
       </div>
-      <div class="verdict-disclaimer">Heuristic estimate from normalized stats — not a calibrated probability.</div>
+      ${v.override ? '' : '<div class="verdict-disclaimer">Heuristic estimate from normalized stats — not a calibrated probability.</div>'}
     </div>
     ${overrideBannerHtml(v)}
-    ${v.override ? `<div class="section-label" style="margin-bottom:0;">Calculator's estimate: ${calcHeadline}</div>` : ''}
-    <div>
+    ${v.override ? `<div class="calc-estimate">Calculator's estimate: ${calcShort}</div>` : ''}
+    <div class="${v.override ? 'meter-muted' : ''}">
       <div class="verdict-meter-track">
         <div class="verdict-meter-fill" style="left:${fillLeft}%; width:${fillWidth}%; background:${fillColor};"></div>
         <div class="verdict-meter-center"></div>

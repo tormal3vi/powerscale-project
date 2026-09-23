@@ -164,18 +164,29 @@ def _matchup_out(row: dict, cache: dict) -> Optional[MatchupOut]:
         cache[key] = None  # a character was removed since the post was made
         return None
     ov = community.get_override(row["char_a"], row["char_b"], v.form_a, v.form_b)
-    if ov is not None:
-        winner = v.character_a if ov["winner_id"] == row["char_a"] else v.character_b
-        verdict = f"{characters.short_name(winner)} wins — overruled by admins"
-    elif v.composite is None:
-        verdict = "Not enough data for a verdict"
+    label_a, label_b = _bare(v.character_a), _bare(v.character_b)
+    if v.composite is None:
+        calc = "Not enough data for a verdict"
     elif v.favored:
-        verdict = f"{characters.short_name(v.favored)} favored — {v.label}"
+        calc = f"{label_a if v.favored == v.character_a else label_b} favored — {v.label}"
     else:
-        verdict = v.label
-    cache[key] = MatchupOut(char_a=row["char_a"], char_b=row["char_b"], form_a=v.form_a, form_b=v.form_b,
-                            name_a=v.character_a, name_b=v.character_b, verdict=verdict, overruled=ov is not None)
+        calc = v.label
+    winner = None
+    if ov is not None:
+        winner = label_a if ov["winner_id"] == row["char_a"] else label_b
+    cat_a = (db.get_character_by_id(row["char_a"]) or {}).get("category") or ""
+    cat_b = (db.get_character_by_id(row["char_b"]) or {}).get("category") or ""
+    cache[key] = MatchupOut(
+        char_a=row["char_a"], char_b=row["char_b"], form_a=v.form_a, form_b=v.form_b,
+        name_a=v.character_a, name_b=v.character_b, label_a=label_a, label_b=label_b,
+        category_a=cat_a, category_b=cat_b, calc_verdict=calc, overruled_winner=winner,
+    )
     return cache[key]
+
+
+def _bare(name: str) -> str:
+    """"Dante (Devil May Cry)" / "Genos, Demon Cyborg" -> "Dante" / "Genos"."""
+    return re.sub(r"\s*\([^)]*\)", "", characters.short_name(name)).strip() or name
 
 
 def _post_out(row: dict, viewer: Optional[dict], cache: dict) -> PostOut:

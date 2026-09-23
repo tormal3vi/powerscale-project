@@ -22,9 +22,15 @@
   </div>
 
   <div class="page-content">
-    <div style="margin-bottom: 28px;">
-      <div class="page-title">Browse characters</div>
-      <div class="page-subtitle">Search the roster, or filter by series, and add up to two to a comparison.</div>
+    <div class="page-head">
+      <div>
+        <div class="page-title">Browse characters</div>
+        <div class="page-subtitle" id="page-subtitle">Search the roster, or filter by series, and add up to two to a comparison.</div>
+      </div>
+      <div class="page-head-actions">
+        <button class="pill-button" id="random-matchup">Random matchup</button>
+        <button class="btn-gold" id="daily-matchup">Matchup of the day</button>
+      </div>
     </div>
 
     <label class="search-box" for="search-input">
@@ -36,14 +42,14 @@
     <div class="filter-row" id="filter-row"></div>
 
     <div class="toolbar-row">
-      <label class="select-label">Sort
+      <label class="select-box"><span>Sort</span>
         <select id="sort-select">
           <option value="alpha">A–Z</option>
           <option value="strong">Strongest first</option>
           <option value="weak">Weakest first</option>
         </select>
       </label>
-      <label class="select-label">Tier
+      <label class="select-box"><span>Tier</span>
         <select id="tier-select">
           <option value="any">Any tier</option>
           <option value="1">Tier 1</option><option value="2">Tier 2</option>
@@ -53,9 +59,6 @@
           <option value="9">Tier 9</option><option value="10">Tier 10</option>
         </select>
       </label>
-      <div class="toolbar-spacer"></div>
-      <button class="pill-button" id="random-matchup">Random matchup</button>
-      <button class="pill-button" id="daily-matchup">Matchup of the day</button>
     </div>
 
     <div class="grid-note" id="grid-note"></div>
