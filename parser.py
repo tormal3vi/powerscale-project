@@ -435,6 +435,23 @@ def _extract_forms_from_stats_tabber(tabber, flat_tier: Optional[str]) -> List[C
     return forms
 
 
+def _segments_for_forms(flat_value: Optional[str], n: int) -> List[Optional[str]]:
+    """One value per form from a flat, possibly '|'-split field. Handled
+    per field, independently - a page can vary one field across forms
+    (e.g. just Speed) without every other field following the same
+    split. n segments map to forms in order. Exactly one (unsplit) value
+    is the wiki's shorthand for "same for every form" - e.g. Bambietta
+    Basterbine's Speed, "Massively Hypersonic" with no '|' at all - so
+    it's shared rather than dropped. Any other count (2+ but not n)
+    stays None: there's no safe way to know which segment is whose."""
+    segments = _split_top_level(flat_value, "|") if flat_value else []
+    if len(segments) == n:
+        return segments
+    if len(segments) == 1:
+        return segments * n
+    return [None] * n
+
+
 def _per_tab_field_value(fragment: BeautifulSoup) -> Optional[str]:
     """Some pages put ONE field's value in its own small tabber, one tab
     per form, under an otherwise-empty label - e.g. Bambietta
@@ -481,24 +498,10 @@ def _extract_forms_from_flat_key(stats: "CharacterStats") -> List[CharacterForm]
         return []
 
     n = len(key_segments)
-    # Handled per field, independently - a page can vary one field
-    # across forms (e.g. just Speed) without every other field following
-    # the same split. A field with exactly one (unsplit) value is the
-    # wiki's shorthand for "same for every form" - e.g. Bambietta
-    # Basterbine's Speed, "Massively Hypersonic" with no '|' at all -
-    # so it's shared across all forms rather than dropped. Only a
-    # genuine count mismatch (2+ segments, but not n) stays None, since
-    # there's no safe way to know which segment belongs to which form.
-    field_segments: Dict[str, List[Optional[str]]] = {}
-    for field_key in STAT_FIELD_MAP.values():
-        flat_value = getattr(stats, field_key)
-        segments = _split_top_level(flat_value, "|") if flat_value else []
-        if len(segments) == n:
-            field_segments[field_key] = segments
-        elif len(segments) == 1:
-            field_segments[field_key] = segments * n
-        else:
-            field_segments[field_key] = [None] * n
+    field_segments = {
+        field_key: _segments_for_forms(getattr(stats, field_key), n)
+        for field_key in STAT_FIELD_MAP.values()
+    }
 
     forms = []
     for i, name in enumerate(key_segments):
@@ -599,6 +602,17 @@ def parse_character(html: str, source: Optional[str] = None) -> CharacterStats:
     stats_tabber = _find_stats_tabber(heading)
     if stats_tabber is not None:
         forms = _extract_forms_from_stats_tabber(stats_tabber, stats.tier)
+        # Hybrid pages (Ichigo Kurosaki (Pre-Timeskip): Attack Potency
+        # inside the tabs, but Durability/Speed/Stamina as flat '|'-split
+        # fields outside them) - the tabs alone lost those fields for
+        # every form. Fill only what a tab doesn't itself list, by the
+        # same per-field rule as flat multi-form pages; a tab's own value
+        # always wins, and pages with no flat value (Genos) are untouched.
+        for field_key in STAT_FIELD_MAP.values():
+            segments = _segments_for_forms(getattr(stats, field_key), len(forms))
+            for form, segment in zip(forms, segments):
+                if segment and not getattr(form.stats, field_key):
+                    setattr(form.stats, field_key, segment)
     else:
         forms = _extract_forms_from_flat_key(stats)
     stats.forms = forms if forms else [_default_form(stats)]

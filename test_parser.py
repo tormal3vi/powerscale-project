@@ -335,6 +335,21 @@ def test_bambietta_per_field_tabber_and_shared_unsplit_field():
     assert alive.stats.speed.startswith("Massively Hypersonic")
 
 
+def test_ichigo_hybrid_tabber_page_fills_flat_fields_outside_the_tabs():
+    # Stats tabber holds Attack Potency per tab, but Durability/Speed
+    # live OUTSIDE the tabs as flat '|'-split fields - the tabber path
+    # alone dropped them for all 8 forms (found noticing a Pre- vs.
+    # Post-Timeskip Ichigo verdict only compared 2 of 4 stats).
+    stats = parse_character(_load("IchigoPreTimeskip"))
+    assert len(stats.forms) == 8
+    assert all(f.stats.attack_potency for f in stats.forms)
+    assert all(f.stats.durability for f in stats.forms)
+    assert stats.forms[-1].stats.durability.startswith("Multi-Galaxy level")
+    # Speed has 7 '|' segments for 8 forms - no safe way to line them
+    # up, so it stays unscored rather than being guessed.
+    assert not any(f.stats.speed for f in stats.forms)
+
+
 def test_denji_multi_form_extraction_through_a_scrollable_wrapper():
     # Found while diagnosing why Chainsaw Man characters got "Insufficient
     # data" verdicts from calculator.py: Denji's page (and most of the

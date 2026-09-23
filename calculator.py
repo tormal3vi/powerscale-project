@@ -300,15 +300,17 @@ def _character_text_blob(raw: dict) -> str:
     return " ".join(parts).lower()
 
 
-def ability_flags(raw_a: dict, raw_b: dict) -> List[AbilityFlag]:
+def ability_flags(
+    raw_a: dict, raw_b: dict, name_a: Optional[str] = None, name_b: Optional[str] = None,
+) -> List[AbilityFlag]:
     """Curated-keyword scan only - flags presence, never scores it. See
     module docstring for why this deliberately doesn't touch compare_forms's
     numeric output, and its real limitations (no notion of degree, no
     counter-matching, not scoped to the form used in the comparison)."""
     blob_a = _character_text_blob(raw_a)
     blob_b = _character_text_blob(raw_b)
-    name_a = raw_a.get("name") or "Character A"
-    name_b = raw_b.get("name") or "Character B"
+    name_a = name_a or raw_a.get("name") or "Character A"
+    name_b = name_b or raw_b.get("name") or "Character B"
 
     flags: List[AbilityFlag] = []
     for tag, keywords in ABILITY_TAGS:
@@ -333,18 +335,24 @@ def compare_characters(
     form_a: Optional[str] = None,
     form_b: Optional[str] = None,
     db_path: Path = db.DB_PATH,
+    name_a: Optional[str] = None,
+    name_b: Optional[str] = None,
 ) -> Verdict:
+    """name_a/name_b override the names shown in the verdict - for when
+    two different characters share the same stored name (e.g. three
+    "Ichigo Kurosaki" pages), which would otherwise read as "Ichigo
+    Kurosaki favored" with no way to tell which one."""
     raw_a, norm_a = load_character(char_a, db_path)
     raw_b, norm_b = load_character(char_b, db_path)
 
     selected_a = select_form(norm_a, form_a)
     selected_b = select_form(norm_b, form_b)
 
-    name_a = norm_a.get("name") or raw_a.get("name") or str(char_a)
-    name_b = norm_b.get("name") or raw_b.get("name") or str(char_b)
+    name_a = name_a or norm_a.get("name") or raw_a.get("name") or str(char_a)
+    name_b = name_b or norm_b.get("name") or raw_b.get("name") or str(char_b)
 
     verdict = compare_forms(name_a, selected_a, name_b, selected_b)
-    verdict.ability_flags = ability_flags(raw_a, raw_b)
+    verdict.ability_flags = ability_flags(raw_a, raw_b, name_a, name_b)
     if verdict.ability_flags:
         verdict.notes.append(
             "Ability/weakness flags reflect each character's whole-page text, not specifically the "

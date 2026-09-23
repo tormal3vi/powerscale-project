@@ -10,8 +10,9 @@ hand, or http://localhost:8000/ once frontend/ exists.
 """
 
 import json
+import re
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
@@ -79,6 +80,40 @@ def _form_out(raw_form: dict, normalized_form: dict) -> FormOut:
     )
 
 
+def _name_key(name: str) -> str:
+    """A character's primary name for collision purposes: the first alias
+    (names list aliases after ',', ';' or '/'), parentheticals dropped,
+    whitespace collapsed - so "Frieza/Freeza/Freezer", "Frieza / Freeza /
+    Freezer" and plain "Frieza" all count as the same name."""
+    first = re.split(r"[,;/]", name, maxsplit=1)[0]
+    first = re.sub(r"\([^)]*\)", "", first)
+    return " ".join(first.split()).lower()
+
+
+def _colliding_names(conn) -> set:
+    """Name keys shared by 2+ characters. Distinct wiki pages often carry
+    the same "Name:" field - e.g. Ichigo Kurosaki's Pre-Timeskip, Post-
+    Timeskip and Live Action pages, or Fairy Tail's X784-X792 vs. X793
+    versions - and a couple even carry another character's name by
+    mistake on the wiki itself (Sherry Blendy's and Toby Horhorta's pages
+    both say "Yuka Suzuki")."""
+    counts: Dict[str, int] = {}
+    for (name,) in conn.execute("SELECT name FROM characters"):
+        key = _name_key(name)
+        counts[key] = counts.get(key, 0) + 1
+    return {k for k, n in counts.items() if n > 1}
+
+
+def _display_name(name: str, source_url: str, colliding: set) -> str:
+    """The stored name, unless another character shares it - then the wiki
+    page title, which the wiki guarantees is unique (e.g. "Ichigo
+    Kurosaki (Pre-Timeskip)", "Sherry Blendy"). Manually entered
+    characters have no real page title, so they always keep their name."""
+    if _name_key(name) not in colliding or not source_url.startswith("http"):
+        return name
+    return scraper.page_title(source_url)
+
+
 def _verdict_out(v: "calculator.Verdict") -> VerdictOut:
     return VerdictOut(
         character_a=v.character_a,
@@ -120,7 +155,7 @@ def list_categories():
 
 @app.get("/api/characters", response_model=CharacterListOut)
 def list_characters(q: Optional[str] = None, category: Optional[str] = None):
-    sql = "SELECT id, name, category, normalized_json FROM characters"
+    sql = "SELECT id, name, source_url, category, normalized_json FROM characters"
     clauses, params = [], []
     if q:
         clauses.append("name LIKE ?")
@@ -134,6 +169,7 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
 
     with db.connect() as conn:
         rows = conn.execute(sql, params).fetchall()
+        colliding = _colliding_names(conn)
 
     out = []
     for row in rows:
@@ -141,12 +177,13 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
         forms = normalized.get("forms") or []
         out.append(CharacterSummaryOut(
             id=row["id"],
-            name=row["name"],
+            name=_display_name(row["name"], row["source_url"], colliding),
             category=row["category"] or "Uncategorized",
             tier_label=_tier_badge(normalized),
             form_count=len(forms) or 1,
             is_multi_form=len(forms) > 1,
         ))
+    out.sort(key=lambda c: c.name.lower())
     return CharacterListOut(total=len(out), characters=out)
 
 
@@ -168,9 +205,12 @@ def get_character(char_id: int):
         for rf, nf in zip(raw_forms, normalized_forms)
     ]
 
+    with db.connect() as conn:
+        colliding = _colliding_names(conn)
+
     return CharacterDetailOut(
         id=row["id"],
-        name=row["name"],
+        name=_display_name(row["name"], row["source_url"], colliding),
         category=row["category"] or "Uncategorized",
         source_url=row["source_url"],
         origin=raw.get("origin"),
@@ -210,9 +250,11 @@ def fetch_character(payload: FetchCharacterIn):
     row = db.get_character(source_url)
     normalized = json.loads(row["normalized_json"])
     forms = normalized.get("forms") or []
+    with db.connect() as conn:
+        colliding = _colliding_names(conn)
     return CharacterSummaryOut(
         id=row["id"],
-        name=row["name"],
+        name=_display_name(row["name"], row["source_url"], colliding),
         category=row["category"] or "Uncategorized",
         tier_label=_tier_badge(normalized),
         form_count=len(forms) or 1,
@@ -224,9 +266,19 @@ def fetch_character(payload: FetchCharacterIn):
 
 @app.post("/api/compare", response_model=VerdictOut)
 def compare(payload: CompareIn):
+    with db.connect() as conn:
+        colliding = _colliding_names(conn)
+
+    def name_for(ref):
+        if not isinstance(ref, int):
+            return None
+        row = db.get_character_by_id(ref)
+        return _display_name(row["name"], row["source_url"], colliding) if row else None
+
     try:
         verdict = calculator.compare_characters(
             payload.char_a, payload.char_b, payload.form_a, payload.form_b,
+            name_a=name_for(payload.char_a), name_b=name_for(payload.char_b),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
