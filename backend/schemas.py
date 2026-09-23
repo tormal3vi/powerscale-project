@@ -196,6 +196,7 @@ class MatchupOut(BaseModel):
     category_b: str
     calc_verdict: str    # the calculator's own call, e.g. "Kratos favored — Overwhelming favorite"
     overruled_winner: Optional[str] = None  # short name of the admins' pick, if overruled
+    overruled_winner_id: Optional[int] = None
 
 
 class PostIn(BaseModel):
@@ -207,10 +208,19 @@ class PostIn(BaseModel):
     form_b: Optional[str] = Field(None, max_length=200)
 
 
+class RulingOut(BaseModel):
+    """What an admin-overrule post ruled, as of when it was posted."""
+    winner: str   # short name, e.g. "Dante"
+    status: str   # "current", "changed" (since re-ruled) or "lifted" (overrule removed)
+
+
 class PostOut(BaseModel):
     id: int
     parent_id: Optional[int] = None
     author: str
+    author_is_admin: bool = False
+    kind: Optional[str] = None  # "overrule" for posts made by an admin ruling
+    ruling: Optional[RulingOut] = None
     body: str
     created_at: datetime
     like_count: int

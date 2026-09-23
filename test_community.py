@@ -83,6 +83,58 @@ def test_posts_replies_likes_and_cascading_delete():
     assert community.get_post(top) is None and community.get_post(reply) is None and community.get_post(nested) is None
 
 
+def test_init_adds_new_post_columns_to_an_existing_database():
+    # A database made before posts had kind/ruling_winner (like the live
+    # one) gains them on startup, keeping its rows.
+    from sqlalchemy import create_engine, inspect, text
+    old_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    old_engine = create_engine(f"sqlite:///{old_db.name}")
+    with old_engine.begin() as conn:
+        conn.execute(text("CREATE TABLE posts (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, parent_id INTEGER, "
+                          "body TEXT NOT NULL, char_a INTEGER, char_b INTEGER, form_a VARCHAR(200), "
+                          "form_b VARCHAR(200), created_at DATETIME NOT NULL)"))
+        conn.execute(text("INSERT INTO posts (user_id, body, created_at) VALUES (1, 'old post', '2026-01-01')"))
+    real_engine = community.engine
+    community.engine = old_engine
+    try:
+        community.init()
+        community.init()  # and a second startup is a no-op
+    finally:
+        community.engine = real_engine
+    cols = {c["name"] for c in inspect(old_engine).get_columns("posts")}
+    assert {"kind", "ruling_winner"} <= cols
+    with old_engine.connect() as conn:
+        assert conn.execute(text("SELECT body, kind FROM posts")).all() == [("old post", None)]
+    old_engine.dispose()
+    os.unlink(old_db.name)
+
+
+def test_overrule_posts_keep_the_ruling_they_made():
+    admin = community.create_user("ruler", "password123")
+    pid = community.create_post(admin["id"], "Devil Trigger", None, 5, 6, "Base", "DMC 1",
+                                kind="overrule", ruling_winner=6)
+    view = community.get_post_view(pid, None)
+    assert view["kind"] == "overrule" and view["ruling_winner"] == 6
+    plain = community.create_post(admin["id"], "just a post")
+    assert community.get_post_view(plain, None)["kind"] is None
+
+
+def test_ruling_status_follows_the_live_overrule():
+    from backend.community_api import _ruling_out
+    from backend.schemas import MatchupOut
+
+    def matchup(winner_id):
+        return MatchupOut(char_a=5, char_b=6, name_a="Kratos", name_b="Dante (Devil May Cry)", label_a="Kratos",
+                          label_b="Dante", category_a="God of War", category_b="Devil May Cry", calc_verdict="x",
+                          overruled_winner={5: "Kratos", 6: "Dante"}.get(winner_id), overruled_winner_id=winner_id)
+
+    row = {"kind": "overrule", "ruling_winner": 6}
+    assert _ruling_out(row, matchup(6)).model_dump() == {"winner": "Dante", "status": "current"}
+    assert _ruling_out(row, matchup(5)).status == "changed"
+    assert _ruling_out(row, matchup(None)).status == "lifted"
+    assert _ruling_out({"kind": None, "ruling_winner": None}, matchup(6)) is None
+
+
 def test_rate_limiter_blocks_after_the_limit_per_key():
     rl = community.RateLimiter(limit=2, window=60)
     assert rl.allow("ip1") and rl.allow("ip1")

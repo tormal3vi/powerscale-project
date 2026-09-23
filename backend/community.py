@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 
 from sqlalchemy import (
     Column, DateTime, ForeignKey, Integer, MetaData, String, Table, Text,
-    UniqueConstraint, and_, create_engine, delete, func, insert, select, update,
+    UniqueConstraint, and_, create_engine, delete, func, insert, inspect, select, text, update,
 )
 
 
@@ -81,6 +81,12 @@ posts = Table(
     Column("form_a", String(200), nullable=True),
     Column("form_b", String(200), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    # "overrule" for the post an admin ruling makes automatically; NULL for
+    # everything people write themselves.
+    Column("kind", String(16), nullable=True),
+    # The winner that ruling named, kept on the post itself: the overrule can
+    # later be changed or lifted, and the post should still say what it said.
+    Column("ruling_winner", Integer, nullable=True),
 )
 likes = Table(
     "likes", metadata,
@@ -89,8 +95,21 @@ likes = Table(
 )
 
 
+# Columns added after the first deploy. create_all() only creates missing
+# tables, never missing columns, so an existing database (the live Neon one)
+# gets them here. Nullable, so adding them touches no existing row.
+_ADDED_COLUMNS = {"posts": [("kind", "VARCHAR(16)"), ("ruling_winner", "INTEGER")]}
+
+
 def init() -> None:
     metadata.create_all(engine)
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table, columns in _ADDED_COLUMNS.items():
+            have = {c["name"] for c in inspector.get_columns(table)}
+            for name, sql_type in columns:
+                if name not in have:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
 
 
 def _now() -> datetime:
@@ -279,7 +298,8 @@ def delete_override(a: int, b: int, form_a: str, form_b: str) -> bool:
 # --- message board --------------------------------------------------------------------
 
 def create_post(user_id: int, body: str, parent_id: Optional[int] = None, char_a: Optional[int] = None,
-                char_b: Optional[int] = None, form_a: Optional[str] = None, form_b: Optional[str] = None) -> int:
+                char_b: Optional[int] = None, form_a: Optional[str] = None, form_b: Optional[str] = None,
+                kind: Optional[str] = None, ruling_winner: Optional[int] = None) -> int:
     with engine.begin() as conn:
         if parent_id is not None:
             parent = conn.execute(select(posts.c.id, posts.c.parent_id).where(posts.c.id == parent_id)).first()
@@ -289,7 +309,7 @@ def create_post(user_id: int, body: str, parent_id: Optional[int] = None, char_a
             parent_id = parent.parent_id or parent.id
         result = conn.execute(insert(posts).values(
             user_id=user_id, parent_id=parent_id, body=body, char_a=char_a, char_b=char_b,
-            form_a=form_a, form_b=form_b, created_at=_now(),
+            form_a=form_a, form_b=form_b, created_at=_now(), kind=kind, ruling_winner=ruling_winner,
         ))
         return result.inserted_primary_key[0]
 

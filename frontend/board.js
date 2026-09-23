@@ -9,6 +9,8 @@ renderTopbar([]);
 const MAX_CHARS = 500;
 const USER_COLORS = ['#E15252', '#D9A441', '#8FBF6B', '#C777D6', '#4C8DE0', '#4CC2B0'];
 const HEART = '<path d="M8 13.5s-5.5-3.2-5.5-7A3 3 0 0 1 8 4.6 3 3 0 0 1 13.5 6.5c0 3.8-5.5 7-5.5 7Z"/>';
+const SHIELD = (size) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.5 14 4.5v4c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8v-4L8 1.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+const ADMIN_BADGE = `<span class="admin-badge" title="Site admin">${SHIELD(10)}Admin</span>`;
 const feed = document.getElementById('feed');
 const loadMore = document.getElementById('load-more');
 let nextBefore = null;
@@ -359,8 +361,33 @@ function replyComposerEl(parentId, onPosted) {
 
 // --- posts -----------------------------------------------------------------------
 
-function avatarHtml(name, cls) {
-  return `<span class="${cls}" style="background:${userColor(name)}">${escapeHtml(initialFor(name))}</span>`;
+function avatarHtml(name, cls, isAdmin) {
+  return `<span class="${cls}${isAdmin ? ' is-admin' : ''}" style="background:${userColor(name)}">${escapeHtml(initialFor(name))}</span>`;
+}
+
+function authorHtml(post, cls) {
+  return `<span class="${cls}">${escapeHtml(post.author)}</span>${post.author_is_admin ? ADMIN_BADGE : ''}`;
+}
+
+// The card an admin overrule posts on its own: what was ruled (kept as
+// posted, even if the overrule is later changed or lifted), on which
+// matchup, and what the calculator had said.
+function rulingHtml(post) {
+  const m = post.matchup;
+  const r = post.ruling;
+  const status = r && r.status !== 'current'
+    ? `<span class="ruling-status">${r.status === 'lifted' ? 'Since lifted' : 'Since changed'}</span>` : '';
+  const strip = `<div class="ruling-strip">${SHIELD(13)}<span>Admin overrule</span>${status}</div>`;
+  if (!m || !r) return { strip, main: '' }; // a character was removed since
+  return {
+    strip,
+    main: `
+      <div class="ruling-headline">${escapeHtml(r.winner)} wins</div>
+      <a class="ruling-matchup" href="${matchupHref(m)}">
+        <span class="ruling-vs">${matchupSideHtml(m.label_a, m.name_a, m.category_a)} vs ${matchupSideHtml(m.label_b, m.name_b, m.category_b)}</span>
+        <span class="ruling-calc">Calculator's estimate: ${escapeHtml(m.calc_verdict)}</span>
+      </a>`,
+  };
 }
 
 function deleteHandler(el, post, isReply) {
@@ -374,9 +401,9 @@ function replyEl(reply) {
   const el = document.createElement('div');
   el.className = 'reply';
   el.innerHTML = `
-    ${avatarHtml(reply.author, 'reply-avatar')}
+    ${avatarHtml(reply.author, 'reply-avatar', reply.author_is_admin)}
     <div class="reply-main">
-      <div class="reply-head"><strong>${escapeHtml(reply.author)}</strong> <span class="post-time">· ${timeAgo(reply.created_at)}</span>
+      <div class="reply-head">${authorHtml(reply, 'reply-author')} <span class="post-time">· ${timeAgo(reply.created_at)}</span>
         ${reply.can_delete ? '<button class="post-delete">Delete</button>' : ''}</div>
       <div class="reply-body"></div>
     </div>`;
@@ -388,17 +415,21 @@ function replyEl(reply) {
 
 function postEl(post) {
   const el = document.createElement('article');
-  el.className = 'post';
-  el.innerHTML = `
-    ${avatarHtml(post.author, 'post-avatar')}
+  const isRuling = post.kind === 'overrule';
+  const ruling = isRuling ? rulingHtml(post) : null;
+  el.className = 'post' + (isRuling ? ' post-ruling' : '') +
+    (isRuling && post.ruling && post.ruling.status !== 'current' ? ' stale' : '');
+  const inner = `
+    ${avatarHtml(post.author, 'post-avatar', post.author_is_admin)}
     <div class="post-main">
       <div class="post-head">
-        <span class="post-author">${escapeHtml(post.author)}</span>
+        ${authorHtml(post, 'post-author')}
         <span class="post-time" title="${escapeHtml(new Date(post.created_at).toLocaleString())}">· ${timeAgo(post.created_at)}</span>
         ${post.can_delete ? '<button class="post-delete">Delete</button>' : ''}
       </div>
-      <div class="post-body"></div>
-      ${post.matchup ? matchupHtml(post.matchup) : ''}
+      ${isRuling ? ruling.main : ''}
+      <div class="post-body${isRuling ? ' ruling-note' : ''}"></div>
+      ${!isRuling && post.matchup ? matchupHtml(post.matchup) : ''}
       <div class="post-actions">
         <button class="post-like ${post.liked_by_me ? 'liked' : ''}" aria-label="Like">
           <svg width="16" height="16" viewBox="0 0 16 16">${HEART}</svg><span>${post.like_count}</span>
@@ -407,7 +438,10 @@ function postEl(post) {
       </div>
       <div class="post-thread" style="display:none;"></div>
     </div>`;
-  el.querySelector('.post-body').textContent = post.body;
+  el.innerHTML = isRuling ? `${ruling.strip}<div class="ruling-inner">${inner}</div>` : inner;
+  const bodyEl = el.querySelector('.post-body');
+  if (isRuling && !post.body) bodyEl.remove(); // a ruling saved without a reason
+  else bodyEl.textContent = isRuling ? `“${post.body}”` : post.body;
 
   el.querySelector('.post-like').addEventListener('click', async (e) => {
     if (!me) { location.href = `login.html?next=${encodeURIComponent('board.html')}`; return; }

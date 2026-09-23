@@ -359,7 +359,7 @@ function overrideBannerHtml(v) {
   return `
     <div class="override-banner">
       ${o.note ? `<div class="override-note">“${escapeHtml(o.note)}”</div>` : ''}
-      <div class="override-meta">— ${escapeHtml(o.admin)}, admin · ${escapeHtml(date)}</div>
+      <div class="override-meta">— ${escapeHtml(o.admin)}, admin · ${escapeHtml(date)} · <a href="board.html">Discuss on the Board</a></div>
     </div>`;
 }
 
@@ -373,7 +373,7 @@ async function renderAdminPanel(card) {
     <div class="admin-head">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 1.5 14 4.5v4c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8v-4L8 1.5Z" stroke="#D9A441" stroke-width="1.3" stroke-linejoin="round"/></svg>
       <span>Admin panel</span>
-      <span class="admin-scope">applies to these two forms only</span>
+      <span class="admin-scope">applies to these two forms only · saving posts it to the Board</span>
     </div>
     <div class="admin-row">
       <label><input type="radio" name="ov-winner" value="${state.a.id}"> <span></span></label>

@@ -12,7 +12,7 @@ import db
 from backend import characters, community
 from backend.schemas import (
     AuthIn, LikeOut, MatchupOut, MeOut, OverrideIn, OverrideOut, PostIn, PostListOut,
-    PostOut, ThreadOut, UserOut,
+    PostOut, RulingOut, ThreadOut, UserOut,
 )
 
 router = APIRouter()
@@ -138,8 +138,15 @@ def set_override(payload: OverrideIn, admin: dict = Depends(require_admin)):
     for cid in (payload.char_a, payload.char_b):
         if db.get_character_by_id(cid) is None:
             raise HTTPException(status_code=404, detail=f"No character with id {cid}")
+    note = payload.note.strip()
+    before = community.get_override(payload.char_a, payload.char_b, payload.form_a, payload.form_b)
     community.set_override(payload.char_a, payload.char_b, payload.form_a, payload.form_b,
-                           payload.winner_id, payload.note.strip(), admin["id"])
+                           payload.winner_id, note, admin["id"])
+    # Every ruling goes straight onto the board - unless this save changed
+    # nothing (same winner, same reason), which would only be a duplicate.
+    if before is None or before["winner_id"] != payload.winner_id or before["note"] != note:
+        community.create_post(admin["id"], note, None, payload.char_a, payload.char_b,
+                              payload.form_a, payload.form_b, kind="overrule", ruling_winner=payload.winner_id)
     return override_out(payload.char_a, payload.char_b, payload.form_a, payload.form_b)
 
 
@@ -171,15 +178,17 @@ def _matchup_out(row: dict, cache: dict) -> Optional[MatchupOut]:
         calc = f"{label_a if v.favored == v.character_a else label_b} favored — {v.label}"
     else:
         calc = v.label
-    winner = None
+    winner = winner_id = None
     if ov is not None:
-        winner = label_a if ov["winner_id"] == row["char_a"] else label_b
+        winner_id = ov["winner_id"]
+        winner = label_a if winner_id == row["char_a"] else label_b
     cat_a = (db.get_character_by_id(row["char_a"]) or {}).get("category") or ""
     cat_b = (db.get_character_by_id(row["char_b"]) or {}).get("category") or ""
     cache[key] = MatchupOut(
         char_a=row["char_a"], char_b=row["char_b"], form_a=v.form_a, form_b=v.form_b,
         name_a=v.character_a, name_b=v.character_b, label_a=label_a, label_b=label_b,
         category_a=cat_a, category_b=cat_b, calc_verdict=calc, overruled_winner=winner,
+        overruled_winner_id=winner_id,
     )
     return cache[key]
 
@@ -201,12 +210,28 @@ def matchup_preview(a: int, b: int, fa: Optional[str] = None, fb: Optional[str] 
     return m
 
 
+def _ruling_out(row: dict, matchup: Optional[MatchupOut]) -> Optional[RulingOut]:
+    if row.get("kind") != "overrule" or matchup is None or row.get("ruling_winner") is None:
+        return None
+    winner = matchup.label_a if row["ruling_winner"] == matchup.char_a else matchup.label_b
+    if matchup.overruled_winner_id is None:
+        status = "lifted"
+    elif matchup.overruled_winner_id != row["ruling_winner"]:
+        status = "changed"
+    else:
+        status = "current"
+    return RulingOut(winner=winner, status=status)
+
+
 def _post_out(row: dict, viewer: Optional[dict], cache: dict) -> PostOut:
     can_delete = viewer is not None and (viewer["id"] == row["user_id"] or viewer["is_admin"])
+    matchup = _matchup_out(row, cache)
     return PostOut(
-        id=row["id"], parent_id=row["parent_id"], author=row["username"], body=row["body"],
+        id=row["id"], parent_id=row["parent_id"], author=row["username"],
+        author_is_admin=community.is_admin(row["username"]), kind=row.get("kind"),
+        ruling=_ruling_out(row, matchup), body=row["body"],
         created_at=row["created_at"], like_count=row["like_count"], reply_count=row["reply_count"],
-        liked_by_me=row["liked_by_me"], can_delete=can_delete, matchup=_matchup_out(row, cache),
+        liked_by_me=row["liked_by_me"], can_delete=can_delete, matchup=matchup,
     )
 
 
