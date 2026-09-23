@@ -98,6 +98,9 @@ STAT_FIELD_MAP = {
     "range": "range",
 }
 
+_FUSED_LABEL_RE = re.compile(r"^([A-Za-z][A-Za-z /&-]{0,40}):\s*(\S.*)$", re.S)
+_FUSABLE_LABELS = set(FIELD_MAP) | {"key"}
+
 # Fields whose value can differ per form - the only ones worth splitting
 # out of a per-field tabber (see _per_tab_field_value).
 _PER_FORM_KEYS = set(STAT_FIELD_MAP.values()) | {"tier"}
@@ -232,6 +235,21 @@ def _label_text(b) -> Optional[str]:
     if isinstance(nxt, NavigableString) and nxt.lstrip().startswith(":"):
         nxt.replace_with(nxt.lstrip()[1:])
         return text
+    # Third variant: label AND the start of the value fused inside one
+    # bold run - `<b>Key: Alive</b> | <b>Edo Tensei</b> | ...` (Madara
+    # Uchiha). Unrecognized, that whole <p> was glued onto the previous
+    # field (his Tier), which broke the per-form split and left every
+    # form's Tier unscored. 44 cached pages had it (Tatsumaki, Jiren,
+    # Broly, Power...). Only known field names count, so bold text that
+    # merely contains a colon ("Note: ...") isn't misread as a label.
+    # The fused value is moved out of the <b>, in place, so it reads as
+    # the start of the field's value.
+    m = _FUSED_LABEL_RE.match(text)
+    if m and m.group(1).strip().lower() in _FUSABLE_LABELS:
+        label = m.group(1).strip()
+        b.string = label + ":"
+        b.insert_after(NavigableString(" " + m.group(2)))
+        return label
     return None
 
 

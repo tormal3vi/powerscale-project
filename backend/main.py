@@ -11,6 +11,7 @@ hand, or http://localhost:8000/ once frontend/ exists.
 
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -90,6 +91,28 @@ def _name_key(name: str) -> str:
     return " ".join(first.split()).lower()
 
 
+def _name_words(s: str) -> set:
+    folded = "".join(c for c in unicodedata.normalize("NFKD", s.lower()) if not unicodedata.combining(c))
+    return set(re.findall(r"[a-z0-9]{2,}", folded))
+
+
+def _base_name(name: str, source_url: str) -> str:
+    """The stored name, unless it shares no word at all with the wiki page
+    title (accents ignored) - then the title, minus any "(Series)"
+    qualifier. Catches wiki-side mistakes in the "Name:" field itself:
+    Land's page literally says "Name: Male", Third Kazekage's says
+    "Unknown", Megath's "Varies", Sherry Blendy's "Yuka Suzuki". Only
+    ~18 of 1550 characters trip this, and the rest just switch to the
+    wiki's own spelling (Nidhogg, Gorgon)."""
+    if not source_url.startswith("http"):
+        return name
+    bare = re.sub(r"\s*\([^)]*\)\s*$", "", scraper.page_title(source_url))
+    name_words, title_words = _name_words(name), _name_words(bare)
+    if name_words and title_words:
+        return bare if not (name_words & title_words) else name
+    return bare if _name_key(name) != _name_key(bare) else name
+
+
 def _colliding_names(conn) -> set:
     """Name keys shared by 2+ characters. Distinct wiki pages often carry
     the same "Name:" field - e.g. Ichigo Kurosaki's Pre-Timeskip, Post-
@@ -98,19 +121,20 @@ def _colliding_names(conn) -> set:
     mistake on the wiki itself (Sherry Blendy's and Toby Horhorta's pages
     both say "Yuka Suzuki")."""
     counts: Dict[str, int] = {}
-    for (name,) in conn.execute("SELECT name FROM characters"):
-        key = _name_key(name)
+    for name, source_url in conn.execute("SELECT name, source_url FROM characters"):
+        key = _name_key(_base_name(name, source_url))
         counts[key] = counts.get(key, 0) + 1
     return {k for k, n in counts.items() if n > 1}
 
 
 def _display_name(name: str, source_url: str, colliding: set) -> str:
-    """The stored name, unless another character shares it - then the wiki
-    page title, which the wiki guarantees is unique (e.g. "Ichigo
-    Kurosaki (Pre-Timeskip)", "Sherry Blendy"). Manually entered
-    characters have no real page title, so they always keep their name."""
-    if _name_key(name) not in colliding or not source_url.startswith("http"):
-        return name
+    """The base name (see _base_name), unless another character shares it -
+    then the full wiki page title, which the wiki guarantees is unique
+    (e.g. "Ichigo Kurosaki (Pre-Timeskip)"). Manually entered characters
+    have no real page title, so they always keep their name."""
+    base = _base_name(name, source_url)
+    if _name_key(base) not in colliding or not source_url.startswith("http"):
+        return base
     return scraper.page_title(source_url)
 
 

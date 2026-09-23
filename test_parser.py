@@ -367,6 +367,14 @@ def test_madara_bare_label_fields_outside_any_p():
     # Durability or vice versa.
     assert all("Range" not in f.stats.durability for f in stats.forms)
     assert all(f.stats.range for f in stats.forms)
+    # Same page, separate bug (user report: "why is Madara's tier
+    # unscored"): his Key line is `<b>Key: Alive</b> | ...` - label and
+    # first value fused in one bold run - so it wasn't recognized as a
+    # label and got glued onto Tier, breaking the per-form Tier split.
+    assert stats.extra_fields["Key"] == "Alive | Edo Tensei | Revived | Jūbi Jinchūriki"
+    assert "Key" not in stats.tier
+    assert all(f.tier for f in stats.forms)
+    assert stats.forms[-1].tier.startswith("Low 5-B")
 
 
 def test_denji_multi_form_extraction_through_a_scrollable_wrapper():
