@@ -185,6 +185,17 @@ def test_hulk_powers_and_statistics_heading_variant():
     assert all(f.stats.speed for f in stats.forms)
 
 
+def test_hajime_kashimo_stats_under_a_powers_and_abilities_heading():
+    # Found adding Jujutsu Kaisen: Kashimo was skipped as "no stats found"
+    # - his whole stat block sits under "Powers and Abilities" instead of
+    # "Powers and Stats". Accepted only when a Tier field follows, so
+    # mechanics pages with that heading still aren't read as characters.
+    stats = parse_character(_load("HajimeKashimo"))
+    assert stats.name == "Hajime Kashimo"
+    assert stats.tier.startswith("At least High 7-C")
+    assert stats.attack_potency and stats.speed and stats.durability
+
+
 def test_missing_powers_and_stats_section_degrades_gracefully():
     stats = parse_character("<html><body><h2>Unrelated Page</h2><p>No stats here.</p></body></html>")
     assert stats.name is None

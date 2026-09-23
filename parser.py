@@ -214,8 +214,31 @@ def _find_stats_heading(soup: BeautifulSoup):
                 span = candidate
                 break
     if span is None:
-        return None
+        return _abilities_heading_with_tier(soup)
     return span.find_parent(["h2", "h3"])
+
+
+def _abilities_heading_with_tier(soup: BeautifulSoup):
+    """Last resort: a "Powers and Abilities" section heading, but only when
+    a Tier field actually follows it. Hajime Kashimo (Jujutsu Kaisen) puts
+    his whole stat block under that heading instead of "Powers and
+    Stats" - the only character page in ~1,550 doing so. The Tier check
+    keeps mechanics pages that also use this heading (e.g. Slayer Magic)
+    from being read as characters."""
+    for candidate in soup.find_all("span", class_="mw-headline"):
+        if candidate.get_text(strip=True).lower() != "powers and abilities":
+            continue
+        heading = candidate.find_parent(["h2", "h3"])
+        if heading is None:
+            continue
+        for sib in heading.find_next_siblings():
+            if getattr(sib, "name", None) == "h2":
+                break
+            if getattr(sib, "name", None) == "p":
+                _, label = _label_from_p(sib)
+                if label and label.lower() == "tier":
+                    return heading
+    return None
 
 
 def _label_text(b) -> Optional[str]:
