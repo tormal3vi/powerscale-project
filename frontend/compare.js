@@ -125,8 +125,7 @@ async function refreshComparison() {
 // --- static layout (built once characters are loaded) ----------------
 
 function buildLayout() {
-  const accentA = accentFor(state.a.id);
-  const accentB = accentFor(state.b.id);
+  const [accentA, accentB] = accentPair(state.a.id, state.b.id);
 
   root.innerHTML = `
     <div class="vs-hero">
@@ -149,9 +148,9 @@ function buildLayout() {
           <line x1="60" y1="220" x2="380" y2="220" stroke="#2E291F" stroke-width="1"/>
           <g id="radar-data"></g>
           <text x="220" y="40" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="#A69C8C">ATTACK POTENCY</text>
-          <text x="410" y="225" text-anchor="start" font-family="IBM Plex Mono, monospace" font-size="12" fill="#A69C8C">SPEED</text>
+          <text x="398" y="225" text-anchor="start" font-family="IBM Plex Mono, monospace" font-size="12" fill="#A69C8C">SPEED</text>
           <text x="220" y="408" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="#A69C8C">DURABILITY</text>
-          <text x="30" y="225" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="12" fill="#A69C8C">TIER</text>
+          <text x="42" y="225" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="12" fill="#A69C8C">TIER</text>
         </svg>
         <div class="radar-legend">
           <div class="radar-legend-item"><span class="radar-legend-swatch" style="background:${accentA};"></span>${escapeHtml(state.a.name)}</div>
@@ -229,7 +228,7 @@ function bindFormPills(side) {
   const char = side === 'a' ? state.a : state.b;
   const container = document.getElementById(`form-pills-${side}`);
   if (!container) return;
-  const accent = accentFor(char.id);
+  const accent = accentPair(state.a.id, state.b.id)[side === 'a' ? 0 : 1];
   const activeIdx = side === 'a' ? state.formIndexA : state.formIndexB;
 
   container.innerHTML = '';
@@ -303,8 +302,7 @@ function renderRadar() {
     ptsB.push(axisPoint(axis, tb));
   }
 
-  const accentA = accentFor(state.a.id);
-  const accentB = accentFor(state.b.id);
+  const [accentA, accentB] = accentPair(state.a.id, state.b.id);
   const toPoints = (pts) => pts.map((p) => p.join(',')).join(' ');
 
   document.getElementById('radar-data').innerHTML = `
@@ -316,8 +314,7 @@ function renderRadar() {
 function renderStatTable() {
   const byAxis = {};
   for (const c of state.verdict.axis_comparisons) byAxis[c.axis] = c;
-  const accentA = accentFor(state.a.id);
-  const accentB = accentFor(state.b.id);
+  const [accentA, accentB] = accentPair(state.a.id, state.b.id);
   const formA = activeForm('a');
   const formB = activeForm('b');
 
@@ -421,8 +418,7 @@ function renderVerdict() {
   const fillLeft = leansLeft ? 50 - magPct : 50;
   const fillWidth = magPct;
 
-  const accentA = accentFor(state.a.id);
-  const accentB = accentFor(state.b.id);
+  const [accentA, accentB] = accentPair(state.a.id, state.b.id);
   const fillColor = leansLeft ? accentA : accentB;
 
   card.innerHTML = `

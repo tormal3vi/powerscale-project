@@ -45,9 +45,24 @@ const Api = {
 // full hue wheel with no visible clustering, so distinct ids reliably
 // look distinct; a given id always maps to the same hue, so a
 // character's color still stays stable across screens/sessions.
+function accentHue(id) {
+  return (id * 137.508) % 360;
+}
+
 function accentFor(id) {
-  const hue = (id * 137.508) % 360;
-  return `hsl(${hue.toFixed(1)}, 65%, 58%)`;
+  return `hsl(${accentHue(id).toFixed(1)}, 65%, 58%)`;
+}
+
+// Colors for the two sides of one matchup. Distinct ids can still land
+// on nearly the same hue (Kratos 2623 and Dante 2678 are ~3 degrees
+// apart - both pink), so when the pair is too close, side B takes the
+// opposite hue. Each character keeps its own color everywhere else.
+function accentPair(idA, idB) {
+  const hueA = accentHue(idA);
+  let hueB = accentHue(idB);
+  const gap = Math.min(Math.abs(hueA - hueB), 360 - Math.abs(hueA - hueB));
+  if (gap < 45) hueB = (hueA + 180) % 360;
+  return [accentFor(idA), `hsl(${hueB.toFixed(1)}, 65%, 58%)`];
 }
 
 function initialFor(name) {
