@@ -379,20 +379,41 @@ _POWER_ABILITIES = (
 _POWER_RE = re.compile(r"(?:with|via|using)\s+(?:his |her |their |its )?(" + "|".join(_POWER_ABILITIES) + r")\b")
 
 
-def _condition_after(lowered_text: str, match_end: int) -> Optional[str]:
+# Stand users (user decision): on a JoJo page, a value written "with
+# <anything>" is the Stand's - "10-A, 8-C with Sticky Fingers" - and a
+# Stand user fights through their Stand, the way a caster fights with
+# magic. Not "with at least/at most ..." (a hedge, not a Stand).
+_STAND_WITH_RE = re.compile(r"\b(?:with|via|using)\s+(?!(?:at least|at most|likely|possibly|probably)\b)(?=[a-z'\"])")
+_JOJO_ORIGIN_RE = re.compile(r"jojo|rohan at the louvre", re.IGNORECASE)
+_STAND_MENTION_RE = re.compile(r"\bstands?\b", re.IGNORECASE)
+
+
+def _is_stand_user(stats: CharacterStats) -> bool:
+    """A JoJo page that mentions a Stand (classification, abilities or
+    equipment). Both are needed: "stand" alone is ordinary English on
+    other wikis' pages, and JoJo's Pillar Men, zombies and Hamon/Spin
+    users have no Stand."""
+    if not _JOJO_ORIGIN_RE.search(stats.origin or ""):
+        return False
+    blob = " ".join([stats.classification or "", " ".join(stats.powers_and_abilities or []),
+                     stats.standard_equipment or ""])
+    return bool(_STAND_MENTION_RE.search(blob))
+
+
+def _condition_after(lowered_text: str, match_end: int, stand_user: bool = False) -> Optional[str]:
     """Tag a token by the condition written right after it: "physical"
     for "... physically", "magic" for "... with magic", and "power" for
-    "... with Reality Overwrite" and the other _POWER_ABILITIES. The
-    physical/magic phrasings are the only two found in the data (checked
-    across every stored Tier/AP/Speed/Durability string before writing
-    this)."""
+    "... with Reality Overwrite" and the other _POWER_ABILITIES - or, for
+    a Stand user, "... with <anything>". The physical/magic phrasings are
+    the only two found in the data (checked across every stored
+    Tier/AP/Speed/Durability string before writing this)."""
     tail = lowered_text[match_end:match_end + 60].lstrip()
     if tail.startswith("physically"):
         return "physical"
     # Not "with Magician's Red" (Avdol's Stand) - that's no caster split.
     if re.match(r"with magic(?!ian)", tail):
         return "magic"
-    if _POWER_RE.match(tail):
+    if _POWER_RE.match(tail) or (stand_user and _STAND_WITH_RE.match(tail)):
         return "power"
     return None
 
@@ -404,7 +425,8 @@ def _condition_after(lowered_text: str, match_end: int) -> Optional[str]:
 _HEDGE_GAP_RE = re.compile(r"^\s*,?\s*(?:likely|possibly|probably|potentially)(?:\s+to)?\s*$")
 
 
-def _find_all_tokens(text: str, ladder: Dict[str, float]) -> List[Tuple[Optional[str], str, float, Optional[str]]]:
+def _find_all_tokens(text: str, ladder: Dict[str, float],
+                     stand_user: bool = False) -> List[Tuple[Optional[str], str, float, Optional[str]]]:
     """Scan left to right for every occurrence of a known ladder label in
     `text`, longest match first, respecting word boundaries. Returns a
     list of (qualifier_or_None, matched_label, score, condition_or_None)."""
@@ -425,7 +447,7 @@ def _find_all_tokens(text: str, ladder: Dict[str, float]) -> List[Tuple[Optional
                     break
         if matched:
             qualifier = _qualifier_before(lowered, i)
-            condition = _condition_after(lowered, i + len(matched))
+            condition = _condition_after(lowered, i + len(matched), stand_user)
             results.append((qualifier, matched, ladder[matched], condition))
             spans.append((i, i + len(matched)))
             i += len(matched)
@@ -439,6 +461,20 @@ def _find_all_tokens(text: str, ladder: Dict[str, float]) -> List[Tuple[Optional
         if nxt in ("magic", "power") and results[k][3] is None \
                 and _HEDGE_GAP_RE.match(lowered[spans[k][1]:spans[k + 1][0]]):
             results[k] = results[k][:3] + (nxt,)
+    # JoJo pages write "own body; Stand": "9-C; at least High 8-C, likely
+    # far higher with Gold Experience Requiem". Within a ";"/"|" clause,
+    # values before a "with <Stand>" are the Stand's even when the Stand
+    # is named after a hedge rather than right after the value. Only when
+    # the text is split that way - "At least High 8-C, ..., 4-A with
+    # Reality Overwrite" (one clause) must keep its High 8-C physical.
+    if stand_user and re.search(r"[;|]", lowered):
+        start = 0
+        for end in [m.start() for m in re.finditer(r"[;|]", lowered)] + [len(lowered)]:
+            for w in _STAND_WITH_RE.finditer(lowered, start, end):
+                for k, (s0, e0) in enumerate(spans):
+                    if start <= s0 and e0 <= w.start() and results[k][3] is None:
+                        results[k] = results[k][:3] + ("power",)
+            start = end + 1
     return results
 
 
@@ -476,7 +512,7 @@ def _caster_baseline(tokens: list) -> tuple:
     return chosen
 
 
-def parse_range(text: Optional[str], ladder: Dict[str, float]) -> NormalizedRange:
+def parse_range(text: Optional[str], ladder: Dict[str, float], stand_user: bool = False) -> NormalizedRange:
     """Parse a raw wiki stat string (possibly with '|'-separated forms,
     ','-separated progressions, qualifier words, and parenthetical
     justifications) into a baseline/peak NormalizedRange. Falls back to
@@ -487,7 +523,7 @@ def parse_range(text: Optional[str], ladder: Dict[str, float]) -> NormalizedRang
         return result
 
     cleaned = _strip_parentheses(text)
-    tokens = _find_all_tokens(cleaned, ladder)
+    tokens = _find_all_tokens(cleaned, ladder, stand_user)
     if not tokens:
         logger.warning("normalizer: no recognizable tier/speed token in %r", text)
         return result
@@ -505,12 +541,12 @@ def parse_range(text: Optional[str], ladder: Dict[str, float]) -> NormalizedRang
     return result
 
 
-def parse_tier_range(text: Optional[str]) -> NormalizedRange:
-    return parse_range(text, TIER_LADDER)
+def parse_tier_range(text: Optional[str], stand_user: bool = False) -> NormalizedRange:
+    return parse_range(text, TIER_LADDER, stand_user)
 
 
-def parse_speed_range(text: Optional[str]) -> NormalizedRange:
-    return parse_range(text, SPEED_LADDER)
+def parse_speed_range(text: Optional[str], stand_user: bool = False) -> NormalizedRange:
+    return parse_range(text, SPEED_LADDER, stand_user)
 
 
 _OMNIPRESENT_RE = re.compile(r"\bomnipresent\b", re.IGNORECASE)
@@ -539,13 +575,13 @@ class NormalizedForm:
     is_omnipresent: bool = False
 
 
-def _normalize_form(form: CharacterForm) -> NormalizedForm:
+def _normalize_form(form: CharacterForm, stand_user: bool = False) -> NormalizedForm:
     return NormalizedForm(
         name=form.name,
-        tier=parse_tier_range(form.tier),
-        attack_potency=parse_tier_range(form.stats.attack_potency),
-        speed=parse_speed_range(form.stats.speed),
-        durability=parse_tier_range(form.stats.durability),
+        tier=parse_tier_range(form.tier, stand_user),
+        attack_potency=parse_tier_range(form.stats.attack_potency, stand_user),
+        speed=parse_speed_range(form.stats.speed, stand_user),
+        durability=parse_tier_range(form.stats.durability, stand_user),
         is_omnipresent=_detect_omnipresent(form.stats.speed),
     )
 
@@ -592,14 +628,15 @@ def normalize_character(stats: CharacterStats) -> NormalizedStats:
             range=stats.range,
         ),
     )]
-    forms = [_normalize_form(f) for f in forms_source]
+    stand_user = _is_stand_user(stats)
+    forms = [_normalize_form(f, stand_user) for f in forms_source]
     return NormalizedStats(
         name=stats.name,
         source=stats.source,
-        tier=parse_tier_range(stats.tier),
-        attack_potency=parse_tier_range(stats.attack_potency),
-        speed=parse_speed_range(stats.speed),
-        durability=parse_tier_range(stats.durability),
+        tier=parse_tier_range(stats.tier, stand_user),
+        attack_potency=parse_tier_range(stats.attack_potency, stand_user),
+        speed=parse_speed_range(stats.speed, stand_user),
+        durability=parse_tier_range(stats.durability, stand_user),
         is_omnipresent=_detect_omnipresent(stats.speed),
         forms=forms,
     )

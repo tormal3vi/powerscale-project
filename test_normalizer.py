@@ -407,6 +407,29 @@ def test_reality_warping_abilities_are_scored_like_magic():
     assert parse_tier_range("9-B, Low 2-C with Star Platinum").baseline_label == "9-b"
 
 
+def test_stand_users_are_scored_by_their_stand():
+    # User decision (Giorno Giovanna report): a JoJo Stand user fights
+    # through their Stand, so "with <Stand>" values count like magic.
+    from normalizer import parse_range, _is_stand_user
+    assert parse_tier_range("9-C; 8-C with Gold Experience", stand_user=True).baseline_label == "8-c"
+    # "own body; Stand": the Stand is named after a hedge, not the value.
+    ger = parse_tier_range("9-C; at least High 8-C, likely far higher with Gold Experience Requiem", stand_user=True)
+    assert ger.baseline_label == "high 8-c"
+    speed = parse_speed_range("Peak Human, with at most Massively FTL reactions; at least Massively FTL, likely far "
+                              "higher with Gold Experience Requiem, Infinite for its Return to Zero", stand_user=True)
+    assert (speed.baseline_label, speed.peak_label) == ("massively ftl", "infinite")  # "with at most" isn't a Stand
+    # One clause (no ";"/"|"): DIO's High 8-C stays physical.
+    dio = parse_tier_range("At least High 8-C, likely far higher with The World Over Heaven, 4-A with Reality Overwrite",
+                           stand_user=True)
+    assert dio.baseline_label == "4-a"
+    # Only for Stand users: elsewhere "with X" is still a peak.
+    assert parse_tier_range("9-C; 8-C with Gold Experience").baseline_label == "9-c"
+    stand = CharacterStats(origin="JoJo's Bizarre Adventure: Vento Aureo", classification="Human, Stand User")
+    pillar = CharacterStats(origin="JoJo's Bizarre Adventure: Battle Tendency", classification="Pillar Man")
+    other = CharacterStats(origin="Naruto", classification="Can stand on water")
+    assert _is_stand_user(stand) and not _is_stand_user(pillar) and not _is_stand_user(other)
+
+
 def test_top_tier_names_match_the_codes_pages_pair_them_with():
     # Found by a whole-DB audit: pages pair "1-C" with "Complex Multiverse
     # level" (72 times) and "Low 1-C" with "Low Complex Multiverse level"
