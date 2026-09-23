@@ -37,14 +37,14 @@ Vocabulary gap sweep additions (Phase 4 prep, user-reviewed and decided
   log10(299,792,458 m/s) - the precise physical speed of light, not a
   synonym for the nearby "Massively Relativistic" entry - positioned as
   the exact boundary between sub-light and FTL tiers.
-- "Omnipresent" deliberately gets NO ladder score at all. Existing
-  everywhere at once isn't a point on a "how fast" scale - it's a
-  categorically different kind of claim, so forcing a number onto it
-  would misrepresent what the wiki text is actually saying. Instead,
-  NormalizedStats carries a separate `is_omnipresent` boolean, detected
-  independently of the speed ladder lookup; that character's numeric
-  speed baseline/peak stay None unless some other, real speed token is
-  also present in the same field.
+- "Omnipresent" scores the same as "Irrelevant", the top of the Speed
+  ladder, and "Nigh-Omnipresent" the same as "Immeasurable". Existing
+  everywhere at once isn't literally a speed, and it was first left
+  unscored - but that left Ultimate Madoka, Akuma Homura, Infinite Zamasu
+  and a few others with no Speed at all, so their strongest trait counted
+  for nothing. For a "who's faster" comparison, being everywhere beats
+  any finite speed. NormalizedStats also keeps a separate
+  `is_omnipresent` flag for any page that mentions it.
 """
 
 import logging
@@ -293,6 +293,9 @@ _TIER_TERM_ALIASES: Dict[str, str] = {
 _SPEED_TERM_ALIASES: Dict[str, str] = {
     # Standalone shorthand for the existing "Infinite Speed" entry.
     "Infinite": "Infinite Speed",
+    # Being everywhere beats any finite speed (see module docstring).
+    "Omnipresent": "Irrelevant",
+    "Nigh-Omnipresent": "Immeasurable",
     # AP-style wording used in a Speed field (Launch, Dragon Ball).
     "Human level": "Average Human",
 }
@@ -510,10 +513,9 @@ _OMNIPRESENT_RE = re.compile(r"\bomnipresent\b", re.IGNORECASE)
 
 
 def _detect_omnipresent(speed_text: Optional[str]) -> bool:
-    """"Omnipresent" is deliberately excluded from SPEED_LADDER (see
-    module docstring) - existing everywhere at once isn't a point on a
-    speed scale. Detected independently via substring search instead of
-    a ladder lookup, so it never contributes a numeric score."""
+    """True when the speed text mentions omnipresence at all - as the
+    scored value, or only as a higher/possible one ("eventually
+    Immeasurable, possibly Omnipresent")."""
     if not speed_text:
         return False
     return bool(_OMNIPRESENT_RE.search(speed_text))

@@ -225,6 +225,24 @@ def _band_for(magnitude: float) -> str:
     return _LABEL_BANDS[-1][1]
 
 
+_OMNIPRESENT_LABELS = ("omnipresent", "nigh-omnipresent")
+
+
+def _omnipresence_note(name: str, form: dict) -> Optional[str]:
+    """Omnipresence as the Speed itself is scored (top of the Speed ladder),
+    so needs no note. Say so only when a page mentions it and the Speed
+    axis doesn't reflect it."""
+    if not form.get("is_omnipresent"):
+        return None
+    speed = form.get("speed") or {}
+    if speed.get("baseline_label") in _OMNIPRESENT_LABELS:
+        return None
+    if speed.get("baseline") is None:
+        return f"{name} is flagged Omnipresent but has no scorable Speed value, so the Speed axis doesn't count it."
+    return (f"{name}'s page also mentions Omnipresence, but only above their base Speed - "
+            f"Speed is scored at the base value.")
+
+
 def compare_forms(name_a: str, form_a: dict, name_b: str, form_b: dict) -> Verdict:
     """Pure stat comparison between two already-selected forms - no DB
     access, no ability text. This is the core scoring logic; see
@@ -239,16 +257,10 @@ def compare_forms(name_a: str, form_a: dict, name_b: str, form_b: dict) -> Verdi
             notes.append(f"{name_a}'s {c.axis} has no baseline score - used its peak value instead.")
         if c.b_source == "peak":
             notes.append(f"{name_b}'s {c.axis} has no baseline score - used its peak value instead.")
-    if form_a.get("is_omnipresent"):
-        notes.append(
-            f"{name_a} is flagged Omnipresent - existing everywhere at once isn't a numeric Speed "
-            f"value, so this comparison's Speed axis (if used) doesn't capture that at all."
-        )
-    if form_b.get("is_omnipresent"):
-        notes.append(
-            f"{name_b} is flagged Omnipresent - existing everywhere at once isn't a numeric Speed "
-            f"value, so this comparison's Speed axis (if used) doesn't capture that at all."
-        )
+    for name, form in ((name_a, form_a), (name_b, form_b)):
+        note = _omnipresence_note(name, form)
+        if note:
+            notes.append(note)
 
     form_a_name = form_a.get("name", "?")
     form_b_name = form_b.get("name", "?")

@@ -139,15 +139,26 @@ def test_partial_data_caps_confidence_below_overwhelming():
     assert v.label != "Overwhelming favorite"
 
 
-def test_omnipresent_form_gets_a_note_not_a_numeric_bonus():
-    a = _form("A", tier=20.0, ap=20.0, dur=20.0, speed=None, omnipresent=True)
+def test_omnipresent_speed_is_scored_and_needs_no_note():
+    # Omnipresent scores as the top of the Speed ladder (normalizer), so it
+    # simply wins the Speed axis - no caveat needed.
+    a = _form("A", tier=20.0, ap=20.0, dur=20.0, speed=35.0, omnipresent=True)
+    a["speed"]["baseline_label"] = "omnipresent"
     b = _form("B", tier=20.0, ap=20.0, dur=20.0, speed=5.0)
     v = calc.compare_forms("Ghost", a, "Regular", b)
-    assert any("Omnipresent" in n for n in v.notes)
-    # Speed axis is excluded (A has no numeric speed), same as any other
-    # missing stat - Omnipresent does not inject a hidden speed advantage.
     speed_comp = next(c for c in v.axis_comparisons if c.axis == "speed")
-    assert speed_comp.advantage is None
+    assert speed_comp.advantage > 0.9
+    assert not any("Omnipresen" in n for n in v.notes)
+
+
+def test_omnipresence_only_as_a_peak_gets_a_note():
+    # "Sub-Relativistic+, ..., possibly Omnipresent": scored at the base
+    # value, and the note says the omnipresence isn't counted.
+    a = _form("A", tier=20.0, ap=20.0, dur=20.0, speed=7.0, omnipresent=True, speed_peak=35.0)
+    a["speed"]["baseline_label"] = "sub-relativistic+"
+    b = _form("B", tier=20.0, ap=20.0, dur=20.0, speed=5.0)
+    v = calc.compare_forms("Kriemhild", a, "Regular", b)
+    assert any("Omnipresence" in n and "base" in n for n in v.notes)
 
 
 # --- ability flags never touch the score ------------------------------------

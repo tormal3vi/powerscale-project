@@ -17,10 +17,10 @@ let character = null;
 let formIndex = 0;
 let accent = '';
 
-function valueHtml(range, raw, { omnipresent = false } = {}) {
+function valueHtml(range, raw) {
   const value = labelAsWritten(range.baseline_label, raw) || missingStatText(raw);
   const peak = peakHintText(range, raw);
-  return `${escapeHtml(value)}${omnipresent ? ' + Omnipresent' : ''}${peak ? ` <span class="cs-peak">(${escapeHtml(peak)})</span>` : ''}`;
+  return `${escapeHtml(value)}${peak ? ` <span class="cs-peak">(${escapeHtml(peak)})</span>` : ''}`;
 }
 
 // Raw wiki text minus its parenthesized justifications - e.g. "At least
@@ -53,7 +53,7 @@ function renderStats() {
     rows.push(`
       <div class="cs-row">
         <div class="cs-head"><span class="cs-label">${label}</span>
-          <span class="cs-value">${valueHtml(form[key], raw, { omnipresent: key === 'speed' && form.is_omnipresent })}</span></div>
+          <span class="cs-value">${valueHtml(form[key], raw)}</span></div>
         <div class="cs-raw">${escapeHtml(raw)}</div>
       </div>`);
   }

@@ -280,8 +280,8 @@ function renderStatTable() {
     const { ta, tb } = axisScale(comp);
     const rawLabelA = axis === 'tier' ? formA.tier.baseline_label : formA[axis].baseline_label;
     const rawLabelB = axis === 'tier' ? formB.tier.baseline_label : formB[axis].baseline_label;
-    const textA = comp.a_value === null ? missingStatText(formA[`${axis}_raw`]) : (prettifyLabel(rawLabelA) || '—') + (axis === 'speed' && formA.is_omnipresent ? ' + Omnipresent' : '');
-    const textB = comp.b_value === null ? missingStatText(formB[`${axis}_raw`]) : (prettifyLabel(rawLabelB) || '—') + (axis === 'speed' && formB.is_omnipresent ? ' + Omnipresent' : '');
+    const textA = comp.a_value === null ? missingStatText(formA[`${axis}_raw`]) : (prettifyLabel(rawLabelA) || '—');
+    const textB = comp.b_value === null ? missingStatText(formB[`${axis}_raw`]) : (prettifyLabel(rawLabelB) || '—');
     // The badge shows only the (deliberately conservative) baseline value -
     // see calculator.py's select_form() docstring - so a character whose
     // wiki entry splits low/high across two different conditions (e.g.

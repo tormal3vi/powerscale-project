@@ -221,17 +221,23 @@ def test_speed_of_light_anchor_and_variant():
     assert SPEED_LADDER["massively relativistic"] < r.baseline < SPEED_LADDER["ftl"]
 
 
-def test_omnipresent_gets_flag_not_a_score():
-    # Homura Akemi / Madoka Kaname (Puella Magi Verse): "Omnipresent"
-    r = parse_speed_range("Omnipresent")
-    assert r.baseline is None  # no ladder score - by design, not a bug
-    assert r.peak is None
-    assert "omnipresent" not in SPEED_LADDER
+def test_omnipresent_is_scored_at_the_top_of_the_speed_ladder():
+    # Ultimate Madoka / Akuma Homura (Puella Magi Verse): "Omnipresent" was
+    # once left unscored, which left their Speed out of every comparison.
+    r = parse_speed_range("Omnipresent (Exists as a concept throughout the entire Puella Magi multiverse)")
+    assert r.baseline == SPEED_LADDER["irrelevant"] and r.baseline_label == "omnipresent"
+    # Longest match first: "Nigh-Omnipresent" isn't read as "Omnipresent".
+    zamasu = parse_speed_range("Nigh-Omnipresent, eventually Omnipresent")
+    assert (zamasu.baseline_label, zamasu.peak_label) == ("nigh-omnipresent", "omnipresent")
+    assert zamasu.baseline == SPEED_LADDER["immeasurable"]
+    # Only a possible/later value: stays the peak, the baseline is unchanged.
+    kriemhild = parse_speed_range("Sub-Relativistic+, eventually Immeasurable, possibly Omnipresent")
+    assert (kriemhild.baseline_label, kriemhild.peak_label) == ("sub-relativistic+", "omnipresent")
 
     stats = CharacterStats(name="Test Character", speed="Omnipresent")
     normalized = normalize_character(stats)
     assert normalized.is_omnipresent is True
-    assert normalized.speed.baseline is None
+    assert normalized.speed.baseline == SPEED_LADDER["irrelevant"]
 
 
 def test_non_omnipresent_character_flag_is_false():
