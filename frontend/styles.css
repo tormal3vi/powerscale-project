@@ -84,7 +84,16 @@ input::placeholder { color: var(--text-placeholder); }
 .topbar-actions:empty { display: none; }
 .topbar-account { display: flex; align-items: center; gap: 16px; white-space: nowrap; }
 .topbar-divider { width: 1px; height: 20px; background: var(--card-border); }
-.topbar-user { font-size: 13px; color: var(--text-tertiary); }
+.topbar-user { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-tertiary); }
+.topbar-user:hover .topbar-username { color: var(--text-primary); }
+.topbar-avatar {
+  width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 700 11px var(--font-serif); color: var(--bg);
+}
+/* Any avatar showing an uploaded picture rather than the initial. */
+.has-img { background: var(--pill-bg); overflow: hidden; }
+.has-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .topbar-role { color: var(--text-quaternary); }
 .topbar-logout {
   background: none; border: none; border-bottom: 1px solid var(--control-border); padding: 0;
@@ -1077,6 +1086,23 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
 .auth-form input:focus { border-color: var(--text-quaternary); }
 .auth-hint { display: block; font-size: 11.5px; color: var(--text-quaternary); margin-top: 6px; }
 .auth-form .btn-gold { margin-top: 6px; padding: 13px; font-size: 14.5px; }
+
+/* Profile (picture upload) */
+.profile-head { display: flex; align-items: center; gap: 18px; margin-bottom: 24px; }
+.profile-avatar {
+  width: 88px; height: 88px; border-radius: 22px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font: 700 38px var(--font-serif); color: var(--bg);
+}
+.profile-avatar.is-admin { box-shadow: 0 0 0 3px var(--card), 0 0 0 5px var(--accent-gold); }
+.profile-id { min-width: 0; }
+.profile-name { display: flex; align-items: center; gap: 8px; font: 700 22px var(--font-serif); overflow-wrap: anywhere; }
+.profile-sub { font-size: 13px; color: var(--text-tertiary); margin-top: 4px; line-height: 1.5; }
+.profile-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.profile-upload { cursor: pointer; }
+.profile-upload:focus-within { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+.profile-hint { font-size: 12px; color: var(--text-quaternary); margin-top: 12px; }
+.profile-card .auth-error { margin: 16px 0 0; }
 
 /* Tablets: the full topbar (nav + up to three page actions + account)
    stops fitting well before phone width - Compare overflowed by ~200px

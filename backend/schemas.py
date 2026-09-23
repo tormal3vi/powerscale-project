@@ -164,6 +164,7 @@ class AuthIn(BaseModel):
 class UserOut(BaseModel):
     username: str
     is_admin: bool
+    avatar_url: Optional[str] = None  # None: show the letter tile
 
 
 class MeOut(BaseModel):
@@ -219,6 +220,7 @@ class PostOut(BaseModel):
     parent_id: Optional[int] = None
     author: str
     author_is_admin: bool = False
+    author_avatar: Optional[str] = None
     kind: Optional[str] = None  # "overrule" for posts made by an admin ruling
     ruling: Optional[RulingOut] = None
     body: str

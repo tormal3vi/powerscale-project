@@ -135,6 +135,52 @@ def test_ruling_status_follows_the_live_overrule():
     assert _ruling_out({"kind": None, "ruling_winner": None}, matchup(6)) is None
 
 
+def test_avatar_uploads_are_re_encoded_to_a_small_square_webp():
+    from io import BytesIO
+    from PIL import Image
+    from backend import avatars
+
+    def encoded(fmt, size=(640, 360), mode="RGB"):
+        buf = BytesIO()
+        Image.new(mode, size, (200, 30, 30)).save(buf, fmt)
+        return buf.getvalue()
+
+    for fmt in ("PNG", "JPEG", "GIF", "WEBP"):
+        out = Image.open(BytesIO(avatars.process(encoded(fmt, mode="RGB" if fmt == "JPEG" else "RGBA"))))
+        assert (out.format, out.size) == ("WEBP", (avatars.SIZE, avatars.SIZE)), fmt
+    # Anything that isn't a real raster image is refused, never stored as-is.
+    for bad in (b"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>",
+                b"<html><body>hi</body></html>", b"", encoded("BMP")):
+        try:
+            avatars.process(bad)
+            assert False, bad[:20]
+        except avatars.BadImage:
+            pass
+    # Oversized dimensions are refused from the header, before decoding.
+    limit = avatars.MAX_PIXELS
+    avatars.MAX_PIXELS = 100
+    try:
+        avatars.process(encoded("PNG", size=(20, 20)))
+        assert False, "should refuse"
+    except avatars.BadImage as exc:
+        assert "too large" in str(exc)
+    finally:
+        avatars.MAX_PIXELS = limit
+
+
+def test_avatars_store_replace_and_show_on_posts():
+    u = community.create_user("picture_person", "password123")
+    assert community.avatar_updated_at(u["id"]) is None
+    community.set_avatar(u["id"], b"first")
+    community.set_avatar(u["id"], b"second")  # replaces, doesn't add
+    assert community.get_avatar("PICTURE_PERSON") == b"second"  # usernames are case-insensitive
+    pid = community.create_post(u["id"], "hi")
+    assert community.get_post_view(pid, None)["avatar_at"] is not None
+    community.delete_avatar(u["id"])
+    assert community.get_avatar("picture_person") is None
+    assert community.get_post_view(pid, None)["avatar_at"] is None
+
+
 def test_rate_limiter_blocks_after_the_limit_per_key():
     rl = community.RateLimiter(limit=2, window=60)
     assert rl.allow("ip1") and rl.allow("ip1")

@@ -7,7 +7,6 @@
 renderTopbar([]);
 
 const MAX_CHARS = 500;
-const USER_COLORS = ['#E15252', '#D9A441', '#8FBF6B', '#C777D6', '#4C8DE0', '#4CC2B0'];
 const HEART = '<path d="M8 13.5s-5.5-3.2-5.5-7A3 3 0 0 1 8 4.6 3 3 0 0 1 13.5 6.5c0 3.8-5.5 7-5.5 7Z"/>';
 const SHIELD = (size) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.5 14 4.5v4c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8v-4L8 1.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 const ADMIN_BADGE = `<span class="admin-badge" title="Site admin">${SHIELD(10)}Admin</span>`;
@@ -16,12 +15,6 @@ const loadMore = document.getElementById('load-more');
 let nextBefore = null;
 let me = null;
 let attached = null; // {char_a, char_b, form_a, form_b} once the picker has both sides
-
-function userColor(name) {
-  let h = 0;
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return USER_COLORS[h % USER_COLORS.length];
-}
 
 function timeAgo(iso) {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -361,8 +354,8 @@ function replyComposerEl(parentId, onPosted) {
 
 // --- posts -----------------------------------------------------------------------
 
-function avatarHtml(name, cls, isAdmin) {
-  return `<span class="${cls}${isAdmin ? ' is-admin' : ''}" style="background:${userColor(name)}">${escapeHtml(initialFor(name))}</span>`;
+function avatarHtml(post, cls) {
+  return userAvatarHtml(post.author, post.author_avatar, cls, { admin: post.author_is_admin });
 }
 
 function authorHtml(post, cls) {
@@ -401,7 +394,7 @@ function replyEl(reply) {
   const el = document.createElement('div');
   el.className = 'reply';
   el.innerHTML = `
-    ${avatarHtml(reply.author, 'reply-avatar', reply.author_is_admin)}
+    ${avatarHtml(reply, 'reply-avatar')}
     <div class="reply-main">
       <div class="reply-head">${authorHtml(reply, 'reply-author')} <span class="post-time">· ${timeAgo(reply.created_at)}</span>
         ${reply.can_delete ? '<button class="post-delete">Delete</button>' : ''}</div>
@@ -420,7 +413,7 @@ function postEl(post) {
   el.className = 'post' + (isRuling ? ' post-ruling' : '') +
     (isRuling && post.ruling && post.ruling.status !== 'current' ? ' stale' : '');
   const inner = `
-    ${avatarHtml(post.author, 'post-avatar', post.author_is_admin)}
+    ${avatarHtml(post, 'post-avatar')}
     <div class="post-main">
       <div class="post-head">
         ${authorHtml(post, 'post-author')}

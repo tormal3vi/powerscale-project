@@ -6,10 +6,13 @@ import re
 from typing import Optional
 from urllib.parse import urlparse
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 
 import db
-from backend import characters, community
+from backend import avatars, characters, community
 from backend.schemas import (
     AuthIn, LikeOut, MatchupOut, MeOut, OverrideIn, OverrideOut, PostIn, PostListOut,
     PostOut, RulingOut, ThreadOut, UserOut,
@@ -25,6 +28,7 @@ register_limit = community.RateLimiter(limit=5, window=3600)     # per IP
 login_limit = community.RateLimiter(limit=10, window=300)        # per IP
 post_limit = community.RateLimiter(limit=10, window=60)          # per user
 like_limit = community.RateLimiter(limit=60, window=60)          # per user
+avatar_limit = community.RateLimiter(limit=10, window=3600)      # per user
 
 
 # --- request helpers ----------------------------------------------------------------
@@ -72,8 +76,14 @@ def _set_session_cookie(request: Request, response: Response, token: str) -> Non
     )
 
 
+def avatar_url(username: str, updated_at: Optional[datetime]) -> Optional[str]:
+    # Versioned by upload time, so the image itself can be cached for good.
+    return f"/api/avatars/{username}?v={int(updated_at.timestamp())}" if updated_at else None
+
+
 def _user_out(user: dict) -> UserOut:
-    return UserOut(username=user["username"], is_admin=community.is_admin(user["username"]))
+    return UserOut(username=user["username"], is_admin=community.is_admin(user["username"]),
+                   avatar_url=avatar_url(user["username"], community.avatar_updated_at(user["id"])))
 
 
 # --- accounts ------------------------------------------------------------------------
@@ -116,6 +126,51 @@ def logout(request: Request, response: Response):
     community.delete_session(request.cookies.get(COOKIE))
     response.delete_cookie(COOKIE, path="/")
     return {"ok": True}
+
+
+# --- profile pictures -------------------------------------------------------------------
+
+@router.put("/api/me/avatar", response_model=UserOut, dependencies=[Depends(same_origin)])
+async def upload_avatar(request: Request, user: dict = Depends(require_user)):
+    # The raw image is the request body. A cross-site page can't send an
+    # image/* body without a CORS preflight (which fails), so together with
+    # same_origin and the SameSite cookie this can't be triggered from
+    # another site.
+    if not request.headers.get("content-type", "").startswith("image/"):
+        raise HTTPException(status_code=415, detail="Upload an image file")
+    if not avatar_limit.allow(f"user:{user['id']}"):
+        raise HTTPException(status_code=429, detail="Too many picture changes - try again in an hour")
+    too_big = HTTPException(status_code=413, detail="That image is over 5 MB")
+    if int(request.headers.get("content-length") or 0) > avatars.MAX_UPLOAD_BYTES:
+        raise too_big
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > avatars.MAX_UPLOAD_BYTES:
+            raise too_big
+    try:
+        image = await run_in_threadpool(avatars.process, bytes(body))
+    except avatars.BadImage as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    await run_in_threadpool(community.set_avatar, user["id"], image)
+    return _user_out(user)
+
+
+@router.delete("/api/me/avatar", response_model=UserOut, dependencies=[Depends(same_origin)])
+def remove_avatar(user: dict = Depends(require_user)):
+    community.delete_avatar(user["id"])
+    return _user_out(user)
+
+
+@router.get("/api/avatars/{username}")
+def get_avatar(username: str):
+    image = community.get_avatar(username)
+    if image is None:
+        raise HTTPException(status_code=404, detail="No picture")
+    return Response(content=image, media_type="image/webp", headers={
+        "Cache-Control": "public, max-age=31536000, immutable",  # URLs carry ?v=<upload time>
+        "X-Content-Type-Options": "nosniff",
+    })
 
 
 # --- admin overrules --------------------------------------------------------------------
@@ -228,7 +283,8 @@ def _post_out(row: dict, viewer: Optional[dict], cache: dict) -> PostOut:
     matchup = _matchup_out(row, cache)
     return PostOut(
         id=row["id"], parent_id=row["parent_id"], author=row["username"],
-        author_is_admin=community.is_admin(row["username"]), kind=row.get("kind"),
+        author_is_admin=community.is_admin(row["username"]),
+        author_avatar=avatar_url(row["username"], row.get("avatar_at")), kind=row.get("kind"),
         ruling=_ruling_out(row, matchup), body=row["body"],
         created_at=row["created_at"], like_count=row["like_count"], reply_count=row["reply_count"],
         liked_by_me=row["liked_by_me"], can_delete=can_delete, matchup=matchup,

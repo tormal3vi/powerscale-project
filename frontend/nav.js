@@ -10,7 +10,7 @@ const NAV_LINKS = [
 ];
 const PAGE_TITLES = {
   'browse.html': 'Characters', 'compare.html': 'Compare', 'character.html': 'Character',
-  'tournament.html': 'Tournament', 'board.html': 'Board', 'login.html': 'Log in',
+  'tournament.html': 'Tournament', 'board.html': 'Board', 'login.html': 'Log in', 'profile.html': 'Profile',
 };
 
 function renderTopbar(actions = [], { minimal = false } = {}) {
@@ -58,9 +58,12 @@ async function renderAccount(el) {
   }
   el.innerHTML = `
     <span class="topbar-divider"></span>
-    <span class="topbar-user"><span></span>${user.is_admin ? ' <span class="topbar-role">· admin</span>' : ''}</span>
+    <a class="topbar-user" href="profile.html" title="Your profile">
+      ${userAvatarHtml(user.username, user.avatar_url, 'topbar-avatar')}
+      <span class="topbar-username"></span>${user.is_admin ? ' <span class="topbar-role">· admin</span>' : ''}
+    </a>
     <button class="topbar-logout">Log out</button>`;
-  el.querySelector('.topbar-user > span').textContent = user.username;
+  el.querySelector('.topbar-username').textContent = user.username;
   el.querySelector('.topbar-logout').addEventListener('click', async () => {
     await Api.logout().catch(() => {});
     location.reload();

@@ -59,6 +59,15 @@ const Api = {
   createPost: (post) => apiPost('/api/posts', post),
   deletePost: (id) => apiDelete(`/api/posts/${id}`),
   likePost: (id) => apiPost(`/api/posts/${id}/like`, {}),
+  uploadAvatar: async (blob) => {
+    const res = await fetch('/api/me/avatar', { method: 'PUT', headers: { 'Content-Type': blob.type || 'image/png' }, body: blob });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  },
+  removeAvatar: () => apiDelete('/api/me/avatar'),
   matchupPreview: (a, b, fa, fb) =>
     apiGet(`/api/matchups/preview?${new URLSearchParams({ a, b, ...(fa ? { fa } : {}), ...(fb ? { fb } : {}) })}`),
 };
@@ -215,4 +224,23 @@ function missingStatText(raw) {
 function initialFor(name) {
   const trimmed = (name || '?').trim();
   return trimmed.charAt(0).toUpperCase() || '?';
+}
+
+// --- user avatars (board, topbar, profile) ------------------------------------
+
+const USER_COLORS = ['#E15252', '#D9A441', '#8FBF6B', '#C777D6', '#4C8DE0', '#4CC2B0'];
+
+function userColor(name) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return USER_COLORS[h % USER_COLORS.length];
+}
+
+// The user's picture if they've uploaded one, else their colored initial.
+// `cls` sizes it (post-avatar, reply-avatar, topbar-avatar, profile-avatar).
+// avatarUrl only ever comes from our own API (/api/avatars/<name>?v=<n>).
+function userAvatarHtml(name, avatarUrl, cls, { admin = false } = {}) {
+  const classes = `${cls}${admin ? ' is-admin' : ''}${avatarUrl ? ' has-img' : ''}`;
+  if (avatarUrl) return `<span class="${classes}"><img src="${escapeHtml(avatarUrl)}" alt="" loading="lazy"></span>`;
+  return `<span class="${classes}" style="background:${userColor(name)}">${escapeHtml(initialFor(name))}</span>`;
 }

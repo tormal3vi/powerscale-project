@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from sqlalchemy import (
-    Column, DateTime, ForeignKey, Integer, MetaData, String, Table, Text,
+    Column, DateTime, ForeignKey, Integer, LargeBinary, MetaData, String, Table, Text,
     UniqueConstraint, and_, create_engine, delete, func, insert, inspect, select, text, update,
 )
 
@@ -87,6 +87,15 @@ posts = Table(
     # The winner that ruling named, kept on the post itself: the overrule can
     # later be changed or lifted, and the post should still say what it said.
     Column("ruling_winner", Integer, nullable=True),
+)
+# Profile pictures, already re-encoded by backend/avatars.py (~10-20 KB
+# each). Kept in the database rather than on disk: Render's free tier
+# wipes the disk on every deploy.
+avatars = Table(
+    "avatars", metadata,
+    Column("user_id", Integer, ForeignKey("users.id"), primary_key=True),
+    Column("image", LargeBinary, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 likes = Table(
     "likes", metadata,
@@ -255,6 +264,33 @@ class RateLimiter:
             return True
 
 
+# --- profile pictures -------------------------------------------------------------
+
+def set_avatar(user_id: int, image: bytes) -> None:
+    with engine.begin() as conn:
+        conn.execute(delete(avatars).where(avatars.c.user_id == user_id))
+        conn.execute(insert(avatars).values(user_id=user_id, image=image, updated_at=_now()))
+
+
+def delete_avatar(user_id: int) -> None:
+    with engine.begin() as conn:
+        conn.execute(delete(avatars).where(avatars.c.user_id == user_id))
+
+
+def avatar_updated_at(user_id: int) -> Optional[datetime]:
+    with engine.connect() as conn:
+        at = conn.execute(select(avatars.c.updated_at).where(avatars.c.user_id == user_id)).scalar()
+    return _aware(at) if at else None
+
+
+def get_avatar(username: str) -> Optional[bytes]:
+    with engine.connect() as conn:
+        return conn.execute(
+            select(avatars.c.image).join(users, users.c.id == avatars.c.user_id)
+            .where(users.c.username_lower == username.lower())
+        ).scalar()
+
+
 # --- admin overrules ---------------------------------------------------------------
 
 def _matchup_key(a: int, b: int, form_a: str, form_b: str) -> dict:
@@ -315,7 +351,10 @@ def create_post(user_id: int, body: str, parent_id: Optional[int] = None, char_a
 
 
 def _post_rows(conn, where, viewer_id: Optional[int], order, limit: Optional[int] = None) -> List[dict]:
-    query = (select(posts, users.c.username).join(users, users.c.id == posts.c.user_id).where(where).order_by(order))
+    query = (select(posts, users.c.username, avatars.c.updated_at.label("avatar_at"))
+             .join(users, users.c.id == posts.c.user_id)
+             .outerjoin(avatars, avatars.c.user_id == posts.c.user_id)
+             .where(where).order_by(order))
     if limit:
         query = query.limit(limit)
     rows = [dict(r) for r in conn.execute(query).mappings()]
@@ -332,6 +371,7 @@ def _post_rows(conn, where, viewer_id: Optional[int], order, limit: Optional[int
             select(likes.c.post_id).where(and_(likes.c.post_id.in_(ids), likes.c.user_id == viewer_id)))}
     for r in rows:
         r["created_at"] = _aware(r["created_at"])
+        r["avatar_at"] = _aware(r["avatar_at"]) if r["avatar_at"] else None
         r["like_count"] = like_counts.get(r["id"], 0)
         r["reply_count"] = reply_counts.get(r["id"], 0)
         r["liked_by_me"] = r["id"] in liked
