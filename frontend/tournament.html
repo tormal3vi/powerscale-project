@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Powerscale — Tournament</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page">
+  <div id="topbar"></div>
+  <div class="page-content">
+    <div style="margin-bottom: 28px;">
+      <div class="page-title">Tournament</div>
+      <div class="page-subtitle">Pick 8 or 16 characters and let the calculator run a single-elimination bracket.</div>
+    </div>
+
+    <div id="setup">
+      <div class="toolbar-row" style="margin-top: 0;">
+        <label class="select-label">Size
+          <select id="size-select">
+            <option value="8">8 characters</option>
+            <option value="16">16 characters</option>
+          </select>
+        </label>
+        <div class="toolbar-spacer"></div>
+        <button class="pill-button" id="fill-random">Fill randomly</button>
+        <button class="pill-button" id="clear-all">Clear</button>
+        <button class="compare-bar-cta" id="run-tournament" disabled>Run tournament →</button>
+      </div>
+
+      <div class="tournament-setup">
+        <div class="stat-table-card">
+          <div class="section-label">Add characters</div>
+          <label class="search-box" for="t-search" style="margin-bottom: 12px;">
+            <input id="t-search" type="text" placeholder="Search by name…" autocomplete="off">
+          </label>
+          <div id="t-results" class="t-results"></div>
+        </div>
+        <div class="stat-table-card">
+          <div class="section-label" id="t-picked-label">Entrants</div>
+          <ol id="t-picked" class="t-picked"></ol>
+        </div>
+      </div>
+    </div>
+
+    <div id="bracket-wrap" style="display:none;">
+      <div class="toolbar-row" style="margin-top: 0;">
+        <div class="t-status" id="t-status"></div>
+        <div class="toolbar-spacer"></div>
+        <button class="pill-button" id="copy-bracket">Copy link</button>
+        <button class="pill-button" id="new-tournament">New tournament</button>
+      </div>
+      <div class="bracket" id="bracket"></div>
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="nav.js"></script>
+<script src="tournament.js"></script>
+</body>
+</html>
