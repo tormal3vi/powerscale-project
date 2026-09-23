@@ -8,3 +8,11 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      # Accounts, posts and admin overrules (Neon Postgres connection
+      # string). Set in the Render dashboard - never committed.
+      - key: DATABASE_URL
+        sync: false
+      # Comma-separated usernames allowed to overrule matchups and delete
+      # any post, e.g. "levente,friend2".
+      - key: ADMIN_USERNAMES
+        sync: false

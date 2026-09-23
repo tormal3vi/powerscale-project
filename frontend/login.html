@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Powerscale — Log in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page">
+  <div id="topbar"></div>
+  <div class="page-content">
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-mode="login">Log in</button>
+        <button class="auth-tab" data-mode="register">Create account</button>
+      </div>
+      <form id="auth-form" class="auth-form">
+        <label>Username
+          <input id="auth-username" type="text" autocomplete="username" maxlength="20" required>
+        </label>
+        <label>Password
+          <input id="auth-password" type="password" autocomplete="current-password" maxlength="128" required>
+        </label>
+        <div class="auth-hint" id="auth-hint"></div>
+        <button type="submit" class="compare-bar-cta" id="auth-submit">Log in</button>
+        <div class="add-character-status error" id="auth-error"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="nav.js"></script>
+<script src="login.js"></script>
+</body>
+</html>

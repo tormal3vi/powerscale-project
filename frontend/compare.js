@@ -343,23 +343,83 @@ function reasonBullets(v) {
   return lines;
 }
 
+function overrideBannerHtml(v) {
+  if (!v.override) return '';
+  const o = v.override;
+  return `
+    <div class="override-banner">
+      <div class="override-title">Overruled by admins: ${escapeHtml(shortName(o.winner_name))} wins</div>
+      ${o.note ? `<div class="override-note">“${escapeHtml(o.note)}”</div>` : ''}
+      <div class="override-meta">— ${escapeHtml(o.admin)}, ${escapeHtml(new Date(o.created_at).toLocaleDateString())}. The calculator's own estimate is below.</div>
+    </div>`;
+}
+
+async function renderAdminPanel(card) {
+  const user = await currentUser();
+  if (!user || !user.is_admin || !state.verdict) return;
+  const v = state.verdict;
+  const panel = document.createElement('div');
+  panel.className = 'admin-panel';
+  panel.innerHTML = `
+    <div class="section-label">Admin · overrule this exact matchup (these two forms)</div>
+    <div class="admin-row">
+      <label><input type="radio" name="ov-winner" value="${state.a.id}"> <span></span></label>
+      <label><input type="radio" name="ov-winner" value="${state.b.id}"> <span></span></label>
+    </div>
+    <input class="admin-note" type="text" maxlength="300" placeholder="Reason (optional) — e.g. “group vote after the Discord argument”">
+    <div class="admin-row">
+      <button class="compare-bar-cta" data-act="save">${v.override ? 'Update overrule' : 'Save overrule'}</button>
+      ${v.override ? '<button class="pill-button" data-act="remove">Remove overrule</button>' : ''}
+    </div>
+    <div class="add-character-status error"></div>`;
+  const [spanA, spanB] = panel.querySelectorAll('.admin-row label span');
+  spanA.textContent = shortName(v.character_a);
+  spanB.textContent = shortName(v.character_b);
+  if (v.override) {
+    panel.querySelector(`input[value="${v.override.winner_id}"]`).checked = true;
+    panel.querySelector('.admin-note').value = v.override.note;
+  }
+  const err = panel.querySelector('.add-character-status');
+  panel.addEventListener('click', async (e) => {
+    const act = e.target.dataset && e.target.dataset.act;
+    if (!act) return;
+    err.textContent = '';
+    try {
+      if (act === 'save') {
+        const picked = panel.querySelector('input[name="ov-winner"]:checked');
+        if (!picked) { err.textContent = 'Pick who wins first.'; return; }
+        await Api.setOverride(state.a.id, state.b.id, v.form_a, v.form_b, Number(picked.value), panel.querySelector('.admin-note').value);
+      } else {
+        await Api.removeOverride(state.a.id, state.b.id, v.form_a, v.form_b);
+      }
+      await refreshComparison();
+    } catch (ex) {
+      err.textContent = ex.message;
+    }
+  });
+  card.appendChild(panel);
+}
+
 function renderVerdict() {
   const v = state.verdict;
   const card = document.getElementById('verdict-card');
+  const overruledHeadline = v.override ? `${escapeHtml(shortName(v.override.winner_name))} wins — overruled by admins` : null;
 
   if (v.composite === null) {
     card.innerHTML = `
       <div class="verdict-head">
         <div>
           <div class="section-label">Who would win?</div>
-          <div class="verdict-headline">Insufficient data</div>
+          <div class="verdict-headline">${overruledHeadline || 'Insufficient data'}</div>
         </div>
       </div>
+      ${overrideBannerHtml(v)}
       <div style="color:var(--text-secondary); font-size:14px;">
-        Only ${v.axes_used} of 4 stats are comparable between these two forms — too little to give a meaningful verdict rather than a guess.
+        Only ${v.axes_used} of 4 stats are comparable between these two forms — too little for the calculator to give a meaningful verdict rather than a guess.
       </div>
       ${notesHtml(v)}
     `;
+    renderAdminPanel(card);
     return;
   }
 
@@ -372,14 +432,17 @@ function renderVerdict() {
   const [accentA, accentB] = accentPair(state.a.id, state.b.id);
   const fillColor = leansLeft ? accentA : accentB;
 
+  const calcHeadline = `${favored ? escapeHtml(favored) + ' favored — ' : ''}${escapeHtml(v.label)}${v.confidence_hint !== 'n/a' ? ' (' + v.confidence_hint + ')' : ''}`;
   card.innerHTML = `
     <div class="verdict-head">
       <div>
         <div class="section-label">Who would win?</div>
-        <div class="verdict-headline">${favored ? escapeHtml(favored) + ' favored — ' : ''}${escapeHtml(v.label)}${v.confidence_hint !== 'n/a' ? ' (' + v.confidence_hint + ')' : ''}</div>
+        <div class="verdict-headline">${overruledHeadline || calcHeadline}</div>
       </div>
       <div class="verdict-disclaimer">Heuristic estimate from normalized stats — not a calibrated probability.</div>
     </div>
+    ${overrideBannerHtml(v)}
+    ${v.override ? `<div class="section-label" style="margin-bottom:0;">Calculator's estimate: ${calcHeadline}</div>` : ''}
     <div>
       <div class="verdict-meter-track">
         <div class="verdict-meter-fill" style="left:${fillLeft}%; width:${fillWidth}%; background:${fillColor};"></div>
@@ -392,6 +455,7 @@ function renderVerdict() {
     ${abilityCalloutHtml(v)}
     ${notesHtml(v)}
   `;
+  renderAdminPanel(card);
 }
 
 function abilityCalloutHtml(v) {
@@ -421,7 +485,13 @@ copyLinkBtn.addEventListener('click', async () => {
   }
   setTimeout(() => { copyLinkBtn.textContent = 'Copy link'; }, 1800);
 });
-renderTopbar([copyLinkBtn, pillButton('Change characters', { href: 'browse.html' })]);
+const shareBtn = pillButton('Share to board');
+shareBtn.addEventListener('click', () => {
+  if (!state.a || !state.b) return;
+  const p = new URLSearchParams({ a: state.a.id, b: state.b.id, fa: activeForm('a').name, fb: activeForm('b').name });
+  location.href = `board.html?${p}`;
+});
+renderTopbar([copyLinkBtn, shareBtn, pillButton('Change characters', { href: 'browse.html' })]);
 
 loadCharacters().catch((err) => {
   root.innerHTML = `<div class="error-state">Failed to load: ${escapeHtml(err.message)}</div>`;

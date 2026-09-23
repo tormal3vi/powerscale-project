@@ -1255,3 +1255,63 @@ Tested live at every stage (Browse search/filter/staging/add-character,
 Compare across a multi-form pairing, a single-form near-tie, and a
 genuine insufficient-data pairing), not just read over - see the
 per-stage descriptions above for exactly what was checked.
+
+## Community features (Phase 7)
+
+Pages (all share one top bar, `frontend/nav.js`):
+
+- **Characters** (`browse.html`) - now with sort (A-Z / strongest /
+  weakest, ranked - a per-series leaderboard when combined with a
+  category), a tier filter, accent-insensitive search that also matches
+  every alias ("Kakarot", "onoki"), **Random matchup** (within the
+  current filter) and **Matchup of the day** (same pair for everyone on
+  a given UTC day).
+- **Character page** (`character.html?id=`) - every form's full stat
+  block (scored value, peak hint, the wiki's exact wording), abilities,
+  weaknesses, wiki link, "Compare with...".
+- **Compare** - the URL carries the chosen forms (`fa`/`fb`), plus Copy
+  link and Share to board. The server writes Open Graph tags into
+  `compare.html`/`character.html`, so a pasted link previews in
+  Discord/WhatsApp ("Kratos vs Dante - Kratos favored - ...").
+- **Tournament** (`tournament.html`) - 8 or 16 characters, single
+  elimination via the same calculator; ties go to the higher Tier, then
+  the higher seed. `tournament.html?ids=...` replays a bracket.
+- **Board** (`board.html`) - posts (500 chars, optionally carrying a
+  matchup), one level of replies, likes. Accounts via `login.html`.
+- **Admin overrules** - an admin can overrule one exact matchup
+  (characters + forms, either order). Compare, board posts, link
+  previews and tournaments all show the admins' pick, with the
+  calculator's own estimate still visible underneath.
+
+### Setup (production)
+
+User data lives in its own database (`backend/community.py`), separate
+from the git-tracked `powerscale.db` - Render's free tier wipes the disk
+on every deploy/restart, so it must be hosted:
+
+1. Create a free Postgres database at [neon.tech](https://neon.tech)
+   and copy its connection string.
+2. In the Render dashboard, open the `powerscale` service -> Environment
+   and set `DATABASE_URL` to that string, and `ADMIN_USERNAMES` to a
+   comma-separated list of admin usernames (e.g. `levente`).
+3. Redeploy. Tables are created automatically on startup.
+
+Locally, with no `DATABASE_URL`, it uses a gitignored `community.db`
+SQLite file - no setup needed. Set `ADMIN_USERNAMES` in your shell to
+test admin features.
+
+### Security notes
+
+- Passwords: PBKDF2-SHA256, 600,000 iterations, per-user random salt;
+  unknown-user logins cost the same time as real ones (no username
+  probing).
+- Sessions: random tokens in an HttpOnly, SameSite=Lax cookie (Secure
+  over HTTPS); only a SHA-256 of each token is stored.
+- Writes require a JSON body and a same-site Origin (cross-site form
+  posts are refused).
+- Rate limits (in-memory, per IP / per user): 5 sign-ups per hour, 10
+  logins per 5 minutes, 10 posts per minute.
+- Everything user-written is rendered as text (`escapeHtml` escapes
+  quotes too, since text also lands in HTML attributes).
+- HTML/JS/CSS are served with `Cache-Control: no-cache`, so a browser
+  never mixes a cached old page with new scripts after a deploy.

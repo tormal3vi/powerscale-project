@@ -10,3 +10,6 @@ vocab_gaps_report*.txt
 # Cloud deploy has real data - it's a snapshot, not live-synced, so re-add
 # and commit it after any local batch_scrape.py run you want reflected
 # there.
+
+# Local user data (accounts, posts) - production uses DATABASE_URL (Neon)
+community.db

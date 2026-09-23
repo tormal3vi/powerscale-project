@@ -11,10 +11,9 @@ hand, or http://localhost:8000/ once frontend/ exists.
 
 import json
 import re
-import unicodedata
 from html import escape as html_escape
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -25,6 +24,7 @@ import db
 import normalizer
 import parser as parser_module
 import scraper
+from backend import characters, community, community_api
 from backend.schemas import (
     AbilityFlagOut,
     AxisComparisonOut,
@@ -42,6 +42,22 @@ from backend.schemas import (
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
 app = FastAPI(title="Powerscale API")
+app.include_router(community_api.router)
+community.init()
+
+
+@app.middleware("http")
+async def _revalidate_frontend_files(request, call_next):
+    # Without this, browsers may reuse a cached page after a deploy while
+    # fetching the NEW scripts (or vice versa) - e.g. an old compare.html
+    # without nav.js next to a new compare.js that needs it, which breaks
+    # the page outright. "no-cache" still caches, but checks the ETag
+    # first, so an unchanged file is just a tiny 304.
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.endswith((".html", ".js", ".css")):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 # --- helpers: dict/dataclass -> response model -----------------------------
@@ -89,67 +105,6 @@ def _form_out(raw_form: dict, normalized_form: dict) -> FormOut:
         stamina_raw=raw_stats.get("stamina"),
         range_raw=raw_stats.get("range"),
     )
-
-
-def _name_key(name: str) -> str:
-    """A character's primary name for collision purposes: the first alias
-    (names list aliases after ',', ';' or '/'), parentheticals dropped,
-    whitespace collapsed - so "Frieza/Freeza/Freezer", "Frieza / Freeza /
-    Freezer" and plain "Frieza" all count as the same name."""
-    first = re.split(r"[,;/]", name, maxsplit=1)[0]
-    first = re.sub(r"\([^)]*\)", "", first)
-    return " ".join(first.split()).lower()
-
-
-def _name_words(s: str) -> set:
-    folded = "".join(c for c in unicodedata.normalize("NFKD", s.lower()) if not unicodedata.combining(c))
-    return set(re.findall(r"[a-z0-9]{2,}", folded))
-
-
-def _base_name(name: str, source_url: str) -> str:
-    """The stored name, unless it shares no word at all with the wiki page
-    title (accents ignored) - then the title, minus any "(Series)"
-    qualifier. Catches wiki-side mistakes in the "Name:" field itself:
-    Land's page literally says "Name: Male", Third Kazekage's says
-    "Unknown", Megath's "Varies", Sherry Blendy's "Yuka Suzuki". Only
-    ~18 of 1550 characters trip this, and the rest just switch to the
-    wiki's own spelling (Nidhogg, Gorgon)."""
-    # A '|' in the Name field separates per-FORM names, same convention as
-    # every stat field ("Homura Akemi | Same | Homulily | Akuma Homura",
-    # "Uub | Majuub") - the first is the character's own name.
-    name = re.split(r"\s*\|\s*", name, maxsplit=1)[0]
-    if not source_url.startswith("http"):
-        return name
-    bare = re.sub(r"\s*\([^)]*\)\s*$", "", scraper.page_title(source_url))
-    name_words, title_words = _name_words(name), _name_words(bare)
-    if name_words and title_words:
-        return bare if not (name_words & title_words) else name
-    return bare if _name_key(name) != _name_key(bare) else name
-
-
-def _colliding_names(conn) -> set:
-    """Name keys shared by 2+ characters. Distinct wiki pages often carry
-    the same "Name:" field - e.g. Ichigo Kurosaki's Pre-Timeskip, Post-
-    Timeskip and Live Action pages, or Fairy Tail's X784-X792 vs. X793
-    versions - and a couple even carry another character's name by
-    mistake on the wiki itself (Sherry Blendy's and Toby Horhorta's pages
-    both say "Yuka Suzuki")."""
-    counts: Dict[str, int] = {}
-    for name, source_url in conn.execute("SELECT name, source_url FROM characters"):
-        key = _name_key(_base_name(name, source_url))
-        counts[key] = counts.get(key, 0) + 1
-    return {k for k, n in counts.items() if n > 1}
-
-
-def _display_name(name: str, source_url: str, colliding: set) -> str:
-    """The base name (see _base_name), unless another character shares it -
-    then the full wiki page title, which the wiki guarantees is unique
-    (e.g. "Ichigo Kurosaki (Pre-Timeskip)"). Manually entered characters
-    have no real page title, so they always keep their name."""
-    base = _base_name(name, source_url)
-    if _name_key(base) not in colliding or not source_url.startswith("http"):
-        return base
-    return scraper.page_title(source_url)
 
 
 def _verdict_out(v: "calculator.Verdict") -> VerdictOut:
@@ -207,7 +162,7 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
 
     with db.connect() as conn:
         rows = conn.execute(sql, params).fetchall()
-        colliding = _colliding_names(conn)
+        colliding = characters.colliding_names(conn)
 
     out = []
     for row in rows:
@@ -216,7 +171,7 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
         tier_label, tier_score, scorable = _card_info(normalized)
         out.append(CharacterSummaryOut(
             id=row["id"],
-            name=_display_name(row["name"], row["source_url"], colliding),
+            name=characters.display_name(row["name"], row["source_url"], colliding),
             category=row["category"] or "Uncategorized",
             tier_label=tier_label,
             tier_score=tier_score,
@@ -248,11 +203,11 @@ def get_character(char_id: int):
     ]
 
     with db.connect() as conn:
-        colliding = _colliding_names(conn)
+        colliding = characters.colliding_names(conn)
 
     return CharacterDetailOut(
         id=row["id"],
-        name=_display_name(row["name"], row["source_url"], colliding),
+        name=characters.display_name(row["name"], row["source_url"], colliding),
         category=row["category"] or "Uncategorized",
         source_url=row["source_url"],
         origin=raw.get("origin"),
@@ -293,10 +248,10 @@ def fetch_character(payload: FetchCharacterIn):
     normalized = json.loads(row["normalized_json"])
     forms = normalized.get("forms") or []
     with db.connect() as conn:
-        colliding = _colliding_names(conn)
+        colliding = characters.colliding_names(conn)
     return CharacterSummaryOut(
         id=row["id"],
-        name=_display_name(row["name"], row["source_url"], colliding),
+        name=characters.display_name(row["name"], row["source_url"], colliding),
         category=row["category"] or "Uncategorized",
         tier_label=_tier_badge(normalized),
         form_count=len(forms) or 1,
@@ -306,39 +261,22 @@ def fetch_character(payload: FetchCharacterIn):
 
 # --- /api/compare -----------------------------------------------------------
 
-def _run_compare(char_a, char_b, form_a=None, form_b=None) -> "calculator.Verdict":
-    with db.connect() as conn:
-        colliding = _colliding_names(conn)
-
-    def name_for(ref):
-        if not isinstance(ref, int):
-            return None
-        row = db.get_character_by_id(ref)
-        return _display_name(row["name"], row["source_url"], colliding) if row else None
-
-    return calculator.compare_characters(
-        char_a, char_b, form_a, form_b,
-        name_a=name_for(char_a), name_b=name_for(char_b),
-    )
-
-
 @app.post("/api/compare", response_model=VerdictOut)
 def compare(payload: CompareIn):
     try:
-        verdict = _run_compare(payload.char_a, payload.char_b, payload.form_a, payload.form_b)
+        verdict = characters.run_compare(payload.char_a, payload.char_b, payload.form_a, payload.form_b)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _verdict_out(verdict)
+    out = _verdict_out(verdict)
+    if isinstance(payload.char_a, int) and isinstance(payload.char_b, int):
+        out.override = community_api.override_out(payload.char_a, payload.char_b, verdict.form_a, verdict.form_b)
+    return out
 
 
 # --- link previews ------------------------------------------------------------
 # Discord/WhatsApp/iMessage build a link's preview card from the page's
 # <meta> tags without running any JavaScript, so a matchup/character link
 # only previews properly if the server writes its summary into the HTML.
-
-def _short(name: str) -> str:
-    return re.split(r"[;,]", name, maxsplit=1)[0].strip()
-
 
 def _page_with_preview(filename: str, title: Optional[str], description: Optional[str]) -> HTMLResponse:
     html = (FRONTEND_DIR / filename).read_text(encoding="utf-8")
@@ -365,14 +303,18 @@ def _compare_preview(a: Optional[str], b: Optional[str], fa: Optional[str], fb: 
     if char_a is None or char_b is None:
         return None, None
     try:
-        v = _run_compare(char_a, char_b, fa or None, fb or None)
+        v = characters.run_compare(char_a, char_b, fa or None, fb or None)
     except ValueError:
         return None, None
-    title = f"{_short(v.character_a)} vs {_short(v.character_b)} — Powerscale"
-    if v.composite is None:
+    title = f"{characters.short_name(v.character_a)} vs {characters.short_name(v.character_b)} — Powerscale"
+    ov = community.get_override(char_a, char_b, v.form_a, v.form_b)
+    if ov is not None:
+        winner = v.character_a if ov["winner_id"] == char_a else v.character_b
+        verdict = f"{characters.short_name(winner)} wins — overruled by admins"
+    elif v.composite is None:
         verdict = "Not enough data for a verdict"
     elif v.favored:
-        verdict = f"{_short(v.favored)} favored — {v.label}"
+        verdict = f"{characters.short_name(v.favored)} favored — {v.label}"
         if v.confidence_hint != "n/a":
             verdict += f" ({v.confidence_hint})"
     else:
@@ -386,12 +328,12 @@ def _character_preview(char_id: Optional[str]):
     if row is None:
         return None, None
     with db.connect() as conn:
-        name = _display_name(row["name"], row["source_url"], _colliding_names(conn))
+        name = characters.display_name(row["name"], row["source_url"], characters.colliding_names(conn))
     normalized = json.loads(row["normalized_json"])
     tier = _tier_badge(normalized)
     forms = len(normalized.get("forms") or [])
     desc = f"{row['category']}" + (f" · Tier {tier}" if tier else "") + (f" · {forms} forms" if forms > 1 else "")
-    return f"{_short(name)} — Powerscale", desc
+    return f"{characters.short_name(name)} — Powerscale", desc
 
 
 # --- static frontend (mounted once frontend/ exists) -------------------

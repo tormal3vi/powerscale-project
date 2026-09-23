@@ -1,9 +1,10 @@
-// Shared top bar for every page: logo, section links, and a slot on the
-// right for page-specific actions (passed in as DOM nodes).
+// Shared top bar for every page: logo, section links, a slot on the right
+// for page-specific actions (passed in as DOM nodes), and the account area.
 
 const NAV_LINKS = [
   { href: 'browse.html', label: 'Characters' },
   { href: 'tournament.html', label: 'Tournament' },
+  { href: 'board.html', label: 'Board' },
 ];
 
 function renderTopbar(actions = []) {
@@ -24,6 +25,25 @@ function renderTopbar(actions = []) {
   `;
   const slot = document.getElementById('topbar-actions');
   for (const node of actions) slot.appendChild(node);
+  const account = document.createElement('div');
+  account.className = 'topbar-account';
+  slot.appendChild(account);
+  renderAccount(account);
+}
+
+async function renderAccount(el) {
+  const user = await currentUser();
+  if (!user) {
+    const next = encodeURIComponent(location.pathname.split('/').pop() + location.search);
+    el.innerHTML = `<a class="topbar-login" href="login.html?next=${next}">Log in</a>`;
+    return;
+  }
+  el.innerHTML = `<span class="topbar-user"></span><button class="topbar-logout">Log out</button>`;
+  el.querySelector('.topbar-user').textContent = user.username + (user.is_admin ? ' · admin' : '');
+  el.querySelector('.topbar-logout').addEventListener('click', async () => {
+    await Api.logout().catch(() => {});
+    location.reload();
+  });
 }
 
 function pillButton(label, { href, id } = {}) {

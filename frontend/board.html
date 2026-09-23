@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Powerscale — Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page">
+  <div id="topbar"></div>
+  <div class="page-content board">
+    <div style="margin-bottom: 24px;">
+      <div class="page-title">Board</div>
+      <div class="page-subtitle">Share matchups and argue about them.</div>
+    </div>
+    <div id="composer-slot"></div>
+    <div id="feed" class="feed"></div>
+    <button class="pill-button" id="load-more" style="display:none; margin: 16px auto 0;">Load more</button>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="nav.js"></script>
+<script src="board.js"></script>
+</body>
+</html>

@@ -8,9 +8,10 @@ model. Nothing here computes anything; main.py just packs existing
 dataclass/dict data into these for a typed, self-documenting response.
 """
 
+from datetime import datetime
 from typing import Dict, List, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # --- shared building blocks ---------------------------------------------
@@ -126,6 +127,16 @@ class AbilityFlagOut(BaseModel):
     characters: List[str]
 
 
+class OverrideOut(BaseModel):
+    """An admin's ruling on one exact matchup (characters + forms), shown
+    instead of - never mixed into - the calculator's own verdict."""
+    winner_id: int
+    winner_name: str
+    note: str
+    admin: str
+    created_at: datetime
+
+
 class VerdictOut(BaseModel):
     character_a: str
     character_b: str
@@ -140,3 +151,81 @@ class VerdictOut(BaseModel):
     partial_data: bool
     ability_flags: List[AbilityFlagOut]
     notes: List[str]
+    override: Optional[OverrideOut] = None
+
+
+# --- accounts -------------------------------------------------------------------
+
+class AuthIn(BaseModel):
+    username: str = Field(..., max_length=40)
+    password: str = Field(..., max_length=200)
+
+
+class UserOut(BaseModel):
+    username: str
+    is_admin: bool
+
+
+class MeOut(BaseModel):
+    user: Optional[UserOut] = None
+
+
+# --- admin overrules --------------------------------------------------------------
+
+class OverrideIn(BaseModel):
+    char_a: int
+    char_b: int
+    form_a: str = Field(..., max_length=200)
+    form_b: str = Field(..., max_length=200)
+    winner_id: int
+    note: str = Field("", max_length=300)
+
+
+# --- message board ----------------------------------------------------------------
+
+class MatchupOut(BaseModel):
+    char_a: int
+    char_b: int
+    form_a: Optional[str] = None
+    form_b: Optional[str] = None
+    name_a: str
+    name_b: str
+    verdict: str  # e.g. "Kratos favored - Overwhelming favorite (~90%+)"
+    overruled: bool = False
+
+
+class PostIn(BaseModel):
+    body: str = Field(..., max_length=2000)
+    parent_id: Optional[int] = None
+    char_a: Optional[int] = None
+    char_b: Optional[int] = None
+    form_a: Optional[str] = Field(None, max_length=200)
+    form_b: Optional[str] = Field(None, max_length=200)
+
+
+class PostOut(BaseModel):
+    id: int
+    parent_id: Optional[int] = None
+    author: str
+    body: str
+    created_at: datetime
+    like_count: int
+    reply_count: int
+    liked_by_me: bool
+    can_delete: bool
+    matchup: Optional[MatchupOut] = None
+
+
+class PostListOut(BaseModel):
+    posts: List[PostOut]
+    next_before: Optional[int] = None
+
+
+class ThreadOut(BaseModel):
+    post: PostOut
+    replies: List[PostOut]
+
+
+class LikeOut(BaseModel):
+    liked: bool
+    like_count: int

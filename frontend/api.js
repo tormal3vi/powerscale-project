@@ -27,6 +27,15 @@ async function apiPost(path, payload) {
   return res.json();
 }
 
+async function apiDelete(path) {
+  const res = await fetch(API_BASE + path, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
 const Api = {
   listCharacters: () => apiGet('/api/characters'),
   getCharacter: (id) => apiGet(`/api/characters/${id}`),
@@ -34,7 +43,30 @@ const Api = {
   fetchCharacter: (query) => apiPost('/api/characters/fetch', { query }),
   compare: (charA, charB, formA, formB) =>
     apiPost('/api/compare', { char_a: charA, char_b: charB, form_a: formA || null, form_b: formB || null }),
+
+  me: () => apiGet('/api/auth/me'),
+  register: (username, password) => apiPost('/api/auth/register', { username, password }),
+  login: (username, password) => apiPost('/api/auth/login', { username, password }),
+  logout: () => apiPost('/api/auth/logout', {}),
+
+  setOverride: (charA, charB, formA, formB, winnerId, note) =>
+    apiPost('/api/overrides', { char_a: charA, char_b: charB, form_a: formA, form_b: formB, winner_id: winnerId, note }),
+  removeOverride: (charA, charB, formA, formB) =>
+    apiDelete(`/api/overrides?${new URLSearchParams({ a: charA, b: charB, fa: formA, fb: formB })}`),
+
+  listPosts: (before) => apiGet('/api/posts' + (before ? `?before=${before}` : '')),
+  getThread: (id) => apiGet(`/api/posts/${id}`),
+  createPost: (post) => apiPost('/api/posts', post),
+  deletePost: (id) => apiDelete(`/api/posts/${id}`),
+  likePost: (id) => apiPost(`/api/posts/${id}/like`, {}),
 };
+
+// The logged-in user (or null), fetched once per page load and shared.
+let _mePromise = null;
+function currentUser() {
+  if (!_mePromise) _mePromise = Api.me().then((r) => r.user).catch(() => null);
+  return _mePromise;
+}
 
 // One distinct color per character id, generated rather than picked from
 // a small fixed palette - a 6-color cycle meant any two characters
