@@ -364,18 +364,29 @@ function renderStatTable() {
 
 // --- verdict panel ----------------------------------------------------
 
+function shortName(name) {
+  // Names often carry a whole alias list ("Rudeus Greyrat (...); Rudi;
+  // Rudeus the Quagmire; ...") - the first alias is enough in a sentence.
+  return (name || '').split(/[;,]/)[0].trim();
+}
+
 function reasonBullets(v) {
   const byAxis = {};
   for (const c of v.axis_comparisons) byAxis[c.axis] = c;
+  const nameA = shortName(v.character_a);
+  const nameB = shortName(v.character_b);
   const lines = [];
   for (const axis of AXES) {
     const c = byAxis[axis];
     if (c.advantage === null) {
-      lines.push(`${AXIS_LABELS[axis]} isn't compared — unscored on one side`);
+      // Say WHOSE stat is missing - "unscored on one side" read as if
+      // the character you were looking at was the one without it.
+      const missing = [c.a_value === null ? nameA : null, c.b_value === null ? nameB : null].filter(Boolean);
+      lines.push(`${AXIS_LABELS[axis]} isn't compared — unscored for ${missing.join(' and ')}`);
       continue;
     }
     const mag = Math.abs(c.advantage);
-    const leader = c.advantage > 0 ? v.character_a : v.character_b;
+    const leader = c.advantage > 0 ? nameA : nameB;
     if (mag < 0.1) lines.push(`${AXIS_LABELS[axis]} is close between both`);
     else if (mag < 0.5) lines.push(`${AXIS_LABELS[axis]} edges toward ${leader}`);
     else lines.push(`${AXIS_LABELS[axis]} strongly favors ${leader}`);
