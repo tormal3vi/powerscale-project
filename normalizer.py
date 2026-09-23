@@ -327,10 +327,23 @@ def _qualifier_before(lowered_text: str, match_start: int, window: int = 25) -> 
     return None
 
 
-def _find_all_tokens(text: str, ladder: Dict[str, float]) -> List[Tuple[Optional[str], str, float]]:
+def _condition_after(lowered_text: str, match_end: int) -> Optional[str]:
+    """Tag a token by the condition written right after it: "physical"
+    for "... physically", "magic" for "... with magic". The only two
+    physical-vs-caster phrasings found in the data (checked across every
+    stored Tier/AP/Speed/Durability string before writing this)."""
+    tail = lowered_text[match_end:match_end + 20].lstrip()
+    if tail.startswith("physically"):
+        return "physical"
+    if tail.startswith("with magic"):
+        return "magic"
+    return None
+
+
+def _find_all_tokens(text: str, ladder: Dict[str, float]) -> List[Tuple[Optional[str], str, float, Optional[str]]]:
     """Scan left to right for every occurrence of a known ladder label in
     `text`, longest match first, respecting word boundaries. Returns a
-    list of (qualifier_or_None, matched_label, score)."""
+    list of (qualifier_or_None, matched_label, score, condition_or_None)."""
     lowered = text.lower()
     labels_by_len = sorted(ladder.keys(), key=len, reverse=True)
     results = []
@@ -347,7 +360,8 @@ def _find_all_tokens(text: str, ladder: Dict[str, float]) -> List[Tuple[Optional
                     break
         if matched:
             qualifier = _qualifier_before(lowered, i)
-            results.append((qualifier, matched, ladder[matched]))
+            condition = _condition_after(lowered, i + len(matched))
+            results.append((qualifier, matched, ladder[matched], condition))
             i += len(matched)
         else:
             i += 1
@@ -363,6 +377,28 @@ class NormalizedRange:
     peak: Optional[float] = None
     peak_qualifier: Optional[str] = None
     peak_label: Optional[str] = None
+
+
+def _caster_baseline(tokens: list) -> tuple:
+    """Pick the token to score as the baseline from score-sorted tokens.
+    Normally just the lowest one - but a page that splits a stat into
+    "X physically, Y with magic" (Rudeus Greyrat: "9-C physically, 6-C
+    with magic"; Ainz Ooal Gown: "At least 9-A, Low 7-C with magic")
+    means the physical value isn't the character's real fighting level,
+    so scoring it made every caster look several tiers weaker than their
+    page says (user decision: score casters by their magic value). The
+    baseline is raised to the lowest value NOT tagged "physically" (when
+    any value is), and to the lowest value tagged "with magic" (when any
+    is). It only ever moves up - the peak is untouched."""
+    chosen = tokens[0]
+    if any(t[3] == "physical" for t in tokens):
+        non_physical = [t for t in tokens if t[3] != "physical"]
+        if non_physical and non_physical[0][2] > chosen[2]:
+            chosen = non_physical[0]
+    magic = [t for t in tokens if t[3] == "magic"]
+    if magic and magic[0][2] > chosen[2]:
+        chosen = magic[0]
+    return chosen
 
 
 def parse_range(text: Optional[str], ladder: Dict[str, float]) -> NormalizedRange:
@@ -382,8 +418,8 @@ def parse_range(text: Optional[str], ladder: Dict[str, float]) -> NormalizedRang
         return result
 
     tokens.sort(key=lambda t: t[2])
-    lo_qualifier, lo_label, lo_score = tokens[0]
-    hi_qualifier, hi_label, hi_score = tokens[-1]
+    lo_qualifier, lo_label, lo_score, _ = _caster_baseline(tokens)
+    hi_qualifier, hi_label, hi_score, _ = tokens[-1]
 
     result.baseline = lo_score
     result.baseline_qualifier = lo_qualifier

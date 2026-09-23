@@ -351,6 +351,24 @@ def test_small_star_level_added_once_real_data_surfaced_it():
     assert TIER_LADDER["high 5-a"] < TIER_LADDER["low 4-c"] < TIER_LADDER["4-c"]
 
 
+def test_casters_are_scored_by_their_magic_value_not_physical():
+    # User decision: a stat split into "X physically, Y with magic" is
+    # scored by Y - the physical value isn't how a caster actually
+    # fights. Real strings: Rudeus Greyrat, Ainz Ooal Gown (no
+    # "physically" at all - only "with magic" marks the split), Gaara.
+    rudeus = parse_tier_range("9-C physically, 6-C with magic")
+    assert rudeus.baseline_label == "6-c"
+    ainz = parse_tier_range("At least 9-A, Low 7-C with magic, higher with the Staff of Ainz Ooal Gown")
+    assert ainz.baseline_label == "low 7-c"
+    gaara = parse_tier_range("8-B physically, 8-A with Sand, higher with Partial Transformation")
+    assert gaara.baseline_label == "8-a"
+    ap = parse_tier_range("Street level physically, Island level with magic (Used a Saint-ranked spell)")
+    assert ap.baseline_label == "island level"
+    # Only ever raises the baseline, and leaves unsplit stats alone.
+    assert parse_tier_range("High 6-A, higher with Blut Arterie").baseline_label == "high 6-a"
+    assert parse_tier_range("9-B | At least 9-B, up to at least 6-A | 4-A, possibly 3-C").baseline_label == "9-b"
+
+
 def test_sub_grade_names_no_longer_collapse_to_their_plain_tier():
     # Regression for the whole class, using real strings: "Multi-Continent
     # level" (Bambietta Basterbine's Attack Potency) used to score as
