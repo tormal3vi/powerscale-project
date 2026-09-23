@@ -575,13 +575,19 @@ def _segments_for_forms(flat_value: Optional[str], n: int) -> List[Optional[str]
     split. n segments map to forms in order. Exactly one (unsplit) value
     is the wiki's shorthand for "same for every form" - e.g. Bambietta
     Basterbine's Speed, "Massively Hypersonic" with no '|' at all - so
-    it's shared rather than dropped. Any other count (2+ but not n)
-    stays None: there's no safe way to know which segment is whose."""
+    it's shared rather than dropped. Any other count (2+ but not n -
+    Goku GT lists 5 Attack Potency values for 4 forms) can't be matched
+    to forms, so every form gets the WHOLE field instead: the normalizer
+    then scores it as the character's full range across all listed
+    values. Approximate, but it used to be left unscored, which cost ~30
+    characters a stat and Goku GT any verdict at all (user decision)."""
     segments = _split_top_level(flat_value, "|") if flat_value else []
     if len(segments) == n:
         return segments
     if len(segments) == 1:
         return segments * n
+    if segments:
+        return [flat_value] * n
     return [None] * n
 
 
