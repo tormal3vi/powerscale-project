@@ -276,6 +276,24 @@ def _label_text(b) -> Optional[str]:
     return None
 
 
+def _bare_stat_label(b) -> Optional[str]:
+    """A paragraph-opening `<b>Durability</b> <b>City Block level</b> ...`
+    with no colon at all (Sasuke Uchiha (Part I), Happy (Fairy Tail)) -
+    unrecognized, their Durability was silently dropped. Only when the
+    bold text is exactly a per-form stat name and a value follows, and
+    only at the start of a paragraph (see _label_from_p), so bold words
+    inside a value are never misread. Normalized in place to "Label:" so
+    everything downstream sees the usual shape."""
+    text = b.get_text(strip=True)
+    if text.lower() not in STAT_FIELD_MAP:
+        return None
+    rest = "".join(str(s) for s in b.next_siblings)
+    if not BeautifulSoup(rest, "html.parser").get_text(strip=True):
+        return None
+    b.string = text + ":"
+    return text
+
+
 def _label_from_p(p):
     """If `p` opens with a labeled `<b>`, return (b_tag, label); else
     (None, None). Leading whitespace/<br> before the <b> is tolerated."""
@@ -288,6 +306,8 @@ def _label_from_p(p):
             continue
         if child.name == "b":
             label = _label_text(child)
+            if label is None:
+                label = _bare_stat_label(child)
             if label is not None:
                 return child, label
         return None, None

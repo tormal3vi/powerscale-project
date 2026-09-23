@@ -391,6 +391,19 @@ def test_madara_bare_label_fields_outside_any_p():
     assert stats.forms[-1].tier.startswith("Low 5-B")
 
 
+def test_sasuke_part_i_stat_label_with_no_colon():
+    # Whole-DB audit of unscored stats: this page (and Happy's) writes
+    # `<b>Durability</b> <b>City Block level</b> ...` - no colon anywhere -
+    # so Durability was dropped on all three forms.
+    stats = parse_character(_load("SasukeUchihaPartI"))
+    assert len(stats.forms) == 3
+    assert all(f.stats.durability for f in stats.forms)
+    assert stats.forms[0].stats.durability.startswith("City Block level")
+    # A bare stat name only counts as a label when it opens a paragraph:
+    # the Speed text before it must not have swallowed Durability.
+    assert all("City Block" not in (f.stats.speed or "") for f in stats.forms)
+
+
 def test_goku_dbs_manga_several_fields_in_one_paragraph():
     # Found by a whole-DB audit: on 6 of this page's tabs, Speed, Lifting
     # Strength, Striking Strength, Durability and Stamina share ONE <p>,

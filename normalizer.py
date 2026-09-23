@@ -218,6 +218,10 @@ def _apply_aliases(ladder: Dict[str, float], aliases: Dict[str, str]) -> None:
 _TIER_TYPO_ALIASES: Dict[str, str] = {
     # Found adding the Naruto category (occurrence counts at the time):
     "City-Block level": "City Block level",              # ~38, hyphenated
+    # "At least City Block" with no "level" (Mundus, Golem Form). "Multi-City
+    # Block" too, or its "City Block" would match inside it one tier low.
+    "City Block": "City Block level",
+    "Multi-City Block": "Multi-City Block level",
     "City-Block level+": "City Block level+",
     "Multi City-Block level": "Multi-City Block level",  # 5
     "County level": "Country level",                     # 2, missing 'r'

@@ -375,6 +375,14 @@ def test_casters_are_scored_by_their_magic_value_not_physical():
     assert parse_tier_range("9-B | At least 9-B, up to at least 6-A | 4-A, possibly 3-C").baseline_label == "9-b"
 
 
+def test_city_block_without_level():
+    # Mundus (Golem Form): "At least City Block". And "Multi-City Block"
+    # must not be read as its inner "City Block", a tier too low.
+    assert parse_tier_range("At least City Block").baseline_label == "city block"
+    assert parse_tier_range("At least City Block").baseline == TIER_LADDER["8-b"]
+    assert parse_tier_range("Multi-City Block").baseline == TIER_LADDER["8-a"]
+
+
 def test_reality_warping_abilities_are_scored_like_magic():
     # User decision: Reality Overwrite / Reality Warping / Plot Manipulation /
     # Wish Granting / Weather Manipulation count like "with magic". Real

@@ -209,7 +209,7 @@ function defaultFormIndex(forms) {
 // Speed/Durability) - say so, rather than implying the site failed to read it.
 function missingStatText(raw) {
   if (!raw || !raw.trim()) return 'Not listed';
-  return /^\s*unknown\b/i.test(raw) ? 'Unknown' : 'Unscored';
+  return /^\s*(?:(?:at least|at most|likely|possibly)\s+)?unknown\b/i.test(raw) ? 'Unknown' : 'Unscored';
 }
 
 function initialFor(name) {
