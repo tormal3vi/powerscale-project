@@ -18,66 +18,19 @@ const state = {
 
 const root = document.getElementById('root');
 
-function prettifyLabel(label) {
-  if (!label) return null;
-  // Tier codes ("7-b", "low 2-c", "high 1-a") read best fully upper-cased;
-  // everything else (descriptive names like "massively hypersonic+") reads
-  // best title-cased. A code always contains a digit, so that's the split.
-  if (/\d/.test(label)) return label.toUpperCase();
-  const fixups = { Ftl: 'FTL' };
-  return label
-    .split(' ')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .map((w) => fixups[w] || w)
-    .join(' ');
+function formIndexByName(forms, name) {
+  if (!name) return null;
+  const idx = forms.findIndex((f) => f.name === name);
+  return idx === -1 ? null : idx;
 }
 
-function peakConditionSuffix(rawText, peakLabel) {
-  // The clean peak_label alone ("Island Level") drops WHY it's higher
-  // - normalizer only tracks probabilistic qualifiers (possibly, at
-  // least, ...) as structured data, not domain conditions like "with
-  // magic"/"physically". Pull that phrase straight from the raw wiki
-  // text instead: from the peak label up to the next comma/pipe/open-
-  // paren, e.g. "Island level with magic" out of "Street level
-  // physically, Island level with magic (...)".
-  if (!rawText || !peakLabel) return null;
-  const idx = rawText.toLowerCase().indexOf(peakLabel.toLowerCase());
-  if (idx === -1) return null;
-  let end = rawText.length;
-  for (const stop of [',', '|', '(']) {
-    const stopIdx = rawText.indexOf(stop, idx);
-    if (stopIdx !== -1 && stopIdx < end) end = stopIdx;
-  }
-  const suffix = rawText.slice(idx, end).trim();
-  return suffix || null;
-}
-
-function peakHintHtml(range, rawText) {
-  // The badge/row only ever shows the baseline (lower) value of a
-  // range - deliberate, see calculator.py's select_form() docstring -
-  // so a character whose wiki entry splits low/high across two
-  // conditions (e.g. Rudeus Greyrat: "Street level physically, Island
-  // level with magic") can look weaker here than their page actually
-  // describes. A hover tooltip alone doesn't help on touch devices, so
-  // show the peak inline instead whenever it differs from the baseline.
-  if (!range || !range.peak_label || range.peak_label === range.baseline_label) return '';
-  const suffix = peakConditionSuffix(rawText, range.peak_label);
-  const qualifier = range.peak_qualifier ? range.peak_qualifier + ' ' : '';
-  const text = suffix ? qualifier + suffix : qualifier + (prettifyLabel(range.peak_label) || '');
-  return `<div class="stat-peak-hint">up to ${escapeHtml(text)}</div>`;
-}
-
-function defaultFormIndex(forms) {
-  // Mirrors calculator.select_form()'s own default exactly: highest
-  // tier.baseline, unscored forms sort last, first tie wins.
-  let bestIdx = 0;
-  let bestVal = -Infinity;
-  forms.forEach((f, i) => {
-    const v = f.tier.baseline;
-    const val = v === null || v === undefined ? -Infinity : v;
-    if (val > bestVal) { bestVal = val; bestIdx = i; }
-  });
-  return bestIdx;
+function syncUrl() {
+  // Keep the address bar a shareable link to exactly this matchup,
+  // including the selected forms.
+  const params = new URLSearchParams({ a: state.a.id, b: state.b.id });
+  if (state.a.forms.length > 1) params.set('fa', activeForm('a').name);
+  if (state.b.forms.length > 1) params.set('fb', activeForm('b').name);
+  history.replaceState(null, '', `compare.html?${params}`);
 }
 
 function activeForm(side) {
@@ -98,8 +51,11 @@ async function loadCharacters() {
   const [a, b] = await Promise.all([Api.getCharacter(idA), Api.getCharacter(idB)]);
   state.a = a;
   state.b = b;
-  state.formIndexA = defaultFormIndex(a.forms);
-  state.formIndexB = defaultFormIndex(b.forms);
+  // A shared link carries the chosen forms (fa/fb) - honor them when
+  // they still exist, otherwise fall back to the usual default form.
+  state.formIndexA = formIndexByName(a.forms, params.get('fa')) ?? defaultFormIndex(a.forms);
+  state.formIndexB = formIndexByName(b.forms, params.get('fb')) ?? defaultFormIndex(b.forms);
+  document.title = `${shortName(a.name)} vs ${shortName(b.name)} — Powerscale`;
 
   buildLayout();
   await refreshComparison();
@@ -108,6 +64,7 @@ async function loadCharacters() {
 async function refreshComparison() {
   const formA = activeForm('a');
   const formB = activeForm('b');
+  syncUrl();
   try {
     state.verdict = await Api.compare(state.a.id, state.b.id, formA.name, formB.name);
   } catch (err) {
@@ -183,7 +140,7 @@ function heroCardHtml(side, char, accent) {
       <div class="vs-card-head">
         <div class="avatar avatar-lg" style="background:${accent};">${escapeHtml(initialFor(char.name))}</div>
         <div style="min-width:0;">
-          <div class="vs-card-name" title="${escapeHtml(char.name)}">${escapeHtml(char.name)}</div>
+          <a class="vs-card-name" href="character.html?id=${char.id}" title="${escapeHtml(char.name)}">${escapeHtml(char.name)}</a>
           <div class="vs-card-subtitle">${escapeHtml(char.category)}${char.classification ? ' · ' + escapeHtml(char.classification) : ''}</div>
         </div>
         <div class="vs-card-tier">
@@ -361,12 +318,6 @@ function renderStatTable() {
 
 // --- verdict panel ----------------------------------------------------
 
-function shortName(name) {
-  // Names often carry a whole alias list ("Rudeus Greyrat (...); Rudi;
-  // Rudeus the Quagmire; ...") - the first alias is enough in a sentence.
-  return (name || '').split(/[;,]/)[0].trim();
-}
-
 function reasonBullets(v) {
   const byAxis = {};
   for (const c of v.axis_comparisons) byAxis[c.axis] = c;
@@ -459,11 +410,18 @@ function notesHtml(v) {
   return `<ul class="verdict-notes">${v.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`;
 }
 
-function escapeHtml(s) {
-  const div = document.createElement('div');
-  div.textContent = s == null ? '' : String(s);
-  return div.innerHTML;
-}
+
+const copyLinkBtn = pillButton('Copy link');
+copyLinkBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(location.href);
+    copyLinkBtn.textContent = 'Link copied';
+  } catch {
+    copyLinkBtn.textContent = 'Copy failed';
+  }
+  setTimeout(() => { copyLinkBtn.textContent = 'Copy link'; }, 1800);
+});
+renderTopbar([copyLinkBtn, pillButton('Change characters', { href: 'browse.html' })]);
 
 loadCharacters().catch((err) => {
   root.innerHTML = `<div class="error-state">Failed to load: ${escapeHtml(err.message)}</div>`;

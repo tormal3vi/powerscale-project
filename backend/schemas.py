@@ -66,6 +66,9 @@ class CharacterSummaryOut(BaseModel):
     name: str
     category: str
     tier_label: Optional[str] = None  # highest-tier form's Tier, for the card badge
+    tier_score: Optional[float] = None  # same form's numeric Tier - for sorting by strength
+    aliases: str = ""  # the full stored name/alias list - searchable, not displayed
+    scorable: bool = False  # default form has 2+ scored stats (can get a verdict)
     form_count: int = 1
     is_multi_form: bool = False
 

@@ -11,21 +11,7 @@
 <body>
 <div class="page">
 
-  <div class="topbar">
-    <div class="topbar-left">
-      <a class="icon-button" href="compare.html" aria-label="Back to comparison">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M10 3 5 8l5 5" stroke="#F3EEE4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </a>
-      <div class="topbar-logo">Powerscale</div>
-    </div>
-    <div class="topbar-left">
-      <div class="topbar-meta" id="topbar-meta">Loading…</div>
-      <button class="pill-button" id="add-character-toggle" style="margin-left: 16px;">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="#F3EEE4" stroke-width="1.6" stroke-linecap="round"/></svg>
-        Add character
-      </button>
-    </div>
-  </div>
+  <div id="topbar"></div>
 
   <div class="add-character-panel" id="add-character-panel" style="display:none;">
     <form id="add-character-form">
@@ -49,6 +35,29 @@
 
     <div class="filter-row" id="filter-row"></div>
 
+    <div class="toolbar-row">
+      <label class="select-label">Sort
+        <select id="sort-select">
+          <option value="alpha">A–Z</option>
+          <option value="strong">Strongest first</option>
+          <option value="weak">Weakest first</option>
+        </select>
+      </label>
+      <label class="select-label">Tier
+        <select id="tier-select">
+          <option value="any">Any tier</option>
+          <option value="1">Tier 1</option><option value="2">Tier 2</option>
+          <option value="3">Tier 3</option><option value="4">Tier 4</option>
+          <option value="5">Tier 5</option><option value="6">Tier 6</option>
+          <option value="7">Tier 7</option><option value="8">Tier 8</option>
+          <option value="9">Tier 9</option><option value="10">Tier 10</option>
+        </select>
+      </label>
+      <div class="toolbar-spacer"></div>
+      <button class="pill-button" id="random-matchup">Random matchup</button>
+      <button class="pill-button" id="daily-matchup">Matchup of the day</button>
+    </div>
+
     <div class="grid-note" id="grid-note"></div>
     <div class="character-grid" id="character-grid"></div>
     <div class="empty-state" id="empty-state" style="display:none;">No characters match that search/filter.</div>
@@ -58,6 +67,7 @@
 </div>
 
 <script src="api.js"></script>
+<script src="nav.js"></script>
 <script src="browse.js"></script>
 </body>
 </html>

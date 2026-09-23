@@ -1,33 +1,40 @@
 // Browse screen: fetches the full character list once (small payload,
 // see backend/main.py's /api/characters - no pagination needed at this
-// size) and does all search/category filtering client-side, so typing
-// in the search box is instant rather than a round-trip per keystroke.
+// size) and does all search/category/tier filtering and sorting
+// client-side, so typing in the search box is instant rather than a
+// round-trip per keystroke.
 
 const state = {
   characters: [],
   categories: [],
   activeCategory: 'All',
   query: '',
+  sort: 'alpha', // 'alpha' | 'strong' | 'weak'
+  tierGroup: 'any', // 'any' | '1'..'10'
   selected: [], // up to 2 {id, name}
   showAllDefault: false, // "show the full roster" override for the capped default view
 };
+
+const topbarMeta = document.createElement('div');
+topbarMeta.className = 'topbar-meta';
+topbarMeta.textContent = 'Loading…';
+const addToggle = pillButton('+ Add character');
+renderTopbar([topbarMeta, addToggle]);
 
 const grid = document.getElementById('character-grid');
 const emptyState = document.getElementById('empty-state');
 const filterRow = document.getElementById('filter-row');
 const compareBar = document.getElementById('compare-bar');
-const topbarMeta = document.getElementById('topbar-meta');
 const searchInput = document.getElementById('search-input');
 const gridNote = document.getElementById('grid-note');
+const sortSelect = document.getElementById('sort-select');
+const tierSelect = document.getElementById('tier-select');
 
-// With no search text and no category picked, showing the full roster
-// (1000+ names, alphabetical) is an overwhelming wall of mostly-obscure
-// characters rather than a clean grid - so that specific default state
-// shows a capped, tidy set instead (matching the mockup's un-scrolled
-// 12-card layout) with an explicit note that it's a subset. The instant
-// a search or category filter is applied, the cap lifts and every
-// matching result shows - this only affects the very first, filter-less
-// screen.
+// With no search, category, tier filter or sort picked, showing the full
+// roster (1000+ names, alphabetical) is an overwhelming wall of mostly-
+// obscure characters rather than a clean grid - so that specific default
+// state shows a capped, tidy set instead (matching the mockup's un-
+// scrolled 12-card layout) with an explicit note that it's a subset.
 const DEFAULT_VIEW_LIMIT = 12;
 
 function showToast(message) {
@@ -38,6 +45,17 @@ function showToast(message) {
   toast.textContent = message;
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 2600);
+}
+
+// Accent-insensitive, so "Onoki" finds "Ōnoki" and "kugo" finds "Kūgo".
+function fold(s) {
+  return (s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+// "HIGH 6-A" / "LOW 1-C" / "10-B" -> 6 / 1 / 10.
+function tierNumber(label) {
+  const m = /(\d+)-[ABC]/i.exec(label || '');
+  return m ? m[1] : null;
 }
 
 function isSelected(id) {
@@ -75,15 +93,28 @@ function renderFilterRow() {
 }
 
 function filteredCharacters() {
-  const q = state.query.trim().toLowerCase();
-  return state.characters.filter((c) => {
+  const q = fold(state.query.trim());
+  const list = state.characters.filter((c) => {
     if (state.activeCategory !== 'All' && c.category !== state.activeCategory) return false;
-    if (q && !c.name.toLowerCase().includes(q)) return false;
+    if (state.tierGroup !== 'any' && tierNumber(c.tier_label) !== state.tierGroup) return false;
+    // Search the display name AND the full alias list ("Kakarot",
+    // "Salamander", "Homulily" - no longer part of the shown name).
+    if (q && !fold(c.name).includes(q) && !fold(c.aliases).includes(q)) return false;
     return true;
   });
+  if (state.sort !== 'alpha') {
+    const dir = state.sort === 'strong' ? -1 : 1;
+    // Unscored tiers always sort last, whichever direction.
+    list.sort((a, b) => {
+      if (a.tier_score == null) return b.tier_score == null ? 0 : 1;
+      if (b.tier_score == null) return -1;
+      return dir * (a.tier_score - b.tier_score);
+    });
+  }
+  return list;
 }
 
-function characterCard(c) {
+function characterCard(c, rank) {
   const card = document.createElement('div');
   card.className = 'character-card';
 
@@ -98,8 +129,9 @@ function characterCard(c) {
 
   const nameBlock = document.createElement('div');
   nameBlock.style.minWidth = '0';
-  const nameEl = document.createElement('div');
+  const nameEl = document.createElement('a');
   nameEl.className = 'character-card-name';
+  nameEl.href = `character.html?id=${c.id}`;
   nameEl.textContent = c.name;
   nameEl.title = c.name;
   const catEl = document.createElement('div');
@@ -108,13 +140,20 @@ function characterCard(c) {
   nameBlock.appendChild(nameEl);
   nameBlock.appendChild(catEl);
   head.appendChild(nameBlock);
+  if (rank) {
+    const rankEl = document.createElement('div');
+    rankEl.className = 'rank-badge';
+    rankEl.textContent = `#${rank}`;
+    head.appendChild(rankEl);
+  }
   card.appendChild(head);
 
   const statsRow = document.createElement('div');
   statsRow.className = 'character-card-stats';
   const tierEl = document.createElement('div');
   tierEl.className = 'tier-badge';
-  tierEl.innerHTML = 'Tier <strong>' + (c.tier_label || '—') + '</strong>';
+  tierEl.innerHTML = 'Tier <strong></strong>';
+  tierEl.querySelector('strong').textContent = c.tier_label || '—';
   statsRow.appendChild(tierEl);
   if (c.is_multi_form) {
     const formBadge = document.createElement('div');
@@ -135,7 +174,7 @@ function characterCard(c) {
 }
 
 function isDefaultView() {
-  return !state.query.trim() && state.activeCategory === 'All';
+  return !state.query.trim() && state.activeCategory === 'All' && state.tierGroup === 'any' && state.sort === 'alpha';
 }
 
 function renderGrid() {
@@ -156,12 +195,15 @@ function renderGrid() {
       renderGrid();
     });
     gridNote.appendChild(showAllBtn);
+  } else if (state.sort !== 'alpha') {
+    gridNote.textContent = `${matches.length.toLocaleString()} characters, ranked by their default form's Tier.`;
   } else {
     gridNote.textContent = '';
   }
 
+  const ranked = state.sort !== 'alpha';
   const frag = document.createDocumentFragment();
-  for (const c of list) frag.appendChild(characterCard(c));
+  list.forEach((c, i) => frag.appendChild(characterCard(c, ranked && c.tier_score != null ? i + 1 : null)));
   grid.appendChild(frag);
 }
 
@@ -176,9 +218,8 @@ function renderCompareBar() {
 
   const label = document.createElement('div');
   label.className = 'compare-bar-label';
-  label.innerHTML = state.selected.length === 2
-    ? 'Comparing <strong>' + escapeHtml(names) + '</strong>'
-    : 'Selected <strong>' + escapeHtml(names) + '</strong> — pick one more';
+  label.innerHTML = state.selected.length === 2 ? 'Comparing <strong></strong>' : 'Selected <strong></strong> — pick one more';
+  label.querySelector('strong').textContent = names;
   compareBar.appendChild(label);
 
   const cta = document.createElement('button');
@@ -193,23 +234,63 @@ function renderCompareBar() {
   compareBar.appendChild(cta);
 }
 
-function escapeHtml(s) {
-  const div = document.createElement('div');
-  div.textContent = s;
-  return div.innerHTML;
+// --- random / daily matchups -----------------------------------------------
+
+function goToMatchup(a, b) {
+  window.location.href = `compare.html?a=${a.id}&b=${b.id}`;
+}
+
+document.getElementById('random-matchup').addEventListener('click', () => {
+  // Random within whatever's filtered right now (e.g. a category), as
+  // long as there are two characters with enough data for a verdict.
+  let pool = filteredCharacters().filter((c) => c.scorable);
+  if (pool.length < 2) pool = state.characters.filter((c) => c.scorable);
+  const i = Math.floor(Math.random() * pool.length);
+  let j = Math.floor(Math.random() * (pool.length - 1));
+  if (j >= i) j += 1;
+  goToMatchup(pool[i], pool[j]);
+});
+
+document.getElementById('daily-matchup').addEventListener('click', () => {
+  // Same pair for everyone on the same (UTC) day: seeded from the date,
+  // over a stable id-ordered pool of verdict-capable characters.
+  const pool = state.characters.filter((c) => c.scorable).sort((a, b) => a.id - b.id);
+  const day = new Date().toISOString().slice(0, 10);
+  let seed = 0;
+  for (const ch of day) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const next = () => {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    return seed;
+  };
+  const i = next() % pool.length;
+  let j = next() % (pool.length - 1);
+  if (j >= i) j += 1;
+  goToMatchup(pool[i], pool[j]);
+});
+
+// --- loading ------------------------------------------------------------
+
+function setMeta(total, categoryCount) {
+  topbarMeta.textContent = `${total.toLocaleString()} characters · ${categoryCount} categories`;
+}
+
+async function loadLists() {
+  const [categoriesRes, charactersRes] = await Promise.all([Api.listCategories(), Api.listCharacters()]);
+  state.categories = categoriesRes;
+  state.characters = charactersRes.characters;
+  setMeta(charactersRes.total, categoriesRes.length);
 }
 
 async function init() {
   try {
-    const [categoriesRes, charactersRes] = await Promise.all([
-      Api.listCategories(),
-      Api.listCharacters(),
-    ]);
-    state.categories = categoriesRes;
-    state.characters = charactersRes.characters;
-    topbarMeta.textContent = `${charactersRes.total.toLocaleString()} characters · ${categoriesRes.length} categories`;
+    await loadLists();
+    // "Compare with..." from a character page arrives as ?with=<id>.
+    const withId = Number(new URLSearchParams(location.search).get('with'));
+    const pre = state.characters.find((c) => c.id === withId);
+    if (pre) state.selected.push({ id: pre.id, name: pre.name });
     renderFilterRow();
     renderGrid();
+    renderCompareBar();
   } catch (err) {
     topbarMeta.textContent = 'Failed to load';
     emptyState.textContent = 'Could not reach the API: ' + err.message;
@@ -221,11 +302,18 @@ searchInput.addEventListener('input', (e) => {
   state.query = e.target.value;
   renderGrid();
 });
+sortSelect.addEventListener('change', (e) => {
+  state.sort = e.target.value;
+  renderGrid();
+});
+tierSelect.addEventListener('change', (e) => {
+  state.tierGroup = e.target.value;
+  renderGrid();
+});
 
 // --- Add a character (live fetch from the wiki) -----------------------
 
 const addPanel = document.getElementById('add-character-panel');
-const addToggle = document.getElementById('add-character-toggle');
 const addForm = document.getElementById('add-character-form');
 const addInput = document.getElementById('add-character-input');
 const addSubmit = document.getElementById('add-character-submit');
@@ -255,10 +343,7 @@ addForm.addEventListener('submit', async (e) => {
     // Re-fetch both lists rather than just splicing the one row in - a
     // brand-new category shows up as a new filter pill too, same as a
     // fresh page load would show.
-    const [categoriesRes, charactersRes] = await Promise.all([Api.listCategories(), Api.listCharacters()]);
-    state.categories = categoriesRes;
-    state.characters = charactersRes.characters;
-    topbarMeta.textContent = `${charactersRes.total.toLocaleString()} characters · ${categoriesRes.length} categories`;
+    await loadLists();
     renderFilterRow();
     renderGrid();
 

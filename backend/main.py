@@ -12,11 +12,12 @@ hand, or http://localhost:8000/ once frontend/ exists.
 import json
 import re
 import unicodedata
+from html import escape as html_escape
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 import calculator
@@ -53,12 +54,21 @@ def _tier_badge(normalized: dict) -> Optional[str]:
     """The badge shown on a character card - the Tier of whichever form
     calculator.select_form() would pick by default (highest tier.baseline),
     same "no cleverness beyond that" default used everywhere else."""
-    forms = normalized.get("forms") or []
-    if not forms:
-        return None
+    return _card_info(normalized)[0]
+
+
+def _card_info(normalized: dict) -> tuple:
+    """(tier badge label, tier score, scorable) for the default form."""
+    if not normalized.get("forms"):
+        return None, None, False
     form = calculator.select_form(normalized)
-    label = (form.get("tier") or {}).get("baseline_label")
-    return label.upper() if label else None
+    tier = form.get("tier") or {}
+    label = tier.get("baseline_label")
+    scored = sum(
+        1 for axis in calculator.AXES
+        if (form.get(axis) or {}).get("baseline") is not None or (form.get(axis) or {}).get("peak") is not None
+    )
+    return (label.upper() if label else None), tier.get("baseline"), scored >= calculator.MIN_AXES_FOR_VERDICT
 
 
 def _form_out(raw_form: dict, normalized_form: dict) -> FormOut:
@@ -203,11 +213,15 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
     for row in rows:
         normalized = json.loads(row["normalized_json"])
         forms = normalized.get("forms") or []
+        tier_label, tier_score, scorable = _card_info(normalized)
         out.append(CharacterSummaryOut(
             id=row["id"],
             name=_display_name(row["name"], row["source_url"], colliding),
             category=row["category"] or "Uncategorized",
-            tier_label=_tier_badge(normalized),
+            tier_label=tier_label,
+            tier_score=tier_score,
+            aliases=row["name"],
+            scorable=scorable,
             form_count=len(forms) or 1,
             is_multi_form=len(forms) > 1,
         ))
@@ -292,8 +306,7 @@ def fetch_character(payload: FetchCharacterIn):
 
 # --- /api/compare -----------------------------------------------------------
 
-@app.post("/api/compare", response_model=VerdictOut)
-def compare(payload: CompareIn):
+def _run_compare(char_a, char_b, form_a=None, form_b=None) -> "calculator.Verdict":
     with db.connect() as conn:
         colliding = _colliding_names(conn)
 
@@ -303,14 +316,82 @@ def compare(payload: CompareIn):
         row = db.get_character_by_id(ref)
         return _display_name(row["name"], row["source_url"], colliding) if row else None
 
+    return calculator.compare_characters(
+        char_a, char_b, form_a, form_b,
+        name_a=name_for(char_a), name_b=name_for(char_b),
+    )
+
+
+@app.post("/api/compare", response_model=VerdictOut)
+def compare(payload: CompareIn):
     try:
-        verdict = calculator.compare_characters(
-            payload.char_a, payload.char_b, payload.form_a, payload.form_b,
-            name_a=name_for(payload.char_a), name_b=name_for(payload.char_b),
-        )
+        verdict = _run_compare(payload.char_a, payload.char_b, payload.form_a, payload.form_b)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _verdict_out(verdict)
+
+
+# --- link previews ------------------------------------------------------------
+# Discord/WhatsApp/iMessage build a link's preview card from the page's
+# <meta> tags without running any JavaScript, so a matchup/character link
+# only previews properly if the server writes its summary into the HTML.
+
+def _short(name: str) -> str:
+    return re.split(r"[;,]", name, maxsplit=1)[0].strip()
+
+
+def _page_with_preview(filename: str, title: Optional[str], description: Optional[str]) -> HTMLResponse:
+    html = (FRONTEND_DIR / filename).read_text(encoding="utf-8")
+    if title:
+        t, d = html_escape(title), html_escape(description or "")
+        tags = (
+            f'<meta property="og:title" content="{t}">\n'
+            f'<meta property="og:description" content="{d}">\n'
+            f'<meta property="og:type" content="website">\n'
+            f'<meta property="og:site_name" content="Powerscale">\n'
+            f'<meta name="twitter:card" content="summary">\n'
+            f'<meta name="description" content="{d}">\n'
+        )
+        html = html.replace("</head>", tags + "</head>", 1)
+    return HTMLResponse(html)
+
+
+def _int_param(value: Optional[str]) -> Optional[int]:
+    return int(value) if value and value.isdigit() else None
+
+
+def _compare_preview(a: Optional[str], b: Optional[str], fa: Optional[str], fb: Optional[str]):
+    char_a, char_b = _int_param(a), _int_param(b)
+    if char_a is None or char_b is None:
+        return None, None
+    try:
+        v = _run_compare(char_a, char_b, fa or None, fb or None)
+    except ValueError:
+        return None, None
+    title = f"{_short(v.character_a)} vs {_short(v.character_b)} — Powerscale"
+    if v.composite is None:
+        verdict = "Not enough data for a verdict"
+    elif v.favored:
+        verdict = f"{_short(v.favored)} favored — {v.label}"
+        if v.confidence_hint != "n/a":
+            verdict += f" ({v.confidence_hint})"
+    else:
+        verdict = v.label
+    return title, f"{verdict}. {v.form_a} vs {v.form_b}."
+
+
+def _character_preview(char_id: Optional[str]):
+    cid = _int_param(char_id)
+    row = db.get_character_by_id(cid) if cid is not None else None
+    if row is None:
+        return None, None
+    with db.connect() as conn:
+        name = _display_name(row["name"], row["source_url"], _colliding_names(conn))
+    normalized = json.loads(row["normalized_json"])
+    tier = _tier_badge(normalized)
+    forms = len(normalized.get("forms") or [])
+    desc = f"{row['category']}" + (f" · Tier {tier}" if tier else "") + (f" · {forms} forms" if forms > 1 else "")
+    return f"{_short(name)} — Powerscale", desc
 
 
 # --- static frontend (mounted once frontend/ exists) -------------------
@@ -323,5 +404,14 @@ if FRONTEND_DIR.exists():
     @app.get("/", include_in_schema=False)
     def _root():
         return RedirectResponse(url="/browse.html")
+
+    @app.get("/compare.html", include_in_schema=False)
+    def _compare_page(a: Optional[str] = None, b: Optional[str] = None,
+                      fa: Optional[str] = None, fb: Optional[str] = None):
+        return _page_with_preview("compare.html", *_compare_preview(a, b, fa, fb))
+
+    @app.get("/character.html", include_in_schema=False)
+    def _character_page(id: Optional[str] = None):
+        return _page_with_preview("character.html", *_character_preview(id))
 
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
