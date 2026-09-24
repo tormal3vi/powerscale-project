@@ -181,6 +181,62 @@ def test_avatars_store_replace_and_show_on_posts():
     assert community.get_post_view(pid, None)["avatar_at"] is None
 
 
+def test_profile_update_rename_and_counts():
+    a = community.create_user("settings_amy", "password123")
+    b = community.create_user("settings_bob", "password123")
+    community.update_profile(a["id"], "Amy_Renamed", "Hax over stats.", 915)
+    p = community.get_profile(username="amy_renamed")  # case-insensitive
+    assert (p["username"], p["bio"], p["favorite_char_id"]) == ("Amy_Renamed", "Hax over stats.", 915)
+    try:
+        community.update_profile(a["id"], "SETTINGS_BOB", "", None)  # someone else's, any case
+        assert False, "should be taken"
+    except community.UsernameTaken:
+        pass
+    community.update_profile(a["id"], "amy_renamed", "", None)  # own name, new case: fine; clears
+    assert community.get_profile(user_id=a["id"])["favorite_char_id"] is None
+    top = community.create_post(a["id"], "mine")
+    community.create_post(b["id"], "reply", parent_id=top)
+    community.toggle_like(top, b["id"])
+    p = community.get_profile(user_id=a["id"])
+    assert (p["post_count"], p["likes_received"]) == (1, 1)  # replies aren't "posts"
+
+
+def test_password_change_and_other_sessions():
+    u = community.create_user("pw_person", "password123")
+    keep, other = community.create_session(u["id"]), community.create_session(u["id"])
+    assert not community.change_password(u["id"], "wrong-password", "newpassword1")
+    assert community.change_password(u["id"], "password123", "newpassword1")
+    assert community.authenticate("pw_person", "newpassword1") and not community.authenticate("pw_person", "password123")
+    assert community.delete_other_sessions(u["id"], keep) == 1
+    assert community.user_for_token(keep) and community.user_for_token(other) is None
+
+
+def test_delete_account_removes_only_what_the_user_wrote():
+    gone = community.create_user("leaving_user", "password123")
+    stays = community.create_user("staying_user", "password123")
+    their_post = community.create_post(gone["id"], "bye")
+    reply_to_them = community.create_post(stays["id"], "reply to leaver", parent_id=their_post)
+    other_post = community.create_post(stays["id"], "unrelated")
+    their_reply = community.create_post(gone["id"], "leaver's reply", parent_id=other_post)
+    other_reply = community.create_post(stays["id"], "kept reply", parent_id=other_post)
+    community.toggle_like(other_post, gone["id"])
+    community.toggle_like(other_post, stays["id"])
+    community.set_avatar(gone["id"], b"img")
+    token = community.create_session(gone["id"])
+    assert not community.has_admin_records(gone["id"])
+    community.delete_account(gone["id"])
+    for pid in (their_post, reply_to_them, their_reply):
+        assert community.get_post(pid) is None
+    assert community.get_post(other_post) and community.get_post(other_reply)
+    assert community.get_post_view(other_post, None)["like_count"] == 1  # only the leaver's like went
+    assert community.get_profile(user_id=gone["id"]) is None
+    assert community.user_for_token(token) is None and community.get_avatar("leaving_user") is None
+    # Admin records pin an account (they reference it by id).
+    admin = community.create_user("record_keeper", "password123")
+    community.set_override(1, 2, "Base", "Base", 1, "", admin["id"])
+    assert community.has_admin_records(admin["id"])
+
+
 def test_rate_limiter_blocks_after_the_limit_per_key():
     rl = community.RateLimiter(limit=2, window=60)
     assert rl.allow("ip1") and rl.allow("ip1")

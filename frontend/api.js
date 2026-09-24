@@ -27,6 +27,19 @@ async function apiPost(path, payload) {
   return res.json();
 }
 
+async function apiSend(method, path, payload) {
+  const res = await fetch(API_BASE + path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
 async function apiDelete(path) {
   const res = await fetch(API_BASE + path, { method: 'DELETE' });
   if (!res.ok) {
@@ -59,15 +72,30 @@ const Api = {
   createPost: (post) => apiPost('/api/posts', post),
   deletePost: (id) => apiDelete(`/api/posts/${id}`),
   likePost: (id) => apiPost(`/api/posts/${id}/like`, {}),
-  uploadAvatar: async (blob) => {
-    const res = await fetch('/api/me/avatar', { method: 'PUT', headers: { 'Content-Type': blob.type || 'image/png' }, body: blob });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.detail || `${res.status} ${res.statusText}`);
+  // XHR rather than fetch: only XHR reports upload progress (onProgress
+  // gets 0-100).
+  uploadAvatar: (blob, onProgress) => new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', '/api/me/avatar');
+    xhr.setRequestHeader('Content-Type', blob.type || 'image/png');
+    xhr.responseType = 'json';
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
     }
-    return res.json();
-  },
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response);
+      else reject(new Error((xhr.response && xhr.response.detail) || `${xhr.status} ${xhr.statusText}`));
+    };
+    xhr.onerror = () => reject(new Error('Upload failed - check your connection'));
+    xhr.send(blob);
+  }),
   removeAvatar: () => apiDelete('/api/me/avatar'),
+  myProfile: () => apiGet('/api/me/profile'),
+  userProfile: (username) => apiGet(`/api/users/${encodeURIComponent(username)}`),
+  saveProfile: (profile) => apiSend('PUT', '/api/me/profile', profile),
+  changePassword: (current, next) => apiPost('/api/me/password', { current_password: current, new_password: next }),
+  logoutOtherDevices: () => apiPost('/api/me/logout-others', {}),
+  deleteAccount: (password) => apiPost('/api/me/delete', { password }),
   replaceCharacterImage: async (id, blob) => {
     const res = await fetch(`/api/characters/${id}/image`, { method: 'PUT', headers: { 'Content-Type': blob.type || 'image/png' }, body: blob });
     if (!res.ok) {
@@ -235,6 +263,31 @@ function initialFor(name) {
   return trimmed.charAt(0).toUpperCase() || '?';
 }
 
+// --- character search (board matchup picker, favorite character) -------------
+
+let rosterPromise = null;
+function roster() {
+  if (!rosterPromise) {
+    rosterPromise = Api.listCharacters().then((r) => r.characters.map((c) => ({
+      ...c, _name: fold(c.name), _aliases: fold(c.aliases), _cat: fold(c.category),
+    })));
+  }
+  return rosterPromise;
+}
+
+// Name prefix first, then anywhere in the name, then aliases, then series.
+function searchRoster(all, q, excludeId, limit = 8) {
+  const hits = [];
+  for (const c of all) {
+    if (c.id === excludeId) continue;
+    const rank = c._name.startsWith(q) ? 0 : c._name.includes(q) ? 1
+      : c._aliases.includes(q) ? 2 : c._cat.includes(q) ? 3 : -1;
+    if (rank >= 0) hits.push([rank, c]);
+  }
+  hits.sort((x, y) => x[0] - y[0] || x[1].name.localeCompare(y[1].name));
+  return hits.slice(0, limit).map((h) => h[1]);
+}
+
 // --- character pictures ------------------------------------------------------
 
 // Wiki pictures arrive size-free; ask Fandom's CDN for a square of the
@@ -301,8 +354,20 @@ function userColor(name) {
 }
 
 // The user's picture if they've uploaded one, else their colored initial.
-// `cls` sizes it (post-avatar, reply-avatar, topbar-avatar, profile-avatar).
+// `cls` sizes it (post-avatar, reply-avatar, topbar-avatar, settings-avatar, pic-tile, user-pop-avatar).
 // avatarUrl only ever comes from our own API (/api/avatars/<name>?v=<n>).
+// The gold "ADMIN" pill. `solid` is the filled version used on profiles
+// (settings header, popover, phone menu); the outline one sits in feeds.
+function adminBadgeHtml({ solid = false } = {}) {
+  const shield = `<svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.5 14 4.5v4c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8v-4L8 1.5Z" ${solid ? 'fill="currentColor"' : 'stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"'}/></svg>`;
+  return `<span class="admin-badge${solid ? ' solid' : ''}" title="Site admin">${shield}Admin</span>`;
+}
+
+// "Sep 2026"
+function monthYear(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
 function userAvatarHtml(name, avatarUrl, cls, { admin = false } = {}) {
   const classes = `${cls}${admin ? ' is-admin' : ''}${avatarUrl ? ' has-img' : ''}`;
   if (avatarUrl) return `<span class="${classes}"><img src="${escapeHtml(avatarUrl)}" alt="" loading="lazy"></span>`;

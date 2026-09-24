@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Powerscale — Profile</title>
+<title>Powerscale — Profile settings</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <link rel="stylesheet" href="styles.css">
@@ -11,28 +11,132 @@
 <body>
 <div class="page">
   <div id="topbar"></div>
-  <div class="auth-wrap">
-    <div class="auth-card profile-card" id="profile" style="display:none;">
-      <div class="profile-head">
-        <div id="profile-avatar"></div>
-        <div class="profile-id">
-          <div class="profile-name" id="profile-name"></div>
-          <div class="profile-sub">Your picture shows next to your posts and replies on the Board.</div>
+  <main class="settings" id="settings" style="display:none;">
+
+    <header class="settings-head">
+      <div id="head-avatar"></div>
+      <div class="settings-id">
+        <div class="settings-name-row"><h1 class="settings-name" id="head-name"></h1><span id="head-badge"></span></div>
+        <div class="settings-stats" id="head-stats"></div>
+      </div>
+    </header>
+
+    <section class="settings-card" aria-labelledby="pic-title">
+      <h2 class="settings-card-title" id="pic-title">Profile picture</h2>
+      <div class="pic-row">
+        <div id="pic-tile"></div>
+        <div class="pic-controls" id="pic-controls">
+          <div class="pic-buttons">
+            <label class="btn-gold settings-btn pic-upload">
+              <input type="file" id="pic-file" accept="image/jpeg,image/png,image/webp,image/gif" class="visually-hidden">
+              Change photo
+            </label>
+            <button type="button" class="btn-outline settings-btn" id="pic-remove">Remove photo</button>
+          </div>
+          <div class="settings-hint pic-hint">JPG, PNG, WebP or GIF. It's cropped to a square.</div>
+        </div>
+        <div class="pic-progress" id="pic-progress" hidden>
+          <div class="pic-progress-title">Uploading…</div>
+          <div class="pic-progress-pct" id="pic-pct">0%</div>
         </div>
       </div>
-      <div class="profile-actions">
-        <label class="btn-gold profile-upload">
-          <input type="file" id="profile-file" accept="image/jpeg,image/png,image/webp,image/gif" class="visually-hidden">
-          <span id="profile-upload-text">Upload photo</span>
+      <div class="field-error" id="pic-error" hidden></div>
+    </section>
+
+    <section class="settings-card" aria-labelledby="details-title">
+      <h2 class="settings-card-title" id="details-title">Profile details</h2>
+      <form class="settings-form" id="details-form" novalidate>
+        <label class="field">
+          <span class="lbl">Username</span>
+          <input type="text" id="f-username" autocomplete="username" maxlength="20" spellcheck="false">
+          <span class="settings-hint field-hint" id="username-hint">3–20 letters, numbers or underscores</span>
+          <span class="field-error" id="username-error" hidden></span>
         </label>
-        <button class="pill-button" id="profile-remove" style="display:none;">Remove photo</button>
+        <label class="field">
+          <span class="field-head"><span class="lbl">Bio</span><span class="field-count" id="bio-count">0/160</span></span>
+          <textarea id="f-bio" rows="3" maxlength="160" placeholder="Add a short bio…"></textarea>
+        </label>
+        <div class="field">
+          <span class="lbl" id="fav-label">Favorite character</span>
+          <div id="fav-slot"></div>
+        </div>
+        <div class="form-foot">
+          <span class="saved-note" id="details-saved" hidden></span>
+          <button type="submit" class="btn-gold settings-btn-lg">Save</button>
+        </div>
+        <span class="field-error" id="details-error" hidden></span>
+      </form>
+    </section>
+
+    <section class="settings-card" aria-labelledby="password-title">
+      <h2 class="settings-card-title" id="password-title">Password</h2>
+      <form class="settings-form" id="password-form" novalidate>
+        <input type="text" autocomplete="username" class="visually-hidden" tabindex="-1" aria-hidden="true" id="pw-username">
+        <label class="field">
+          <span class="lbl">Current password</span>
+          <input type="password" id="f-current" autocomplete="current-password" maxlength="128" placeholder="••••••••">
+          <span class="field-error" id="current-error" hidden></span>
+        </label>
+        <label class="field">
+          <span class="lbl">New password</span>
+          <input type="password" id="f-new" autocomplete="new-password" maxlength="128" placeholder="••••••••">
+          <span class="settings-hint field-hint">8+ characters</span>
+          <span class="field-error" id="new-error" hidden></span>
+        </label>
+        <label class="field">
+          <span class="lbl">Confirm new password</span>
+          <input type="password" id="f-confirm" autocomplete="new-password" maxlength="128" placeholder="••••••••">
+          <span class="field-error" id="confirm-error" hidden></span>
+        </label>
+        <div class="form-foot">
+          <span class="saved-note" id="password-saved" hidden></span>
+          <button type="submit" class="btn-gold settings-btn-lg">Update password</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="settings-card settings-sessions" aria-labelledby="sessions-title">
+      <div>
+        <h2 class="settings-card-title" id="sessions-title">Sessions</h2>
+        <div class="settings-text">
+          <span class="desktop-only">Sign out of Powerscale on every other device you're logged into.</span>
+          <span class="phone-only">Sign out on every other device you're logged into.</span>
+        </div>
+        <span class="saved-note" id="sessions-saved" hidden></span>
       </div>
-      <div class="profile-hint">JPG, PNG, WebP or GIF. It's cropped to a square.</div>
-      <div class="auth-error" id="profile-error" style="display:none;">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;"><circle cx="8" cy="8" r="6.5" stroke="#E15252" stroke-width="1.3"/><path d="M8 5v3.5M8 10.8v.1" stroke="#E15252" stroke-width="1.3" stroke-linecap="round"/></svg>
-        <span id="profile-error-text"></span>
+      <button type="button" class="btn-outline settings-btn-lg" id="logout-others">Log out of all other devices</button>
+    </section>
+
+    <section class="settings-card settings-danger" aria-labelledby="danger-title">
+      <h2 class="settings-card-title" id="danger-title">Danger zone</h2>
+      <div class="settings-text">
+        Deleting your account permanently removes your profile, posts, and replies.<span class="desktop-only"> This can't be undone.</span>
       </div>
+      <button type="button" class="btn-danger settings-btn-lg" id="delete-open">Delete account</button>
+    </section>
+  </main>
+</div>
+
+<div class="modal-backdrop" id="delete-modal" hidden>
+  <div class="modal modal-danger" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+    <div class="modal-head">
+      <div class="modal-icon">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M8 1.5 15 14H1L8 1.5Z" stroke="#E15252" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.2v3.4M8 11.6v.1" stroke="#E15252" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </div>
+      <h2 class="modal-title" id="delete-title">Delete your account?</h2>
     </div>
+    <p class="modal-text">This permanently deletes your profile, including every post and reply you've made. This can't be undone.</p>
+    <form id="delete-form" novalidate>
+      <label class="field">
+        <span class="lbl">Enter your password to confirm</span>
+        <input type="password" id="f-delete-password" autocomplete="current-password" maxlength="128" placeholder="••••••••">
+        <span class="field-error" id="delete-error" hidden></span>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline settings-btn-lg" id="delete-cancel">Cancel</button>
+        <button type="submit" class="btn-danger settings-btn-lg" id="delete-confirm">Delete account</button>
+      </div>
+    </form>
   </div>
 </div>
 

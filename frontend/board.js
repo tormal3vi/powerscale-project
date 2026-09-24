@@ -9,7 +9,7 @@ renderTopbar([]);
 const MAX_CHARS = 500;
 const HEART = '<path d="M8 13.5s-5.5-3.2-5.5-7A3 3 0 0 1 8 4.6 3 3 0 0 1 13.5 6.5c0 3.8-5.5 7-5.5 7Z"/>';
 const SHIELD = (size) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.5 14 4.5v4c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8v-4L8 1.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
-const ADMIN_BADGE = `<span class="admin-badge" title="Site admin">${SHIELD(10)}Admin</span>`;
+const ADMIN_BADGE = adminBadgeHtml();
 const feed = document.getElementById('feed');
 const loadMore = document.getElementById('load-more');
 let nextBefore = null;
@@ -60,29 +60,6 @@ function matchupHtml(m, { link = true } = {}) {
 // Both sides chosen right in the composer: search (names, aliases, series;
 // accent-insensitive), a form dropdown for multi-form characters, and a
 // live preview of the exact card the post will carry.
-
-let rosterPromise = null;
-function roster() {
-  if (!rosterPromise) {
-    rosterPromise = Api.listCharacters().then((r) => r.characters.map((c) => ({
-      ...c, _name: fold(c.name), _aliases: fold(c.aliases), _cat: fold(c.category),
-    })));
-  }
-  return rosterPromise;
-}
-
-// Name prefix first, then anywhere in the name, then aliases, then series.
-function searchRoster(all, q, excludeId) {
-  const hits = [];
-  for (const c of all) {
-    if (c.id === excludeId) continue;
-    const rank = c._name.startsWith(q) ? 0 : c._name.includes(q) ? 1
-      : c._aliases.includes(q) ? 2 : c._cat.includes(q) ? 3 : -1;
-    if (rank >= 0) hits.push([rank, c]);
-  }
-  hits.sort((x, y) => x[0] - y[0] || x[1].name.localeCompare(y[1].name));
-  return hits.slice(0, 8).map((h) => h[1]);
-}
 
 function matchupPickerEl({ onChange, onClose }) {
   const el = document.createElement('div');
@@ -354,13 +331,80 @@ function replyComposerEl(parentId, onPosted) {
 
 // --- posts -----------------------------------------------------------------------
 
+// Author name and avatar both open that user's profile popover.
 function avatarHtml(post, cls) {
-  return userAvatarHtml(post.author, post.author_avatar, cls, { admin: post.author_is_admin });
+  return `<button type="button" class="author-hit author-avatar-hit" data-user="${escapeHtml(post.author)}" aria-label="View ${escapeHtml(post.author)}'s profile">${
+    userAvatarHtml(post.author, post.author_avatar, cls, { admin: post.author_is_admin })}</button>`;
+}
+
+function favoriteChipHtml(fav, cls, px) {
+  if (!fav) return '';
+  return `<span class="${cls}" title="Favorite character: ${escapeHtml(fav.name)}">
+    <span class="${cls}-tile${fav.image_url ? ' has-pic' : ''}" style="background:${accentFor(fav.id)}">${characterTileInner(fav.name, fav.image_url, px)}</span>
+    <span class="${cls}-name">${escapeHtml(fav.name)}</span></span>`;
 }
 
 function authorHtml(post, cls) {
-  return `<span class="${cls}">${escapeHtml(post.author)}</span>${post.author_is_admin ? ADMIN_BADGE : ''}`;
+  return `<button type="button" class="author-hit ${cls}" data-user="${escapeHtml(post.author)}">${escapeHtml(post.author)}</button>${
+    post.author_is_admin ? ADMIN_BADGE : ''}${favoriteChipHtml(post.author_favorite, 'fav-mini', 32)}`;
 }
+
+// --- author profile popover -------------------------------------------------
+
+const profileCache = new Map();
+let openPopover = null;
+
+function closePopover() {
+  if (openPopover) { openPopover.remove(); openPopover = null; }
+}
+
+async function showProfilePopover(trigger) {
+  const username = trigger.dataset.user;
+  const host = trigger.closest('.post, .reply');
+  if (openPopover && openPopover.dataset.user === username && openPopover.parentNode === host) {
+    closePopover(); // clicking the same author again closes it
+    return;
+  }
+  closePopover();
+  const pop = document.createElement('div');
+  pop.className = 'user-pop';
+  pop.dataset.user = username;
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', `${username}'s profile`);
+  pop.innerHTML = '<div class="user-pop-loading">Loading…</div>';
+  // Just under the row with the author's name, lined up with the text.
+  const head = trigger.closest('.post-head, .reply-head') || host.querySelector('.post-head, .reply-head');
+  const main = head.parentElement;
+  pop.style.top = `${head.offsetTop + head.offsetHeight + 10}px`;
+  pop.style.left = `${main.offsetLeft}px`;
+  host.appendChild(pop);
+  openPopover = pop;
+  try {
+    if (!profileCache.has(username)) profileCache.set(username, Api.userProfile(username));
+    const p = await profileCache.get(username);
+    if (openPopover !== pop) return;
+    pop.innerHTML = `
+      <div class="user-pop-head">
+        ${userAvatarHtml(p.username, p.avatar_url, 'user-pop-avatar', { admin: p.is_admin })}
+        <div class="user-pop-id">
+          <div class="user-pop-name-row"><span class="user-pop-name">${escapeHtml(p.username)}</span>${p.is_admin ? adminBadgeHtml({ solid: true }) : ''}</div>
+          <div class="user-pop-meta">${monthYear(p.member_since)} · ${p.post_count} post${p.post_count === 1 ? '' : 's'}</div>
+        </div>
+      </div>
+      ${p.bio ? `<div class="user-pop-bio">${escapeHtml(p.bio)}</div>` : ''}
+      ${favoriteChipHtml(p.favorite, 'fav-pop', 44)}`;
+  } catch (err) {
+    profileCache.delete(username);
+    if (openPopover === pop) pop.innerHTML = `<div class="user-pop-loading">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const trigger = e.target.closest('.author-hit');
+  if (trigger) { showProfilePopover(trigger); return; }
+  if (openPopover && !openPopover.contains(e.target)) closePopover();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePopover(); });
 
 // The card an admin overrule posts on its own: what was ruled (kept as
 // posted, even if the overrule is later changed or lifted), on which

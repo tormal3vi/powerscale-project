@@ -215,6 +215,38 @@ class PostIn(BaseModel):
     form_b: Optional[str] = Field(None, max_length=200)
 
 
+class FavoriteOut(BaseModel):
+    id: int
+    name: str                        # short name, e.g. "Giorno Giovanna"
+    image_url: Optional[str] = None  # same kind of URL as CharacterSummaryOut.image_url
+
+
+class ProfileOut(BaseModel):
+    username: str
+    is_admin: bool
+    avatar_url: Optional[str] = None
+    bio: str = ""
+    favorite: Optional[FavoriteOut] = None
+    member_since: datetime
+    post_count: int
+    likes_received: Optional[int] = None  # only on your own profile
+
+
+class ProfileIn(BaseModel):
+    username: str = Field(..., max_length=40)
+    bio: str = Field("", max_length=400)
+    favorite_char_id: Optional[int] = None
+
+
+class PasswordIn(BaseModel):
+    current_password: str = Field(..., max_length=200)
+    new_password: str = Field(..., max_length=200)
+
+
+class DeleteAccountIn(BaseModel):
+    password: str = Field(..., max_length=200)
+
+
 class RulingOut(BaseModel):
     """What an admin-overrule post ruled, as of when it was posted."""
     winner: str   # short name, e.g. "Dante"
@@ -227,6 +259,7 @@ class PostOut(BaseModel):
     author: str
     author_is_admin: bool = False
     author_avatar: Optional[str] = None
+    author_favorite: Optional[FavoriteOut] = None
     kind: Optional[str] = None  # "overrule" for posts made by an admin ruling
     ruling: Optional[RulingOut] = None
     body: str

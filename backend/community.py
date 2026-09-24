@@ -48,6 +48,9 @@ users = Table(
     Column("username_lower", String(20), nullable=False, unique=True),
     Column("password_hash", String(200), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("bio", String(200), nullable=True),
+    # A character id in powerscale.db (a separate database, so no FK).
+    Column("favorite_char_id", Integer, nullable=True),
 )
 sessions = Table(
     "sessions", metadata,
@@ -117,7 +120,10 @@ likes = Table(
 # Columns added after the first deploy. create_all() only creates missing
 # tables, never missing columns, so an existing database (the live Neon one)
 # gets them here. Nullable, so adding them touches no existing row.
-_ADDED_COLUMNS = {"posts": [("kind", "VARCHAR(16)"), ("ruling_winner", "INTEGER")]}
+_ADDED_COLUMNS = {
+    "posts": [("kind", "VARCHAR(16)"), ("ruling_winner", "INTEGER")],
+    "users": [("bio", "VARCHAR(200)"), ("favorite_char_id", "INTEGER")],
+}
 
 
 def init() -> None:
@@ -241,6 +247,95 @@ def user_for_token(token: Optional[str]) -> Optional[dict]:
     if row is None or _aware(row["expires_at"]) < _now():
         return None
     return {"id": row["id"], "username": row["username"], "is_admin": is_admin(row["username"])}
+
+
+# --- profile settings -------------------------------------------------------------
+
+def get_profile(user_id: Optional[int] = None, username: Optional[str] = None) -> Optional[dict]:
+    """A user's profile plus counts, by id or (case-insensitive) username."""
+    where = users.c.id == user_id if user_id is not None else users.c.username_lower == (username or "").lower()
+    with engine.connect() as conn:
+        row = conn.execute(select(users.c.id, users.c.username, users.c.bio, users.c.favorite_char_id,
+                                  users.c.created_at).where(where)).mappings().first()
+        if row is None:
+            return None
+        post_count = conn.execute(select(func.count()).select_from(posts).where(
+            and_(posts.c.user_id == row["id"], posts.c.parent_id.is_(None)))).scalar()
+        likes_received = conn.execute(select(func.count()).select_from(likes).join(
+            posts, posts.c.id == likes.c.post_id).where(posts.c.user_id == row["id"])).scalar()
+    return {**row, "created_at": _aware(row["created_at"]), "post_count": post_count,
+            "likes_received": likes_received}
+
+
+def username_taken(username: str, except_user_id: Optional[int] = None) -> bool:
+    with engine.connect() as conn:
+        where = users.c.username_lower == username.lower()
+        if except_user_id is not None:
+            where = and_(where, users.c.id != except_user_id)
+        return conn.execute(select(users.c.id).where(where)).first() is not None
+
+
+def update_profile(user_id: int, username: str, bio: Optional[str], favorite_char_id: Optional[int]) -> None:
+    """Raises UsernameTaken if another account has `username` (any case)."""
+    with engine.begin() as conn:
+        clash = conn.execute(select(users.c.id).where(and_(
+            users.c.username_lower == username.lower(), users.c.id != user_id))).first()
+        if clash:
+            raise UsernameTaken(username)
+        conn.execute(update(users).where(users.c.id == user_id).values(
+            username=username, username_lower=username.lower(), bio=bio or None,
+            favorite_char_id=favorite_char_id))
+
+
+def change_password(user_id: int, current: str, new: str) -> bool:
+    """False (and nothing changed) if `current` is wrong."""
+    with engine.begin() as conn:
+        stored = conn.execute(select(users.c.password_hash).where(users.c.id == user_id)).scalar()
+        if stored is None or not verify_password(current, stored):
+            return False
+        conn.execute(update(users).where(users.c.id == user_id).values(password_hash=hash_password(new)))
+    return True
+
+
+def check_password(user_id: int, password: str) -> bool:
+    with engine.connect() as conn:
+        stored = conn.execute(select(users.c.password_hash).where(users.c.id == user_id)).scalar()
+    return stored is not None and verify_password(password, stored)
+
+
+def delete_other_sessions(user_id: int, keep_token: Optional[str]) -> int:
+    keep = _token_hash(keep_token) if keep_token else ""
+    with engine.begin() as conn:
+        return conn.execute(delete(sessions).where(
+            and_(sessions.c.user_id == user_id, sessions.c.token_hash != keep))).rowcount
+
+
+def has_admin_records(user_id: int) -> bool:
+    """Overrules or replaced pictures made by this account - they point at it
+    by id, so it can't be deleted while they exist."""
+    with engine.connect() as conn:
+        return bool(conn.execute(select(overrides.c.id).where(overrides.c.admin_id == user_id)).first()
+                    or conn.execute(select(character_images.c.char_id)
+                                    .where(character_images.c.admin_id == user_id)).first())
+
+
+def delete_account(user_id: int) -> None:
+    """Removes the user and everything they wrote: their posts (with every
+    reply to them), their replies elsewhere, their likes, picture and
+    sessions."""
+    with engine.begin() as conn:
+        own = [r[0] for r in conn.execute(select(posts.c.id).where(posts.c.user_id == user_id))]
+        replies_to_own = [r[0] for r in conn.execute(select(posts.c.id).where(posts.c.parent_id.in_(own)))] if own else []
+        doomed = list(set(own) | set(replies_to_own))
+        if doomed:
+            conn.execute(delete(likes).where(likes.c.post_id.in_(doomed)))
+            # Replies first: they point at their parent.
+            conn.execute(delete(posts).where(and_(posts.c.id.in_(doomed), posts.c.parent_id.isnot(None))))
+            conn.execute(delete(posts).where(posts.c.id.in_(doomed)))
+        conn.execute(delete(likes).where(likes.c.user_id == user_id))
+        conn.execute(delete(avatars).where(avatars.c.user_id == user_id))
+        conn.execute(delete(sessions).where(sessions.c.user_id == user_id))
+        conn.execute(delete(users).where(users.c.id == user_id))
 
 
 def delete_session(token: Optional[str]) -> None:
@@ -386,7 +481,8 @@ def create_post(user_id: int, body: str, parent_id: Optional[int] = None, char_a
 
 
 def _post_rows(conn, where, viewer_id: Optional[int], order, limit: Optional[int] = None) -> List[dict]:
-    query = (select(posts, users.c.username, avatars.c.updated_at.label("avatar_at"))
+    query = (select(posts, users.c.username, users.c.favorite_char_id,
+                    avatars.c.updated_at.label("avatar_at"))
              .join(users, users.c.id == posts.c.user_id)
              .outerjoin(avatars, avatars.c.user_id == posts.c.user_id)
              .where(where).order_by(order))

@@ -14,8 +14,8 @@ from fastapi.concurrency import run_in_threadpool
 import db
 from backend import avatars, characters, community
 from backend.schemas import (
-    AuthIn, LikeOut, MatchupOut, MeOut, OverrideIn, OverrideOut, PostIn, PostListOut,
-    PostOut, RulingOut, ThreadOut, UserOut,
+    AuthIn, DeleteAccountIn, FavoriteOut, LikeOut, MatchupOut, MeOut, OverrideIn, OverrideOut,
+    PasswordIn, PostIn, PostListOut, PostOut, ProfileIn, ProfileOut, RulingOut, ThreadOut, UserOut,
 )
 
 router = APIRouter()
@@ -29,6 +29,9 @@ login_limit = community.RateLimiter(limit=10, window=300)        # per IP
 post_limit = community.RateLimiter(limit=10, window=60)          # per user
 like_limit = community.RateLimiter(limit=60, window=60)          # per user
 avatar_limit = community.RateLimiter(limit=10, window=3600)      # per user
+rename_limit = community.RateLimiter(limit=5, window=86400)      # per user
+password_limit = community.RateLimiter(limit=5, window=900)      # per user (current-password guesses)
+MAX_BIO_CHARS = 160
 
 
 # --- request helpers ----------------------------------------------------------------
@@ -126,6 +129,109 @@ def logout(request: Request, response: Response):
     community.delete_session(request.cookies.get(COOKIE))
     response.delete_cookie(COOKIE, path="/")
     return {"ok": True}
+
+
+# --- profile settings -------------------------------------------------------------------
+
+def _favorite_out(char_id: Optional[int], cache: Optional[dict] = None) -> Optional[FavoriteOut]:
+    if char_id is None:
+        return None
+    if cache is not None and char_id in cache:
+        return cache[char_id]
+    row = db.get_character_by_id(char_id)
+    out = None
+    if row is not None:
+        replaced = character_image_url(char_id, community.character_image_versions().get(char_id))
+        out = FavoriteOut(id=char_id, name=_bare(row["name"]), image_url=replaced or row.get("image_url"))
+    if cache is not None:
+        cache[char_id] = out
+    return out
+
+
+def _profile_out(profile: dict, own: bool) -> ProfileOut:
+    return ProfileOut(
+        username=profile["username"], is_admin=community.is_admin(profile["username"]),
+        avatar_url=avatar_url(profile["username"], community.avatar_updated_at(profile["id"])),
+        bio=profile["bio"] or "", favorite=_favorite_out(profile["favorite_char_id"]),
+        member_since=profile["created_at"], post_count=profile["post_count"],
+        likes_received=profile["likes_received"] if own else None,
+    )
+
+
+@router.get("/api/me/profile", response_model=ProfileOut)
+def my_profile(user: dict = Depends(require_user)):
+    return _profile_out(community.get_profile(user_id=user["id"]), own=True)
+
+
+@router.put("/api/me/profile", response_model=ProfileOut, dependencies=[Depends(same_origin)])
+def save_profile(payload: ProfileIn, user: dict = Depends(require_user)):
+    username = payload.username.strip()
+    if not USERNAME_RE.match(username):
+        raise HTTPException(status_code=400, detail="Username must be 3-20 letters, numbers or underscores")
+    if username.lower() != user["username"].lower():
+        # Admin rights are granted by username (ADMIN_USERNAMES), so an admin
+        # renaming would lose them - and anyone taking a listed name would
+        # gain them.
+        if user["is_admin"]:
+            raise HTTPException(status_code=403, detail="Admins can't change their username - admin access is tied to it")
+        if community.is_admin(username):
+            raise HTTPException(status_code=409, detail="That username is reserved")
+        # Checked before the rate limit, so trying names that are taken
+        # doesn't use up the day's renames.
+        if community.username_taken(username, except_user_id=user["id"]):
+            raise HTTPException(status_code=409, detail="That username is taken")
+        if not rename_limit.allow(f"user:{user['id']}"):
+            raise HTTPException(status_code=429, detail="Too many username changes today")
+    bio = " ".join(payload.bio.split())  # one line: no stray newlines/indents
+    if len(bio) > MAX_BIO_CHARS:
+        raise HTTPException(status_code=400, detail=f"Bios are limited to {MAX_BIO_CHARS} characters")
+    if payload.favorite_char_id is not None and db.get_character_by_id(payload.favorite_char_id) is None:
+        raise HTTPException(status_code=404, detail="That character doesn't exist")
+    try:
+        community.update_profile(user["id"], username, bio, payload.favorite_char_id)
+    except community.UsernameTaken:
+        raise HTTPException(status_code=409, detail="That username is taken")
+    return _profile_out(community.get_profile(user_id=user["id"]), own=True)
+
+
+@router.post("/api/me/password", dependencies=[Depends(same_origin)])
+def change_password(payload: PasswordIn, request: Request, user: dict = Depends(require_user)):
+    if not password_limit.allow(f"user:{user['id']}"):
+        raise HTTPException(status_code=429, detail="Too many attempts - wait a few minutes")
+    if not 8 <= len(payload.new_password) <= 128:
+        raise HTTPException(status_code=400, detail="Password must be 8-128 characters")
+    if not community.change_password(user["id"], payload.current_password, payload.new_password):
+        raise HTTPException(status_code=403, detail="Wrong current password")
+    # Whoever else might have been logged in as you is signed out.
+    signed_out = community.delete_other_sessions(user["id"], request.cookies.get(COOKIE))
+    return {"ok": True, "other_sessions_ended": signed_out}
+
+
+@router.post("/api/me/logout-others", dependencies=[Depends(same_origin)])
+def logout_other_devices(request: Request, user: dict = Depends(require_user)):
+    return {"ended": community.delete_other_sessions(user["id"], request.cookies.get(COOKIE))}
+
+
+@router.post("/api/me/delete", dependencies=[Depends(same_origin)])
+def delete_account(payload: DeleteAccountIn, response: Response, user: dict = Depends(require_user)):
+    if not password_limit.allow(f"user:{user['id']}"):
+        raise HTTPException(status_code=429, detail="Too many attempts - wait a few minutes")
+    if not community.check_password(user["id"], payload.password):
+        raise HTTPException(status_code=403, detail="Wrong password")
+    if user["is_admin"] or community.has_admin_records(user["id"]):
+        raise HTTPException(status_code=403, detail="Admin accounts can't be deleted here - their overrules "
+                                                    "and pictures are tied to them")
+    community.delete_account(user["id"])
+    response.delete_cookie(COOKIE, path="/")
+    return {"ok": True}
+
+
+@router.get("/api/users/{username}", response_model=ProfileOut)
+def public_profile(username: str):
+    profile = community.get_profile(username=username)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="No such user")
+    return _profile_out(profile, own=False)
 
 
 # --- profile pictures -------------------------------------------------------------------
@@ -321,7 +427,9 @@ def _post_out(row: dict, viewer: Optional[dict], cache: dict) -> PostOut:
     return PostOut(
         id=row["id"], parent_id=row["parent_id"], author=row["username"],
         author_is_admin=community.is_admin(row["username"]),
-        author_avatar=avatar_url(row["username"], row.get("avatar_at")), kind=row.get("kind"),
+        author_avatar=avatar_url(row["username"], row.get("avatar_at")),
+        author_favorite=_favorite_out(row.get("favorite_char_id"), cache.setdefault("favorites", {})),
+        kind=row.get("kind"),
         ruling=_ruling_out(row, matchup), body=row["body"],
         created_at=row["created_at"], like_count=row["like_count"], reply_count=row["reply_count"],
         liked_by_me=row["liked_by_me"], can_delete=can_delete, matchup=matchup,
