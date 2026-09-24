@@ -241,6 +241,11 @@ function initialFor(name) {
 // size shown. "top-crop" keeps the head of a full-body render in frame
 // ("smart" crop cut some off at the waist). Admin replacements are
 // already small squares from our own API and are used as-is.
+// Every <img> showing one MUST carry referrerpolicy="no-referrer": the CDN
+// answers 404 to thumbnails requested with another site's Referer (hotlink
+// protection; verified live). Don't swap that for a page-wide no-referrer
+// <meta> - browsers then send "Origin: null" on our own POST/PUT/DELETEs,
+// which same_origin() in community_api.py rightly rejects.
 function characterPictureUrl(url, px) {
   if (!url) return null;
   if (!url.startsWith('https://static.wikia.nocookie.net/')) return url;
