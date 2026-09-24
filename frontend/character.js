@@ -38,6 +38,13 @@ function headline(raw) {
 
 function renderStats() {
   const form = character.forms[formIndex];
+  // A form with its own picture (Giorno's Requiem) swaps the header's.
+  const avatar = document.getElementById('char-avatar');
+  const pic = form.image_url || character.image_url;
+  if (avatar && avatar.dataset.pic !== (pic || '-')) {
+    avatar.dataset.pic = pic || '-';
+    setCharacterTile(avatar, character.name, pic, 168);
+  }
   document.getElementById('char-tier').textContent = prettifyLabel(form.tier.baseline_label) || '—';
   const rows = [];
   if (form.tier_raw) {
@@ -122,7 +129,7 @@ function render() {
       <div class="char-main">
         <div class="char-card char-header">
           <div class="char-header-top">
-            <div class="char-avatar" style="background:${accent};">${escapeHtml(initialFor(c.name))}</div>
+            <div class="char-avatar" id="char-avatar" style="background:${accent};"></div>
             <div class="char-header-body">
               <h1 class="char-name">${escapeHtml(c.name)}</h1>
               <div class="char-sub" title="${escapeHtml(subtitle)}">${escapeHtml(subtitle)}</div>
@@ -161,6 +168,7 @@ function render() {
             <div class="char-card-title">Weaknesses</div>
             <div class="char-weak">${escapeHtml(c.weaknesses)}</div>
           </div>` : ''}
+        <div id="char-admin"></div>
       </aside>
     </div>
   `;
@@ -168,6 +176,55 @@ function render() {
   setTopbarTitle(shortName(c.name));
   renderStats();
   renderAbilities(false);
+  renderPictureAdmin();
+}
+
+// Admins can replace a wrong or missing wiki picture (and go back to it).
+async function renderPictureAdmin() {
+  const user = await currentUser();
+  const slot = document.getElementById('char-admin');
+  if (!user || !user.is_admin || !slot) return;
+  const c = character;
+  slot.innerHTML = `
+    <div class="char-card char-card-sm char-pic-admin">
+      <div class="admin-head">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 1.5 14 4.5v4c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8v-4L8 1.5Z" stroke="#D9A441" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        <span>Picture</span>
+        <span class="admin-scope">${c.image_replaced ? 'replaced by an admin' : c.image_url ? "from the wiki" : 'none on the wiki'}</span>
+      </div>
+      <div class="char-pic-actions">
+        <label class="pill-button char-pic-upload">
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="visually-hidden">
+          <span>Replace picture</span>
+        </label>
+        ${c.image_replaced ? '<button class="pill-button" data-act="reset">Use wiki picture</button>' : ''}
+      </div>
+      <div class="add-character-status error"></div>
+    </div>`;
+  const err = slot.querySelector('.add-character-status');
+  const reload = async () => {
+    character = await Api.getCharacter(c.id);
+    render();
+  };
+  slot.querySelector('input[type=file]').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    slot.querySelector('.char-pic-upload span').textContent = 'Uploading…';
+    try {
+      await Api.replaceCharacterImage(c.id, await shrinkImage(file));
+      await reload();
+    } catch (ex) {
+      slot.querySelector('.char-pic-upload span').textContent = 'Replace picture';
+      err.textContent = ex.message;
+    }
+  });
+  const reset = slot.querySelector('[data-act="reset"]');
+  if (reset) {
+    reset.addEventListener('click', async () => {
+      try { await Api.resetCharacterImage(c.id); await reload(); } catch (ex) { err.textContent = ex.message; }
+    });
+  }
 }
 
 async function init() {

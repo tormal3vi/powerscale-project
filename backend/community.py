@@ -97,6 +97,16 @@ avatars = Table(
     Column("image", LargeBinary, nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
+# Pictures admins upload to replace a character's wiki picture (a bad
+# crop, a spoiler, a missing one). Same processing as avatars. Keyed by
+# the character's id in powerscale.db.
+character_images = Table(
+    "character_images", metadata,
+    Column("char_id", Integer, primary_key=True),
+    Column("image", LargeBinary, nullable=False),
+    Column("admin_id", Integer, ForeignKey("users.id"), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
 likes = Table(
     "likes", metadata,
     Column("post_id", Integer, ForeignKey("posts.id"), primary_key=True),
@@ -289,6 +299,31 @@ def get_avatar(username: str) -> Optional[bytes]:
             select(avatars.c.image).join(users, users.c.id == avatars.c.user_id)
             .where(users.c.username_lower == username.lower())
         ).scalar()
+
+
+def set_character_image(char_id: int, image: bytes, admin_id: int) -> None:
+    with engine.begin() as conn:
+        conn.execute(delete(character_images).where(character_images.c.char_id == char_id))
+        conn.execute(insert(character_images).values(char_id=char_id, image=image, admin_id=admin_id,
+                                                     updated_at=_now()))
+
+
+def delete_character_image(char_id: int) -> bool:
+    with engine.begin() as conn:
+        return conn.execute(delete(character_images).where(character_images.c.char_id == char_id)).rowcount > 0
+
+
+def get_character_image(char_id: int) -> Optional[bytes]:
+    with engine.connect() as conn:
+        return conn.execute(select(character_images.c.image).where(character_images.c.char_id == char_id)).scalar()
+
+
+def character_image_versions() -> Dict[int, datetime]:
+    """{char_id: upload time} for every replaced picture - one query for
+    the whole character list."""
+    with engine.connect() as conn:
+        rows = conn.execute(select(character_images.c.char_id, character_images.c.updated_at)).all()
+    return {cid: _aware(at) for cid, at in rows}
 
 
 # --- admin overrules ---------------------------------------------------------------

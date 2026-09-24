@@ -43,6 +43,7 @@ FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
 app = FastAPI(title="Powerscale API")
 app.include_router(community_api.router)
+db.init_db()  # adds columns newer code expects to an older powerscale.db
 community.init()
 
 
@@ -87,11 +88,12 @@ def _card_info(normalized: dict) -> tuple:
     return (label.upper() if label else None), tier.get("baseline"), scored >= calculator.MIN_AXES_FOR_VERDICT
 
 
-def _form_out(raw_form: dict, normalized_form: dict) -> FormOut:
+def _form_out(raw_form: dict, normalized_form: dict, use_form_images: bool = True) -> FormOut:
     raw_stats = raw_form.get("stats") or {}
     return FormOut(
         name=normalized_form.get("name") or raw_form.get("name") or "Base",
         is_omnipresent=bool(normalized_form.get("is_omnipresent")),
+        image_url=raw_form.get("image_url") if use_form_images else None,
         tier_raw=raw_form.get("tier"),
         tier=_range_out(normalized_form.get("tier")),
         attack_potency_raw=raw_stats.get("attack_potency"),
@@ -148,7 +150,7 @@ def list_categories():
 
 @app.get("/api/characters", response_model=CharacterListOut)
 def list_characters(q: Optional[str] = None, category: Optional[str] = None):
-    sql = "SELECT id, name, source_url, category, normalized_json FROM characters"
+    sql = "SELECT id, name, source_url, category, normalized_json, image_url FROM characters"
     clauses, params = [], []
     if q:
         clauses.append("name LIKE ?")
@@ -164,6 +166,7 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
         rows = conn.execute(sql, params).fetchall()
         colliding = characters.colliding_names(conn)
 
+    replaced = community.character_image_versions()
     out = []
     for row in rows:
         normalized = json.loads(row["normalized_json"])
@@ -179,6 +182,7 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
             scorable=scorable,
             form_count=len(forms) or 1,
             is_multi_form=len(forms) > 1,
+            image_url=community_api.character_image_url(row["id"], replaced.get(row["id"])) or row["image_url"],
         ))
     out.sort(key=lambda c: c.name.lower())
     return CharacterListOut(total=len(out), characters=out)
@@ -197,8 +201,11 @@ def get_character(char_id: int):
     raw_forms = raw.get("forms") or []
     normalized_forms = normalized.get("forms") or []
 
+    # An admin's replacement picture stands for every form - it usually
+    # exists because the wiki's pictures were wrong or missing.
+    replaced_url = community_api.character_image_url(row["id"], community.character_image_versions().get(row["id"]))
     forms = [
-        _form_out(rf, nf)
+        _form_out(rf, nf, use_form_images=replaced_url is None)
         for rf, nf in zip(raw_forms, normalized_forms)
     ]
 
@@ -214,6 +221,8 @@ def get_character(char_id: int):
         classification=raw.get("classification"),
         powers_and_abilities=raw.get("powers_and_abilities") or [],
         weaknesses=raw.get("weaknesses"),
+        image_url=replaced_url or raw.get("image_url"),
+        image_replaced=replaced_url is not None,
         forms=forms,
     )
 
@@ -256,6 +265,7 @@ def fetch_character(payload: FetchCharacterIn):
         tier_label=_tier_badge(normalized),
         form_count=len(forms) or 1,
         is_multi_form=len(forms) > 1,
+        image_url=stats.image_url,
     )
 
 
@@ -278,7 +288,19 @@ def compare(payload: CompareIn):
 # <meta> tags without running any JavaScript, so a matchup/character link
 # only previews properly if the server writes its summary into the HTML.
 
-def _page_with_preview(filename: str, title: Optional[str], description: Optional[str]) -> HTMLResponse:
+def _preview_image(char_id: int) -> Optional[str]:
+    """A square crop of the character's wiki picture for a link preview
+    (same CDN crop the pages use - see characterPictureUrl in api.js)."""
+    row = db.get_character_by_id(char_id)
+    url = row.get("image_url") if row else None
+    if not url:
+        return None
+    path, _, query = url.partition("?")
+    return f"{path}/top-crop/width/400/height/400" + (f"?{query}" if query else "")
+
+
+def _page_with_preview(filename: str, title: Optional[str], description: Optional[str],
+                       image: Optional[str] = None) -> HTMLResponse:
     html = (FRONTEND_DIR / filename).read_text(encoding="utf-8")
     if title:
         t, d = html_escape(title), html_escape(description or "")
@@ -290,6 +312,8 @@ def _page_with_preview(filename: str, title: Optional[str], description: Optiona
             f'<meta name="twitter:card" content="summary">\n'
             f'<meta name="description" content="{d}">\n'
         )
+        if image:
+            tags += f'<meta property="og:image" content="{html_escape(image)}">\n'
         html = html.replace("</head>", tags + "</head>", 1)
     return HTMLResponse(html)
 
@@ -301,13 +325,19 @@ def _int_param(value: Optional[str]) -> Optional[int]:
 def _compare_preview(a: Optional[str], b: Optional[str], fa: Optional[str], fb: Optional[str]):
     char_a, char_b = _int_param(a), _int_param(b)
     if char_a is None or char_b is None:
-        return None, None
+        return None, None, None
     try:
         v = characters.run_compare(char_a, char_b, fa or None, fb or None)
     except ValueError:
-        return None, None
+        return None, None, None
     title = f"{characters.short_name(v.character_a)} vs {characters.short_name(v.character_b)} — Powerscale"
     ov = community.get_override(char_a, char_b, v.form_a, v.form_b)
+    # The preview shows whoever the card says wins; A when it's a toss-up.
+    pictured = char_a
+    if ov is not None:
+        pictured = ov["winner_id"]
+    elif v.favored == v.character_b:
+        pictured = char_b
     if ov is not None:
         winner = v.character_a if ov["winner_id"] == char_a else v.character_b
         verdict = f"{characters.short_name(winner)} wins — overruled by admins"
@@ -319,21 +349,21 @@ def _compare_preview(a: Optional[str], b: Optional[str], fa: Optional[str], fb: 
             verdict += f" ({v.confidence_hint})"
     else:
         verdict = v.label
-    return title, f"{verdict}. {v.form_a} vs {v.form_b}."
+    return title, f"{verdict}. {v.form_a} vs {v.form_b}.", _preview_image(pictured)
 
 
 def _character_preview(char_id: Optional[str]):
     cid = _int_param(char_id)
     row = db.get_character_by_id(cid) if cid is not None else None
     if row is None:
-        return None, None
+        return None, None, None
     with db.connect() as conn:
         name = characters.display_name(row["name"], row["source_url"], characters.colliding_names(conn))
     normalized = json.loads(row["normalized_json"])
     tier = _tier_badge(normalized)
     forms = len(normalized.get("forms") or [])
     desc = f"{row['category']}" + (f" · Tier {tier}" if tier else "") + (f" · {forms} forms" if forms > 1 else "")
-    return f"{characters.short_name(name)} — Powerscale", desc
+    return f"{characters.short_name(name)} — Powerscale", desc, _preview_image(cid)
 
 
 # --- static frontend (mounted once frontend/ exists) -------------------

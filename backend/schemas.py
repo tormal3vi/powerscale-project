@@ -32,6 +32,7 @@ class FormOut(BaseModel):
     the radar chart / stat bars), field-for-field, per stat."""
     name: str
     is_omnipresent: bool = False
+    image_url: Optional[str] = None  # this form's own picture; None = the character's
 
     tier_raw: Optional[str] = None
     tier: NormalizedRangeOut
@@ -72,6 +73,9 @@ class CharacterSummaryOut(BaseModel):
     scorable: bool = False  # default form has 2+ scored stats (can get a verdict)
     form_count: int = 1
     is_multi_form: bool = False
+    # Wiki CDN URL (size-free; the page picks the size) or an admin's
+    # replacement (/api/character-images/<id>?v=...). None: letter tile.
+    image_url: Optional[str] = None
 
 
 class CharacterListOut(BaseModel):
@@ -90,6 +94,8 @@ class CharacterDetailOut(BaseModel):
     classification: Optional[str] = None
     powers_and_abilities: List[str] = []
     weaknesses: Optional[str] = None
+    image_url: Optional[str] = None
+    image_replaced: bool = False  # an admin's upload, not the wiki's picture
     forms: List[FormOut]
 
 

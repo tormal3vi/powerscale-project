@@ -118,7 +118,7 @@ function characterCard(c, rank) {
   const avatar = document.createElement('div');
   avatar.className = 'avatar avatar-md';
   avatar.style.background = accentFor(c.id);
-  avatar.textContent = initialFor(c.name);
+  setCharacterTile(avatar, c.name, c.image_url, 96);
   head.appendChild(avatar);
 
   const nameBlock = document.createElement('div');

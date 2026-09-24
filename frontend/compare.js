@@ -138,7 +138,7 @@ function heroCardHtml(side, char, accent) {
   return `
     <div class="vs-card">
       <div class="vs-card-head">
-        <div class="avatar avatar-lg" style="background:${accent};">${escapeHtml(initialFor(char.name))}</div>
+        <div class="avatar avatar-lg${(form.image_url || char.image_url) ? ' has-pic' : ''}" id="hero-avatar-${side}" style="background:${accent};">${characterTileInner(char.name, form.image_url || char.image_url, 128)}</div>
         <div class="vs-card-ident">
           <a class="vs-card-name" href="character.html?id=${char.id}" title="${escapeHtml(char.name)}">${escapeHtml(char.name)}</a>
           <div class="vs-card-subtitle">${escapeHtml(char.category)}${char.classification ? ' · ' + escapeHtml(char.classification) : ''}</div>
@@ -223,6 +223,16 @@ function renderHeroTiers() {
   tierValueB.title = formB.tier_raw || '';
   document.getElementById('tier-peak-a').innerHTML = peakHintHtml(formA.tier, formA.tier_raw);
   document.getElementById('tier-peak-b').innerHTML = peakHintHtml(formB.tier, formB.tier_raw);
+  // A form with its own picture (Giorno's Requiem) swaps the hero's.
+  for (const [side, form] of [['a', formA], ['b', formB]]) {
+    const char = state[side];
+    const url = form.image_url || char.image_url;
+    const el = document.getElementById(`hero-avatar-${side}`);
+    if (el && el.dataset.pic !== (url || '')) {
+      el.dataset.pic = url || '';
+      setCharacterTile(el, char.name, url, 128);
+    }
+  }
 }
 
 // --- radar + stat table (driven by verdict.axis_comparisons) --------------

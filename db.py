@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS characters (
     category TEXT,
     last_scraped_at TEXT NOT NULL,
     raw_json TEXT NOT NULL,
-    normalized_json TEXT NOT NULL
+    normalized_json TEXT NOT NULL,
+    image_url TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_characters_name ON characters(name);
@@ -53,6 +54,12 @@ def connect(db_path: Path = DB_PATH):
 def init_db(db_path: Path = DB_PATH) -> None:
     with connect(db_path) as conn:
         conn.executescript(_SCHEMA)
+        # image_url came later: a copy made before it gets the column here
+        # (CREATE TABLE IF NOT EXISTS never adds columns). It duplicates
+        # raw_json's image_url so the character list needn't parse raw_json.
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(characters)")}
+        if "image_url" not in columns:
+            conn.execute("ALTER TABLE characters ADD COLUMN image_url TEXT")
 
 
 def get_character(source_url: str, db_path: Path = DB_PATH) -> Optional[sqlite3.Row]:
@@ -87,14 +94,15 @@ def upsert_character(
     with connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO characters (name, source_url, category, last_scraped_at, raw_json, normalized_json)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO characters (name, source_url, category, last_scraped_at, raw_json, normalized_json, image_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(source_url) DO UPDATE SET
                 name = excluded.name,
                 category = excluded.category,
                 last_scraped_at = excluded.last_scraped_at,
                 raw_json = excluded.raw_json,
-                normalized_json = excluded.normalized_json
+                normalized_json = excluded.normalized_json,
+                image_url = excluded.image_url
             """,
             (
                 name,
@@ -103,6 +111,7 @@ def upsert_character(
                 now,
                 json.dumps(raw, ensure_ascii=False),
                 json.dumps(normalized, ensure_ascii=False),
+                raw.get("image_url"),
             ),
         )
 

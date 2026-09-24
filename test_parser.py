@@ -98,6 +98,22 @@ def test_saitama_core_fields():
     assert not any(a in ("Base", "Post-Balding ▾", "Pre-/During Training ▾") for a in stats.powers_and_abilities)
 
 
+def test_saitama_pictures_and_per_form_matches():
+    # The first appearance picture is the character's; a form gets its own
+    # only when an appearance tab names it. Size is stripped from the CDN
+    # URL (the site asks for its own), the cache-buster kept.
+    stats = parse_character(_load("Saitama"))
+    base = "https://static.wikia.nocookie.net/vsbattles/images/"
+    assert stats.image_url == base + "2/22/Casual_Saitama.png/revision/latest?cb=20250602063806"
+    by_form = {f.name: f.image_url for f in stats.forms}
+    assert by_form["Pre-Training"].startswith(base + "5/52/SaitamaBeginning.png/revision/latest?cb=")
+    assert by_form["During Training"].startswith(base + "b/b2/Saitama_Tracksuit.png/")
+    assert by_form["Post-Balding"] == stats.image_url  # tabs "Post-Balding > Casual" (first of two)
+    assert by_form["Parallel Timeline"] is None       # no tab names it: uses the character's
+    # Ability GIFs further down the page are never picked.
+    assert not any(".gif" in (u or "") for u in [stats.image_url, *by_form.values()])
+
+
 def test_saitama_weaknesses_does_not_absorb_unrelated_tables():
     stats = parse_character(_load("Saitama"))
     assert "Notable Attacks/Techniques" not in stats.weaknesses

@@ -136,10 +136,19 @@ async function playMatch(a, b) {
   return { a, b, winner, how: tb === ta ? 'Tiebreak: higher seed' : 'Tiebreak: higher Tier' };
 }
 
+// The design's bracket tiles are plain color squares - the picture, when
+// there is one, goes in with no letter behind it.
+function tileHtml(c, cls, px) {
+  const pic = characterPictureUrl(c.image_url, px);
+  return `<span class="${cls}${pic ? ' has-pic' : ''}" style="background:${accentFor(c.id)}">${pic
+    ? `<img src="${escapeHtml(pic)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('has-pic');this.remove()">`
+    : ''}</span>`;
+}
+
 function matchHtml(m, isFinal) {
   const side = (c) => `
     <div class="t-side ${m.winner.id === c.id ? 'won' : 'lost'}">
-      <span class="t-avatar" style="background:${accentFor(c.id)}"></span>
+      ${tileHtml(c, 't-avatar', 64)}
       <span class="t-name">${escapeHtml(shortName(c.name))}</span>
       <span class="t-tier">${escapeHtml(tierText(c))}</span>
     </div>`;
@@ -160,10 +169,15 @@ function renderBracket(rounds, total) {
     </div>`).join('');
 }
 
-function setChampionCard(label, name, avatarChar) {
+function setChampionCard(label, name, champ = null) {
   $('t-champ-label').textContent = label;
   $('t-champ-name').textContent = name;
-  $('t-champ-avatar').textContent = avatarChar;
+  if (champ) {
+    setCharacterTile($('t-champ-avatar'), champ.name, champ.image_url, 128);
+  } else {
+    $('t-champ-avatar').classList.remove('has-pic');
+    $('t-champ-avatar').textContent = '…';
+  }
 }
 
 async function runTournament(entrants) {
@@ -175,7 +189,7 @@ async function runTournament(entrants) {
   let alive = entrants.slice();
   let round = 1;
   while (alive.length > 1) {
-    setChampionCard('In progress', `Round ${round} of ${totalRounds}…`, '…');
+    setChampionCard('In progress', `Round ${round} of ${totalRounds}…`);
     const pairs = [];
     for (let i = 0; i < alive.length; i += 2) pairs.push([alive[i], alive[i + 1]]);
     const results = await Promise.all(pairs.map(([a, b]) => playMatch(a, b)));
@@ -185,7 +199,7 @@ async function runTournament(entrants) {
     round += 1;
   }
   const champ = alive[0];
-  setChampionCard('Champion', shortName(champ.name), initialFor(champ.name));
+  setChampionCard('Champion', shortName(champ.name), champ);
 }
 
 // --- load ---------------------------------------------------------------------

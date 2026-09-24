@@ -128,6 +128,9 @@ class CharacterForm:
     name: str
     tier: Optional[str] = None
     stats: StatBlock = field(default_factory=StatBlock)
+    # This form's own picture, when the page's appearance tabs name it
+    # (see _picture_for_form); None means "use the character's picture".
+    image_url: Optional[str] = None
 
 
 @dataclass
@@ -153,6 +156,9 @@ class CharacterStats:
     # "Key", "Standard Tactics", "Note 1") - kept instead of discarded.
     extra_fields: Dict[str, str] = field(default_factory=dict)
     source: Optional[str] = None
+    # The page's first appearance picture (a static.wikia.nocookie.net URL,
+    # size-free - the site asks the CDN for the size it needs).
+    image_url: Optional[str] = None
     # Always non-empty (see module docstring): one synthetic "Base" form
     # for ordinary pages, or one CharacterForm per tab for multi-form
     # pages. The flat fields above stay the canonical values for
@@ -715,6 +721,96 @@ def _default_form(stats: CharacterStats) -> CharacterForm:
     )
 
 
+# --- pictures -------------------------------------------------------------------
+
+_FANDOM_IMAGE_RE = re.compile(r"^(https://static\.wikia\.nocookie\.net/[^?#]+?/revision/latest)(?:/[^?#]*)?(\?[^#]*)?")
+
+
+def _canonical_image_url(src: Optional[str]) -> Optional[str]:
+    """".../Foo.png/revision/latest/scale-to-width-down/250?cb=2021" ->
+    ".../Foo.png/revision/latest?cb=2021": no size baked in (the site adds
+    its own), cache-buster kept. None for anything not on Fandom's CDN."""
+    m = _FANDOM_IMAGE_RE.match(src or "")
+    if not m:
+        return None
+    cb = re.search(r"\bcb=\d+", m.group(2) or "")
+    return m.group(1) + (f"?{cb.group(0)}" if cb else "")
+
+
+def _picture_tab_labels(fig) -> List[str]:
+    """Outermost-first labels of the (nested) tabs a picture sits in:
+    ["Super Saiyan Transformations", "Super Saiyan Blue", "Normal"]."""
+    labels = []
+    content = fig.find_parent("div", class_="wds-tab__content")
+    while content is not None:
+        tabber = content.find_parent("div", class_="wds-tabber")
+        if tabber is not None:
+            contents = tabber.find_all("div", class_="wds-tab__content", recursive=False)
+            names = [lbl.get_text(strip=True).rstrip("▾").strip()
+                     for lbl in tabber.select(":scope > .wds-tabs__wrapper .wds-tabs__tab-label")]
+            idx = next((i for i, c in enumerate(contents) if c is content), None)
+            if idx is not None and idx < len(names):
+                labels.insert(0, names[idx])
+        content = content.find_parent("div", class_="wds-tab__content")
+    return labels
+
+
+def _extract_pictures(soup, heading) -> List[tuple]:
+    """(tab labels, url) for each appearance picture - the <figure>s above
+    the stats heading, in page order. Below it are ability GIFs and
+    feat slideshows; the "about-article" box is a site banner."""
+    figures = list(reversed(heading.find_all_previous("figure"))) if heading is not None else soup.find_all("figure")
+    pictures = []
+    for fig in figures:
+        if fig.find_parent("table", class_="about-article"):
+            continue
+        img = fig.find("img")
+        url = _canonical_image_url(img.get("data-src") or img.get("src")) if img is not None else None
+        if url and url not in (u for _, u in pictures):
+            pictures.append((_picture_tab_labels(fig), url))
+    return pictures
+
+
+def _norm_label(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _picture_for_form(form_name: str, pictures: List[tuple]) -> Optional[str]:
+    """The appearance picture whose tab labels name this form. Appearance
+    tabs often aren't the stat forms (story arcs vs transformations), so
+    only a clear name match counts: an exact label, or a label (4+ chars)
+    appearing as whole words in the form name, or vice versa. Every
+    matching label adds to a picture's score, so "Ultra Instinct >
+    Perfected" beats "Ultra Instinct > -Sign-" for "... Perfected Ultra
+    Instinct"; ties go to the earlier picture."""
+    form = _norm_label(form_name)
+    best_score, best_url = 0.0, None
+    for labels, url in pictures:
+        score = 0.0
+        for label in labels:
+            lbl = _norm_label(label)
+            if not lbl:
+                continue
+            if lbl == form:
+                score += 3
+            elif len(lbl) >= 4 and re.search(rf"\b{re.escape(lbl)}\b", form):
+                score += 2 + len(lbl) / 1000
+            elif len(form) >= 4 and re.search(rf"\b{re.escape(form)}\b", lbl):
+                score += 1
+        if score > best_score:
+            best_score, best_url = score, url
+    return best_url
+
+
+def _attach_pictures(stats: CharacterStats, pictures: List[tuple]) -> None:
+    if not pictures:
+        return
+    stats.image_url = pictures[0][1]
+    if len(stats.forms) > 1:
+        for form in stats.forms:
+            form.image_url = _picture_for_form(form.name, pictures)
+
+
 def parse_character(html: str, source: Optional[str] = None) -> CharacterStats:
     """Parse a character page's rendered HTML into a CharacterStats.
     `stats.forms` is always populated with at least one CharacterForm -
@@ -724,8 +820,10 @@ def parse_character(html: str, source: Optional[str] = None) -> CharacterStats:
     stats = CharacterStats(source=source)
 
     heading = _find_stats_heading(soup)
+    pictures = _extract_pictures(soup, heading)
     if heading is None:
         stats.forms = [_default_form(stats)]
+        _attach_pictures(stats, pictures)
         return stats
 
     for block in _collect_field_blocks(heading):
@@ -775,5 +873,5 @@ def parse_character(html: str, source: Optional[str] = None) -> CharacterStats:
     else:
         forms = _extract_forms_from_flat_key(stats)
     stats.forms = forms if forms else [_default_form(stats)]
-
+    _attach_pictures(stats, pictures)
     return stats

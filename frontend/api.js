@@ -68,6 +68,15 @@ const Api = {
     return res.json();
   },
   removeAvatar: () => apiDelete('/api/me/avatar'),
+  replaceCharacterImage: async (id, blob) => {
+    const res = await fetch(`/api/characters/${id}/image`, { method: 'PUT', headers: { 'Content-Type': blob.type || 'image/png' }, body: blob });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  },
+  resetCharacterImage: (id) => apiDelete(`/api/characters/${id}/image`),
   matchupPreview: (a, b, fa, fb) =>
     apiGet(`/api/matchups/preview?${new URLSearchParams({ a, b, ...(fa ? { fa } : {}), ...(fb ? { fb } : {}) })}`),
 };
@@ -224,6 +233,56 @@ function missingStatText(raw) {
 function initialFor(name) {
   const trimmed = (name || '?').trim();
   return trimmed.charAt(0).toUpperCase() || '?';
+}
+
+// --- character pictures ------------------------------------------------------
+
+// Wiki pictures arrive size-free; ask Fandom's CDN for a square of the
+// size shown. "top-crop" keeps the head of a full-body render in frame
+// ("smart" crop cut some off at the waist). Admin replacements are
+// already small squares from our own API and are used as-is.
+function characterPictureUrl(url, px) {
+  if (!url) return null;
+  if (!url.startsWith('https://static.wikia.nocookie.net/')) return url;
+  const [path, query] = url.split('?');
+  return `${path}/top-crop/width/${px}/height/${px}${query ? `?${query}` : ''}`;
+}
+
+// Inside of a character's square tile: the colored initial, covered by
+// the picture when there is one. If the picture fails to load, it
+// removes itself and the initial shows again.
+function characterTileInner(name, url, px) {
+  const pic = characterPictureUrl(url, px);
+  return `<span class="tile-initial">${escapeHtml(initialFor(name))}</span>` + (pic
+    ? `<img src="${escapeHtml(pic)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('has-pic');this.remove()">`
+    : '');
+}
+
+// Fill an existing tile element. `px` is the image size to fetch - about
+// twice the displayed size, for sharp high-density screens.
+function setCharacterTile(el, name, url, px) {
+  if (!el) return;
+  el.classList.toggle('has-pic', !!url);
+  el.innerHTML = characterTileInner(name, url, px);
+}
+
+// Shrink a picked photo before uploading it (phone photos are often
+// 5-10 MB): at most maxSide px, EXIF rotation applied. If the browser
+// can't decode it (e.g. HEIC outside Safari), the original goes up and
+// the server explains what's wrong with it.
+async function shrinkImage(file, maxSide = 768) {
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bmp.width * scale));
+    canvas.height = Math.max(1, Math.round(bmp.height * scale));
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.9));
+    return blob || file;
+  } catch {
+    return file;
+  }
 }
 
 // --- user avatars (board, topbar, profile) ------------------------------------

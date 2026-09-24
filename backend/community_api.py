@@ -136,6 +136,13 @@ async def upload_avatar(request: Request, user: dict = Depends(require_user)):
     # image/* body without a CORS preflight (which fails), so together with
     # same_origin and the SameSite cookie this can't be triggered from
     # another site.
+    image = await _read_image_upload(request, user)
+    await run_in_threadpool(community.set_avatar, user["id"], image)
+    return _user_out(user)
+
+
+async def _read_image_upload(request: Request, user: dict) -> bytes:
+    """The raw image request body, size-capped, re-encoded by avatars.py."""
     if not request.headers.get("content-type", "").startswith("image/"):
         raise HTTPException(status_code=415, detail="Upload an image file")
     if not avatar_limit.allow(f"user:{user['id']}"):
@@ -149,11 +156,9 @@ async def upload_avatar(request: Request, user: dict = Depends(require_user)):
         if len(body) > avatars.MAX_UPLOAD_BYTES:
             raise too_big
     try:
-        image = await run_in_threadpool(avatars.process, bytes(body))
+        return await run_in_threadpool(avatars.process, bytes(body))
     except avatars.BadImage as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    await run_in_threadpool(community.set_avatar, user["id"], image)
-    return _user_out(user)
 
 
 @router.delete("/api/me/avatar", response_model=UserOut, dependencies=[Depends(same_origin)])
@@ -169,6 +174,38 @@ def get_avatar(username: str):
         raise HTTPException(status_code=404, detail="No picture")
     return Response(content=image, media_type="image/webp", headers={
         "Cache-Control": "public, max-age=31536000, immutable",  # URLs carry ?v=<upload time>
+        "X-Content-Type-Options": "nosniff",
+    })
+
+
+# --- character pictures (admin replacements) -------------------------------------------
+
+def character_image_url(char_id: int, updated_at: Optional[datetime]) -> Optional[str]:
+    return f"/api/character-images/{char_id}?v={int(updated_at.timestamp())}" if updated_at else None
+
+
+@router.put("/api/characters/{char_id}/image", dependencies=[Depends(same_origin)])
+async def replace_character_image(char_id: int, request: Request, admin: dict = Depends(require_admin)):
+    if db.get_character_by_id(char_id) is None:
+        raise HTTPException(status_code=404, detail=f"No character with id {char_id}")
+    image = await _read_image_upload(request, admin)
+    await run_in_threadpool(community.set_character_image, char_id, image, admin["id"])
+    return {"image_url": character_image_url(char_id, community.character_image_versions().get(char_id))}
+
+
+@router.delete("/api/characters/{char_id}/image", dependencies=[Depends(same_origin)])
+def reset_character_image(char_id: int, admin: dict = Depends(require_admin)):
+    community.delete_character_image(char_id)
+    return {"ok": True}
+
+
+@router.get("/api/character-images/{char_id}")
+def get_character_image(char_id: int):
+    image = community.get_character_image(char_id)
+    if image is None:
+        raise HTTPException(status_code=404, detail="No replacement picture")
+    return Response(content=image, media_type="image/webp", headers={
+        "Cache-Control": "public, max-age=31536000, immutable",
         "X-Content-Type-Options": "nosniff",
     })
 

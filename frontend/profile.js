@@ -5,7 +5,6 @@
 renderTopbar([]);
 
 const $ = (id) => document.getElementById(id);
-const MAX_SIDE = 768;
 let me = null;
 
 function showError(message) {
@@ -21,24 +20,6 @@ function render() {
   // Keep the topbar's own avatar in step without a reload.
   _mePromise = Promise.resolve(me);
   renderAccount(document.getElementById('topbar-account'));
-}
-
-// Downscale to at most MAX_SIDE px, applying the photo's EXIF rotation.
-// If the browser can't decode it (e.g. HEIC outside Safari), send the
-// original and let the server say what's wrong with it.
-async function shrink(file) {
-  try {
-    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-    const scale = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(bmp.width * scale));
-    canvas.height = Math.max(1, Math.round(bmp.height * scale));
-    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.9));
-    return blob || file;
-  } catch {
-    return file;
-  }
 }
 
 async function busy(label, work) {
@@ -63,7 +44,7 @@ async function busy(label, work) {
 $('profile-file').addEventListener('change', (e) => {
   const file = e.target.files[0];
   e.target.value = ''; // picking the same file again should still fire
-  if (file) busy('Uploading…', async () => Api.uploadAvatar(await shrink(file)));
+  if (file) busy('Uploading…', async () => Api.uploadAvatar(await shrinkImage(file)));
 });
 $('profile-remove').addEventListener('click', () => busy('Removing…', () => Api.removeAvatar()));
 
