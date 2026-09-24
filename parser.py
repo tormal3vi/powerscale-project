@@ -84,6 +84,17 @@ FIELD_MAP = {
     "standard equipment": "standard_equipment",
     "intelligence": "intelligence",
     "weaknesses": "weaknesses",
+    # Spellings real pages use for the abilities list, found as leftover
+    # extra fields in a whole-DB check (Evernight Goddess, Gray Fullbuster
+    # and ~50 more had no abilities shown). Group pages (Ginyu Force,
+    # Viltrum Empire) list theirs as team resources / technology.
+    "power and abilities": "powers_and_abilities",
+    "powers & abilities": "powers_and_abilities",
+    "power & abilities": "powers_and_abilities",
+    "powers": "powers_and_abilities",
+    "team resources/abilities": "powers_and_abilities",
+    "team resources and abilities": "powers_and_abilities",
+    "technology/abilities": "powers_and_abilities",
 }
 
 # The subset of fields that can appear per-form inside a multi-form

@@ -22,7 +22,8 @@ from typing import Dict, List, Optional
 
 from sqlalchemy import (
     Column, DateTime, ForeignKey, Integer, LargeBinary, MetaData, String, Table, Text,
-    UniqueConstraint, and_, create_engine, delete, func, insert, inspect, select, text, update,
+    UniqueConstraint, and_, create_engine, delete, exists, func, insert, inspect, literal, select, text,
+    update,
 )
 
 
@@ -396,16 +397,45 @@ def get_avatar(username: str) -> Optional[bytes]:
         ).scalar()
 
 
+# --- in-memory copies of small, rarely-changing tables -------------------------------
+# Overrules and replaced pictures are read on almost every page (every
+# matchup card, every character list) but change only when an admin acts.
+# Each read was a round trip to Neon (~0.2s from Render). Render runs one
+# server process, and every write to these tables goes through the
+# functions below, which drop the copy - so it can't go stale.
+
+_memo: Dict[str, object] = {}
+_memo_lock = threading.Lock()
+
+
+def _remembered(name: str, load):
+    with _memo_lock:
+        if name in _memo:
+            return _memo[name]
+    value = load()
+    with _memo_lock:
+        _memo[name] = value
+    return value
+
+
+def _forget(name: str) -> None:
+    with _memo_lock:
+        _memo.pop(name, None)
+
+
 def set_character_image(char_id: int, image: bytes, admin_id: int) -> None:
     with engine.begin() as conn:
         conn.execute(delete(character_images).where(character_images.c.char_id == char_id))
         conn.execute(insert(character_images).values(char_id=char_id, image=image, admin_id=admin_id,
                                                      updated_at=_now()))
+    _forget("image_versions")
 
 
 def delete_character_image(char_id: int) -> bool:
     with engine.begin() as conn:
-        return conn.execute(delete(character_images).where(character_images.c.char_id == char_id)).rowcount > 0
+        removed = conn.execute(delete(character_images).where(character_images.c.char_id == char_id)).rowcount > 0
+    _forget("image_versions")
+    return removed
 
 
 def get_character_image(char_id: int) -> Optional[bytes]:
@@ -416,9 +446,11 @@ def get_character_image(char_id: int) -> Optional[bytes]:
 def character_image_versions() -> Dict[int, datetime]:
     """{char_id: upload time} for every replaced picture - one query for
     the whole character list."""
-    with engine.connect() as conn:
-        rows = conn.execute(select(character_images.c.char_id, character_images.c.updated_at)).all()
-    return {cid: _aware(at) for cid, at in rows}
+    def load():
+        with engine.connect() as conn:
+            rows = conn.execute(select(character_images.c.char_id, character_images.c.updated_at)).all()
+        return {cid: _aware(at) for cid, at in rows}
+    return dict(_remembered("image_versions", load))
 
 
 # --- admin overrules ---------------------------------------------------------------
@@ -433,17 +465,21 @@ def _where(key: dict):
     return and_(*(getattr(overrides.c, k) == v for k, v in key.items()))
 
 
+def _all_overrides() -> Dict[tuple, dict]:
+    def load():
+        with engine.connect() as conn:
+            rows = conn.execute(select(overrides, users.c.username.label("admin"))
+                                .join(users, users.c.id == overrides.c.admin_id)).mappings().all()
+        return {(r["char_low"], r["char_high"], r["form_low"], r["form_high"]):
+                {"winner_id": r["winner_id"], "note": r["note"], "admin": r["admin"],
+                 "created_at": _aware(r["created_at"])} for r in rows}
+    return _remembered("overrides", load)
+
+
 def get_override(a: int, b: int, form_a: str, form_b: str) -> Optional[dict]:
-    with engine.connect() as conn:
-        row = conn.execute(
-            select(overrides, users.c.username.label("admin"))
-            .join(users, users.c.id == overrides.c.admin_id)
-            .where(_where(_matchup_key(a, b, form_a, form_b)))
-        ).mappings().first()
-    if row is None:
-        return None
-    return {"winner_id": row["winner_id"], "note": row["note"], "admin": row["admin"],
-            "created_at": _aware(row["created_at"])}
+    key = _matchup_key(a, b, form_a, form_b)
+    found = _all_overrides().get((key["char_low"], key["char_high"], key["form_low"], key["form_high"]))
+    return dict(found) if found else None
 
 
 def set_override(a: int, b: int, form_a: str, form_b: str, winner_id: int, note: str, admin_id: int) -> None:
@@ -454,11 +490,14 @@ def set_override(a: int, b: int, form_a: str, form_b: str, winner_id: int, note:
             conn.execute(update(overrides).where(_where(key)).values(**values))
         else:
             conn.execute(insert(overrides).values(**key, **values))
+    _forget("overrides")
 
 
 def delete_override(a: int, b: int, form_a: str, form_b: str) -> bool:
     with engine.begin() as conn:
-        return conn.execute(delete(overrides).where(_where(_matchup_key(a, b, form_a, form_b)))).rowcount > 0
+        removed = conn.execute(delete(overrides).where(_where(_matchup_key(a, b, form_a, form_b)))).rowcount > 0
+    _forget("overrides")
+    return removed
 
 
 # --- message board --------------------------------------------------------------------
@@ -481,31 +520,31 @@ def create_post(user_id: int, body: str, parent_id: Optional[int] = None, char_a
 
 
 def _post_rows(conn, where, viewer_id: Optional[int], order, limit: Optional[int] = None) -> List[dict]:
+    # One query: counts and "liked by me" as subqueries rather than three
+    # follow-up queries. Each round trip from Render to Neon costs ~0.2s,
+    # and the Board took ~4.5s to load when these added up.
+    replies = posts.alias("replies")
+    like_count = select(func.count()).select_from(likes).where(likes.c.post_id == posts.c.id).scalar_subquery()
+    reply_count = (select(func.count()).select_from(replies)
+                   .where(replies.c.parent_id == posts.c.id).scalar_subquery())
+    liked = (exists().where(and_(likes.c.post_id == posts.c.id, likes.c.user_id == viewer_id))
+             if viewer_id is not None else literal(False))
     query = (select(posts, users.c.username, users.c.favorite_char_id,
-                    avatars.c.updated_at.label("avatar_at"))
+                    avatars.c.updated_at.label("avatar_at"),
+                    like_count.label("like_count"), reply_count.label("reply_count"),
+                    liked.label("liked_by_me"))
              .join(users, users.c.id == posts.c.user_id)
              .outerjoin(avatars, avatars.c.user_id == posts.c.user_id)
              .where(where).order_by(order))
     if limit:
         query = query.limit(limit)
     rows = [dict(r) for r in conn.execute(query).mappings()]
-    ids = [r["id"] for r in rows]
-    if not ids:
-        return []
-    like_counts = dict(conn.execute(
-        select(likes.c.post_id, func.count()).where(likes.c.post_id.in_(ids)).group_by(likes.c.post_id)).all())
-    reply_counts = dict(conn.execute(
-        select(posts.c.parent_id, func.count()).where(posts.c.parent_id.in_(ids)).group_by(posts.c.parent_id)).all())
-    liked = set()
-    if viewer_id is not None:
-        liked = {r[0] for r in conn.execute(
-            select(likes.c.post_id).where(and_(likes.c.post_id.in_(ids), likes.c.user_id == viewer_id)))}
     for r in rows:
         r["created_at"] = _aware(r["created_at"])
         r["avatar_at"] = _aware(r["avatar_at"]) if r["avatar_at"] else None
-        r["like_count"] = like_counts.get(r["id"], 0)
-        r["reply_count"] = reply_counts.get(r["id"], 0)
-        r["liked_by_me"] = r["id"] in liked
+        r["like_count"] = r["like_count"] or 0
+        r["reply_count"] = r["reply_count"] or 0
+        r["liked_by_me"] = bool(r["liked_by_me"])
     return rows
 
 

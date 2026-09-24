@@ -530,10 +530,16 @@ function emptyStateEl() {
   return el;
 }
 
+// The first page is requested straight away, alongside the login check,
+// instead of waiting for it.
+let firstPage = Api.listPosts();
+
 async function loadPage() {
   loadMore.disabled = true;
   try {
-    const res = await Api.listPosts(nextBefore);
+    const pending = firstPage;
+    firstPage = null; // used once, even if it failed
+    const res = await (pending || Api.listPosts(nextBefore));
     if (!res.posts.length && !nextBefore) feed.appendChild(emptyStateEl());
     res.posts.forEach((p) => feed.appendChild(postEl(p)));
     nextBefore = res.next_before;

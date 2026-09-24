@@ -1,7 +1,9 @@
 """Character-name display rules and comparisons shared by the API modules
 (the core API in main.py and the community/message-board API)."""
 
+import functools
 import re
+import threading
 import unicodedata
 from typing import Dict, Optional
 
@@ -93,8 +95,7 @@ def display_name_for_id(char_id: int, colliding: Optional[set] = None) -> Option
     if row is None:
         return None
     if colliding is None:
-        with db.connect() as conn:
-            colliding = colliding_names(conn)
+        colliding = all_collisions()
     return display_name(row["name"], row["source_url"], colliding)
 
 
@@ -102,15 +103,47 @@ def short_name(name: str) -> str:
     return re.split(r"[;,]", name, maxsplit=1)[0].strip()
 
 
-def run_compare(char_a, char_b, form_a=None, form_b=None) -> "calculator.Verdict":
-    """calculator.compare_characters with display names in the verdict."""
-    with db.connect() as conn:
-        colliding = colliding_names(conn)
+# Character data only changes on a deploy (a new powerscale.db) or when a
+# character is added through the API, which calls invalidate(). Until then
+# these results can't change, and Render's free tier (a tenth of a CPU)
+# made recomputing them per request the slow part of the Board and the
+# character list: ~0.3s per matchup verdict, ~0.3s for the name clashes.
+_colliding: Optional[set] = None
+_colliding_lock = threading.Lock()
+
+
+def all_collisions() -> set:
+    """colliding_names() for the whole database, computed once."""
+    global _colliding
+    with _colliding_lock:
+        if _colliding is None:
+            with db.connect() as conn:
+                _colliding = colliding_names(conn)
+        return _colliding
+
+
+def invalidate() -> None:
+    """Call after changing the characters table."""
+    global _colliding
+    with _colliding_lock:
+        _colliding = None
+    _compare_cached.cache_clear()
+
+
+@functools.lru_cache(maxsize=4096)
+def _compare_cached(char_a, char_b, form_a, form_b) -> "calculator.Verdict":
+    names = all_collisions()
 
     def name_for(ref):
-        return display_name_for_id(ref, colliding) if isinstance(ref, int) else None
+        return display_name_for_id(ref, names) if isinstance(ref, int) else None
 
     return calculator.compare_characters(
         char_a, char_b, form_a, form_b,
         name_a=name_for(char_a), name_b=name_for(char_b),
     )
+
+
+def run_compare(char_a, char_b, form_a=None, form_b=None) -> "calculator.Verdict":
+    """calculator.compare_characters with display names in the verdict.
+    Callers only read the result (it's shared between requests)."""
+    return _compare_cached(char_a, char_b, form_a, form_b)

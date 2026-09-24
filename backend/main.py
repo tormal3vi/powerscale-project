@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import calculator
@@ -149,6 +149,9 @@ def list_categories():
 
 # --- /api/characters (list/search) ------------------------------------------
 
+_list_cache: dict = {}  # {"key": replaced-picture versions, "body": JSON bytes}; see list_characters
+
+
 def _sort_key(name: str) -> str:
     """A-Z the way people read it: accents folded ("Ōnoki" under O) and
     leading quotes/punctuation ignored - One Piece's '"Don" Sai' and
@@ -171,11 +174,19 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
         sql += " WHERE " + " AND ".join(clauses)
     sql += " ORDER BY name"
 
+    replaced = community.character_image_versions()
+    # The full list (what every page asks for) is built once and kept as
+    # ready-to-send JSON until the characters or replaced pictures change -
+    # building it took ~1-2s on Render's free-tier CPU.
+    unfiltered = not q and not category
+    cache_key = tuple(sorted((cid, at.timestamp()) for cid, at in replaced.items()))
+    if unfiltered and _list_cache.get("key") == cache_key and "body" in _list_cache:
+        return Response(content=_list_cache["body"], media_type="application/json")
+
     with db.connect() as conn:
         rows = conn.execute(sql, params).fetchall()
-        colliding = characters.colliding_names(conn)
+    colliding = characters.all_collisions()
 
-    replaced = community.character_image_versions()
     out = []
     for row in rows:
         normalized = json.loads(row["normalized_json"])
@@ -194,7 +205,12 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
             image_url=community_api.character_image_url(row["id"], replaced.get(row["id"])) or row["image_url"],
         ))
     out.sort(key=lambda c: _sort_key(c.name))
-    return CharacterListOut(total=len(out), characters=out)
+    result = CharacterListOut(total=len(out), characters=out)
+    if unfiltered:
+        body = result.model_dump_json().encode()
+        _list_cache.update(key=cache_key, body=body)
+        return Response(content=body, media_type="application/json")
+    return result
 
 
 # --- /api/characters/{id} (detail) -----------------------------------------
@@ -218,8 +234,7 @@ def get_character(char_id: int):
         for rf, nf in zip(raw_forms, normalized_forms)
     ]
 
-    with db.connect() as conn:
-        colliding = characters.colliding_names(conn)
+    colliding = characters.all_collisions()
 
     return CharacterDetailOut(
         id=row["id"],
@@ -262,11 +277,12 @@ def fetch_character(payload: FetchCharacterIn):
         normalized=normalized_stats.to_dict(),
     )
 
+    characters.invalidate()  # names, verdicts and the cached list include the new character
+    _list_cache.clear()
     row = db.get_character(source_url)
     normalized = json.loads(row["normalized_json"])
     forms = normalized.get("forms") or []
-    with db.connect() as conn:
-        colliding = characters.colliding_names(conn)
+    colliding = characters.all_collisions()
     return CharacterSummaryOut(
         id=row["id"],
         name=characters.display_name(row["name"], row["source_url"], colliding),
@@ -367,7 +383,7 @@ def _character_preview(char_id: Optional[str]):
     if row is None:
         return None, None, None
     with db.connect() as conn:
-        name = characters.display_name(row["name"], row["source_url"], characters.colliding_names(conn))
+        name = characters.display_name(row["name"], row["source_url"], characters.all_collisions())
     normalized = json.loads(row["normalized_json"])
     tier = _tier_badge(normalized)
     forms = len(normalized.get("forms") or [])
