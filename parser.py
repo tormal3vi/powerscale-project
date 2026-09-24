@@ -220,7 +220,7 @@ def _find_stats_heading(soup: BeautifulSoup):
                 span = candidate
                 break
     if span is None:
-        return _abilities_heading_with_tier(soup)
+        return _abilities_heading_with_tier(soup) or _any_heading_with_tier(soup)
     heading = span.find_parent(["h2", "h3"])
     # Yomi (Yu Yu Hakusho) has TWO "Powers and Stats" headings - the first
     # over his summary, the second over the real stats - and taking the
@@ -234,6 +234,22 @@ def _find_stats_heading(soup: BeautifulSoup):
             if other is not None and _section_has_fields(other):
                 return other
     return heading
+
+
+def _any_heading_with_tier(soup: BeautifulSoup):
+    """Very last resort: the first section heading directly followed by a
+    Tier field, whatever it says - Shapesmith (Invincible Comics) titles
+    his "Powers atnd Stats" (sic), and the page was skipped. The Tier
+    requirement keeps concept pages out, as in _abilities_heading_with_tier."""
+    for heading in soup.find_all(["h2", "h3"]):
+        for sib in heading.find_next_siblings():
+            if getattr(sib, "name", None) in ("h2", "h3"):
+                break
+            if getattr(sib, "name", None) == "p":
+                b = sib.find("b")
+                if b is not None and (_peek_label(b) or "").lower() == "tier":
+                    return heading
+    return None
 
 
 def _section_has_fields(heading) -> bool:

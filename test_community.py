@@ -237,6 +237,24 @@ def test_delete_account_removes_only_what_the_user_wrote():
     assert community.has_admin_records(admin["id"])
 
 
+def test_display_names_label_versions_that_share_a_page_title():
+    # Invincible's Comics and TV pages spell the Name field differently, so
+    # only their page titles show they're two versions of one character.
+    import sqlite3
+    from backend import characters as C
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE characters (name TEXT, source_url TEXT)")
+    wiki = "https://vsbattles.fandom.com/wiki/"
+    rows = [("Nowl-Ahn, Nolan Grayson, Omni-Man", wiki + "Omni-Man_(Comics)"),
+            ('Nolan Grayson, "Omni-Man" (Hero Name)', wiki + "Omni-Man_(TV_Series)"),
+            ('Markus Murphy, Marky, Mark, "Kid Invincible" (Temporary)', wiki + "Kid_Invincible_(Comics)")]
+    conn.executemany("INSERT INTO characters VALUES (?, ?)", rows)
+    col = C.colliding_names(conn)
+    assert [C.display_name(n, u, col) for n, u in rows] == [
+        "Omni-Man (Comics)", "Omni-Man (TV Series)",
+        'Markus Murphy, Marky, Mark, "Kid Invincible" (Temporary)']  # unique title: keeps its name
+
+
 def test_rate_limiter_blocks_after_the_limit_per_key():
     rl = community.RateLimiter(limit=2, window=60)
     assert rl.allow("ip1") and rl.allow("ip1")

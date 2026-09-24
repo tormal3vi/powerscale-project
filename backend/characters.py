@@ -46,17 +46,32 @@ def base_name(name: str, source_url: str) -> str:
     return bare if name_key(name) != name_key(bare) else name
 
 
+def _title_key(source_url: str) -> Optional[str]:
+    """"Omni-Man (Comics)" -> "title:omni-man". None for manual entries."""
+    if not source_url.startswith("http"):
+        return None
+    bare = re.sub(r"\s*\([^)]*\)\s*$", "", scraper.page_title(source_url)).strip()
+    return "title:" + bare.lower()
+
+
 def colliding_names(conn) -> set:
     """Name keys shared by 2+ characters. Distinct wiki pages often carry
     the same "Name:" field - e.g. Ichigo Kurosaki's Pre-Timeskip, Post-
     Timeskip and Live Action pages, or Fairy Tail's X784-X792 vs. X793
     versions - and a couple even carry another character's name by
     mistake on the wiki itself (Sherry Blendy's and Toby Horhorta's pages
-    both say "Yuka Suzuki")."""
+    both say "Yuka Suzuki").
+
+    Also page titles that differ only in their "(...)" qualifier, whatever
+    the Name fields say: Invincible's Comics and TV Series pages spell
+    names differently ("Nowl-Ahn, Nolan Grayson, Omni-Man" vs "Nolan
+    Grayson, "Omni-Man"..."), so the name rule alone left two unlabelled
+    Omni-Men; same for Kurama (Kyūbi) vs Kurama (Yu Yu Hakusho)."""
     counts: Dict[str, int] = {}
     for name, source_url in conn.execute("SELECT name, source_url FROM characters"):
-        key = name_key(base_name(name, source_url))
-        counts[key] = counts.get(key, 0) + 1
+        for key in (name_key(base_name(name, source_url)), _title_key(source_url)):
+            if key:
+                counts[key] = counts.get(key, 0) + 1
     return {k for k, n in counts.items() if n > 1}
 
 
@@ -66,9 +81,11 @@ def display_name(name: str, source_url: str, colliding: set) -> str:
     (e.g. "Ichigo Kurosaki (Pre-Timeskip)"). Manually entered characters
     have no real page title, so they always keep their name."""
     base = base_name(name, source_url)
-    if name_key(base) not in colliding or not source_url.startswith("http"):
+    if not source_url.startswith("http"):
         return base
-    return scraper.page_title(source_url)
+    if name_key(base) in colliding or _title_key(source_url) in colliding:
+        return scraper.page_title(source_url)
+    return base
 
 
 def display_name_for_id(char_id: int, colliding: Optional[set] = None) -> Optional[str]:

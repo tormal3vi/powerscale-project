@@ -429,6 +429,15 @@ def test_yomi_second_powers_and_stats_heading_holds_the_stats():
     assert stats.forms[0].stats.attack_potency.startswith("At least Moon level")
 
 
+def test_shapesmith_misspelled_stats_heading():
+    # Shapesmith (Invincible Comics): "Powers atnd Stats" (sic) - no named
+    # stats heading at all, so the page was skipped. Any heading directly
+    # followed by a Tier field now counts, as a last resort.
+    stats = parse_character(_load("ShapesmithComics"))
+    assert stats.tier.startswith("Varies from 8-C to High 6-B")
+    assert stats.forms[0].stats.attack_potency.startswith("Varies from Building level")
+
+
 def test_luffy_emperor_nested_stat_tabs_become_forms():
     # The "Final Saga" tab (shown as "Final Saga▾") holds no stats itself,
     # only nested tabs that each do. Read as one form, Luffy's strongest era
