@@ -429,6 +429,20 @@ def test_yomi_second_powers_and_stats_heading_holds_the_stats():
     assert stats.forms[0].stats.attack_potency.startswith("At least Moon level")
 
 
+def test_luffy_emperor_nested_stat_tabs_become_forms():
+    # The "Final Saga" tab (shown as "Final Saga▾") holds no stats itself,
+    # only nested tabs that each do. Read as one form, Luffy's strongest era
+    # (with Gear 5) had no Attack Potency, Speed or Durability at all.
+    stats = parse_character(_load("LuffyEmperor"))
+    names = [f.name for f in stats.forms]
+    assert names[:2] == ["Fifth Emperor of the Sea", "Rooftop"]
+    assert names[2:] == ["Final Saga · Base", "Final Saga · Gear 2nd - Gear 4th: Boundman",
+                         "Final Saga · Devil Fruit Awakening/Gear 5th"]
+    for f in stats.forms[2:]:
+        assert f.tier.startswith("5-C")  # the outer tab's Tier, shared
+        assert f.stats.attack_potency and f.stats.speed and f.stats.durability
+
+
 def test_goku_dbs_manga_several_fields_in_one_paragraph():
     # Found by a whole-DB audit: on 6 of this page's tabs, Speed, Lifting
     # Strength, Striking Strength, Durability and Stamina share ONE <p>,

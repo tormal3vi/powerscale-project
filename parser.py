@@ -595,32 +595,52 @@ def _extract_forms_from_stats_tabber(tabber, flat_tier: Optional[str]) -> List[C
 
     forms = []
     for i, (tab_label, content) in enumerate(zip(tab_labels, top_contents)):
-        stat_values: Dict[str, str] = {}
-        for p in _stat_paragraphs(content):
-            b = p.find("b")
-            if b is None:
+        tier = aligned_tiers[i].strip() if aligned_tiers else None
+        stat_values = _tab_stat_values(content)
+        nested = content.find("div", class_="wds-tabber") if not stat_values else None
+        if nested is not None:
+            # Monkey D. Luffy (Emperor): the "Final Saga" tab holds no stats
+            # itself, only a nested set of tabs (Base / Gear 2nd - Gear 4th /
+            # Devil Fruit Awakening/Gear 5th) each with its own. Read that
+            # way, the era with Gear 5 came out with no stats at all. Each
+            # nested tab becomes a form, under the outer tab's Tier.
+            inner_ul = nested.find("ul", class_="wds-tabs")
+            inner_contents = nested.find_all("div", class_="wds-tab__content", recursive=False)
+            inner_labels = ([li.get_text(strip=True).rstrip("▾").strip() for li in inner_ul.find_all("li", recursive=False)]
+                            if inner_ul is not None else [])
+            expanded = [(f"{tab_label} · {label}", _tab_stat_values(inner))
+                        for label, inner in zip(inner_labels, inner_contents)]
+            expanded = [(name, values) for name, values in expanded if values]
+            if expanded:
+                forms.extend(CharacterForm(name=name, tier=tier, stats=StatBlock(**values)) for name, values in expanded)
                 continue
-            first_label = _label_text(b)
-            if first_label is None:
-                continue
-            for field_label, value_html in _p_fields(p, b, first_label):
-                field_key = STAT_FIELD_MAP.get(field_label.lower())
-                if field_key is None:
-                    continue
-                value = _clean_text(BeautifulSoup(value_html, "lxml").get_text())
-                if value:
-                    stat_values[field_key] = value
-        for container in [content] + content.find_all("div", class_="scrollable", recursive=False):
-            for field_label, value in _bare_label_fields(container):
-                field_key = STAT_FIELD_MAP.get(field_label.lower())
-                if field_key and field_key not in stat_values:
-                    stat_values[field_key] = value
-        forms.append(CharacterForm(
-            name=tab_label,
-            tier=aligned_tiers[i].strip() if aligned_tiers else None,
-            stats=StatBlock(**stat_values),
-        ))
+        forms.append(CharacterForm(name=tab_label, tier=tier, stats=StatBlock(**stat_values)))
     return forms
+
+
+def _tab_stat_values(content) -> Dict[str, str]:
+    """The per-form stat fields written directly in one stats tab."""
+    stat_values: Dict[str, str] = {}
+    for p in _stat_paragraphs(content):
+        b = p.find("b")
+        if b is None:
+            continue
+        first_label = _label_text(b)
+        if first_label is None:
+            continue
+        for field_label, value_html in _p_fields(p, b, first_label):
+            field_key = STAT_FIELD_MAP.get(field_label.lower())
+            if field_key is None:
+                continue
+            value = _clean_text(BeautifulSoup(value_html, "lxml").get_text())
+            if value:
+                stat_values[field_key] = value
+    for container in [content] + content.find_all("div", class_="scrollable", recursive=False):
+        for field_label, value in _bare_label_fields(container):
+            field_key = STAT_FIELD_MAP.get(field_label.lower())
+            if field_key and field_key not in stat_values:
+                stat_values[field_key] = value
+    return stat_values
 
 
 def _segments_for_forms(flat_value: Optional[str], n: int) -> List[Optional[str]]:
