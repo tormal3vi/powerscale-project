@@ -11,6 +11,7 @@ hand, or http://localhost:8000/ once frontend/ exists.
 
 import json
 import re
+import unicodedata
 from html import escape as html_escape
 from pathlib import Path
 from typing import List, Optional
@@ -148,6 +149,14 @@ def list_categories():
 
 # --- /api/characters (list/search) ------------------------------------------
 
+def _sort_key(name: str) -> str:
+    """A-Z the way people read it: accents folded ("Ōnoki" under O) and
+    leading quotes/punctuation ignored - One Piece's '"Don" Sai' and
+    '"Sir" Crocodile' otherwise sorted ahead of every A."""
+    folded = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"^[^0-9a-z]+", "", folded) or folded
+
+
 @app.get("/api/characters", response_model=CharacterListOut)
 def list_characters(q: Optional[str] = None, category: Optional[str] = None):
     sql = "SELECT id, name, source_url, category, normalized_json, image_url FROM characters"
@@ -184,7 +193,7 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
             is_multi_form=len(forms) > 1,
             image_url=community_api.character_image_url(row["id"], replaced.get(row["id"])) or row["image_url"],
         ))
-    out.sort(key=lambda c: c.name.lower())
+    out.sort(key=lambda c: _sort_key(c.name))
     return CharacterListOut(total=len(out), characters=out)
 
 

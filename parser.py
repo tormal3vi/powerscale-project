@@ -221,7 +221,34 @@ def _find_stats_heading(soup: BeautifulSoup):
                 break
     if span is None:
         return _abilities_heading_with_tier(soup)
-    return span.find_parent(["h2", "h3"])
+    heading = span.find_parent(["h2", "h3"])
+    # Yomi (Yu Yu Hakusho) has TWO "Powers and Stats" headings - the first
+    # over his summary, the second over the real stats - and taking the
+    # first read as "no stats", so the page was skipped. When there's more
+    # than one, use the first whose section actually holds stat fields.
+    if heading is not None and not _section_has_fields(heading):
+        for candidate in soup.find_all("span", class_="mw-headline"):
+            if candidate is span or not _STATS_HEADING_RE.match(candidate.get_text(strip=True)):
+                continue
+            other = candidate.find_parent(["h2", "h3"])
+            if other is not None and _section_has_fields(other):
+                return other
+    return heading
+
+
+def _section_has_fields(heading) -> bool:
+    """Whether a known field label (Tier:, Attack Potency:, ...) appears
+    before the next section heading. Read-only (_peek_label)."""
+    for sib in heading.find_next_siblings():
+        if getattr(sib, "name", None) in ("h2", "h3"):
+            return False
+        if not hasattr(sib, "find_all"):
+            continue
+        for b in ([sib] if sib.name == "b" else sib.find_all("b")):
+            label = _peek_label(b)
+            if label and label.lower() in FIELD_MAP:
+                return True
+    return False
 
 
 def _abilities_heading_with_tier(soup: BeautifulSoup):
@@ -556,7 +583,9 @@ def _extract_forms_from_stats_tabber(tabber, flat_tier: Optional[str]) -> List[C
     top_contents = tabber.find_all("div", class_="wds-tab__content", recursive=False)
     if top_ul is None or not top_contents:
         return []
-    tab_labels = [li.get_text(strip=True) for li in top_ul.find_all("li", recursive=False)]
+    # A tab that opens nested tabs shows a dropdown arrow ("Final Saga▾",
+    # Monkey D. Luffy (Emperor)) - not part of the form's name.
+    tab_labels = [li.get_text(strip=True).rstrip("▾").strip() for li in top_ul.find_all("li", recursive=False)]
 
     # Only trust the flat Tier summary's '|'-segments as per-form tiers
     # when the count lines up exactly with the tab count - verified per

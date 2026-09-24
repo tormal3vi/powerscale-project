@@ -375,6 +375,13 @@ def test_casters_are_scored_by_their_magic_value_not_physical():
     assert parse_tier_range("9-B | At least 9-B, up to at least 6-A | 4-A, possibly 3-C").baseline_label == "9-b"
 
 
+def test_human_level_phrasings_without_level():
+    # Rihan (Hunter x Hunter) Durability "At least Peak Human" = Peak Human
+    # level (10-A); Klein Moretti (Lord of the Mysteries) Speed "Normal Human".
+    assert parse_tier_range("At least Peak Human, likely higher").baseline == TIER_LADDER["10-a"]
+    assert parse_speed_range("Normal Human").baseline == SPEED_LADDER["average human"]
+
+
 def test_city_block_without_level():
     # Mundus (Golem Form): "At least City Block". And "Multi-City Block"
     # must not be read as its inner "City Block", a tier too low.

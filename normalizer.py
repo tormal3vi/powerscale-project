@@ -220,6 +220,8 @@ _TIER_TYPO_ALIASES: Dict[str, str] = {
     "City-Block level": "City Block level",              # ~38, hyphenated
     # "At least City Block" with no "level" (Mundus, Golem Form). "Multi-City
     # Block" too, or its "City Block" would match inside it one tier low.
+    # Rihan (Hunter x Hunter) Durability: "At least Peak Human" - no "level".
+    "Peak Human": "Athlete level",  # = "Peak Human level" (10-A)
     "City Block": "City Block level",
     "Multi-City Block": "Multi-City Block level",
     "City-Block level+": "City Block level+",
@@ -299,6 +301,8 @@ _SPEED_TERM_ALIASES: Dict[str, str] = {
     "Infinite": "Infinite Speed",
     # Being everywhere beats any finite speed (see module docstring).
     "Omnipresent": "Irrelevant",
+    # Klein Moretti (Lord of the Mysteries): "Normal Human".
+    "Normal Human": "Average Human",
     "Nigh-Omnipresent": "Immeasurable",
     # AP-style wording used in a Speed field (Launch, Dragon Ball).
     "Human level": "Average Human",

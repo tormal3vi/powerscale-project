@@ -420,6 +420,15 @@ def test_sasuke_part_i_stat_label_with_no_colon():
     assert all("City Block" not in (f.stats.speed or "") for f in stats.forms)
 
 
+def test_yomi_second_powers_and_stats_heading_holds_the_stats():
+    # Yomi (Yu Yu Hakusho) has two "Powers and Stats" headings: the first
+    # over his summary, the second over the stats. Taking the first found
+    # nothing, so the whole page was skipped as "not a character".
+    stats = parse_character(_load("YomiYuYuHakusho"))
+    assert stats.tier and stats.tier.startswith("At least 5-C")
+    assert stats.forms[0].stats.attack_potency.startswith("At least Moon level")
+
+
 def test_goku_dbs_manga_several_fields_in_one_paragraph():
     # Found by a whole-DB audit: on 6 of this page's tabs, Speed, Lifting
     # Strength, Striking Strength, Durability and Stamina share ONE <p>,
