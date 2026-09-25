@@ -100,7 +100,7 @@ def display_name_for_id(char_id: int, colliding: Optional[set] = None) -> Option
 
 
 def short_name(name: str) -> str:
-    return re.split(r"[;,]", name, maxsplit=1)[0].strip()
+    return re.split(r";|,\s", name, maxsplit=1)[0].strip()  # not "170,000 ..." -> "170"
 
 
 # Character data only changes on a deploy (a new powerscale.db) or when a

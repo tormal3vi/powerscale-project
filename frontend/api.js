@@ -164,7 +164,9 @@ function fold(s) {
 function shortName(name) {
   // Names often carry a whole alias list ("Rudeus Greyrat (...); Rudi;
   // Rudeus the Quagmire; ...") - the first alias is enough in a sentence.
-  return (name || '').split(/[;,]/)[0].trim();
+  // Split at ';' or ', ' only: "170,000 Year Cicada Nymph" has a comma
+  // inside a number and used to become just "170".
+  return (name || '').split(/;|,\s/)[0].trim();
 }
 
 // "Dante (Devil May Cry)" -> "Dante": for tight spots like "Dante wins".

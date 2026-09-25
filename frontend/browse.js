@@ -66,7 +66,7 @@ function toggleSelect(character) {
       showToast('You can only compare 2 characters at a time — remove one first.');
       return;
     }
-    state.selected.push({ id: character.id, name: character.name });
+    state.selected.push({ id: character.id, name: character.name, image_url: character.image_url });
   }
   renderGrid();
   renderCompareBar();
@@ -303,7 +303,7 @@ async function init() {
     // "Compare with..." from a character page arrives as ?with=<id>.
     const withId = Number(new URLSearchParams(location.search).get('with'));
     const pre = state.characters.find((c) => c.id === withId);
-    if (pre) state.selected.push({ id: pre.id, name: pre.name });
+    if (pre) state.selected.push({ id: pre.id, name: pre.name, image_url: pre.image_url });
     renderFilterRow();
     renderGrid();
     renderCompareBar();
