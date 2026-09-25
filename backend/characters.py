@@ -41,11 +41,38 @@ def base_name(name: str, source_url: str) -> str:
     name = re.split(r"\s*\|\s*", name, maxsplit=1)[0]
     if not source_url.startswith("http"):
         return name
-    bare = re.sub(r"\s*\([^)]*\)\s*$", "", scraper.page_title(source_url))
+    title = scraper.page_title(source_url)
+    bare = re.sub(r"\s*\([^)]*\)\s*$", "", title)
     name_words, title_words = _name_words(name), _name_words(bare)
     if name_words and title_words:
-        return bare if not (name_words & title_words) else name
+        if not (name_words & title_words):
+            return bare
+        return bare if _title_is_better_known(name, title, bare) else name
     return bare if name_key(name) != name_key(bare) else name
+
+
+def _title_is_better_known(name: str, title: str, bare: str) -> bool:
+    """True when the Name field leads with something other than the name
+    the page is titled by, though every word of that title is in the field:
+    the lead is a real name the character is rarely called ("John ("Jack"),
+    Naked Snake, Big Boss", "Charlotte Linlin, "Big Mom"", "Robert Bruce
+    Banner; The Incredible Hulk"), a sentence ("Real name unknown, known as
+    The Sorrow"), or just part of the title ("Ocelot/Revolver Ocelot").
+    Pages titled "Real name (Hero name)" keep the field: "Bad (Metal Bat)"
+    and "Isamu (Child Emperor)" are called by the part in brackets."""
+    first = re.split(r"[,;/]", name, maxsplit=1)[0]
+    lead = _name_words(first)
+    title_words = _name_words(bare)
+    if first.count("(") > first.count(")"):
+        # The first alias split mid-note: "Mistral (Her codename, true name
+        # is unknown)", "Raiden (雷電?) (Birth name unknown, but ...".
+        return _name_words(re.sub(r"\(.*", "", first)) == title_words
+    if lead == {"unknown"}:
+        return True  # "Unknown, impersonated Captain Tennille"
+    if not title_words <= _name_words(name) or not lead or title_words <= lead:
+        return False  # "Son Goku, Kakarot" is fine next to a page titled "Goku"
+    qualifier = re.search(r"\(([^)]*)\)\s*$", title)
+    return not (qualifier and _name_words(qualifier.group(1)) <= lead)
 
 
 def _title_key(source_url: str) -> Optional[str]:

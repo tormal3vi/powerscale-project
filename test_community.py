@@ -252,7 +252,27 @@ def test_display_names_label_versions_that_share_a_page_title():
     col = C.colliding_names(conn)
     assert [C.display_name(n, u, col) for n, u in rows] == [
         "Omni-Man (Comics)", "Omni-Man (TV Series)",
-        'Markus Murphy, Marky, Mark, "Kid Invincible" (Temporary)']  # unique title: keeps its name
+        "Kid Invincible"]  # unique title, and the name fans use
+
+
+def test_display_names_prefer_the_page_title_over_a_real_name_lead():
+    from backend import characters as C
+    wiki = "https://vsbattles.fandom.com/wiki/"
+    cases = [
+        ('John ("Jack"), Naked Snake, Big Boss, Saladin', "Big_Boss", "Big Boss"),
+        ("Real name unknown, known as The Sorrow", "The_Sorrow", "The Sorrow"),
+        ("Ocelot/Revolver Ocelot (code-name), ADAM (his CIA code-name)", "Revolver_Ocelot", "Revolver Ocelot"),
+        ("Unknown, impersonated Captain Tennille", "Impostor_Captain_Tennille", "Impostor Captain Tennille"),
+        ("Mistral (Her codename, true name is unknown)", "Mistral", "Mistral"),
+        ("Raiden (雷電?) (Birth name unknown, but was given the name Jack)", "Raiden_(Metal_Gear)", "Raiden"),
+        # Kept: the page is titled "Real name (Hero name)"...
+        ("Metal Bat, Bad", "Bad_(Metal_Bat)", "Metal Bat, Bad"),
+        # ...the lead already contains the whole title...
+        ("Son Goku, Kakarot", "Goku", "Son Goku, Kakarot"),
+        # ...or the title's words aren't all in the Name field.
+        ("Asa Mitaka, War Devil (Yoru)", "War_Fiend", "Asa Mitaka, War Devil (Yoru)"),
+    ]
+    assert [C.base_name(n, wiki + t) for n, t, _ in cases] == [want for _, _, want in cases]
 
 
 def test_rate_limiter_blocks_after_the_limit_per_key():
