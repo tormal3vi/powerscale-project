@@ -524,6 +524,66 @@ def test_frieren_flat_fields_wrapped_in_an_unrelated_ability_tabber():
     assert not any(a.startswith("Attack Potency") for a in stats.powers_and_abilities)
 
 
+
+def test_sections_in_boxes_lists_and_bare_titles_end_the_field_before():
+    # Raiden (Metal Gear) showed 54K characters of Range and 450K of
+    # Weaknesses: his "Standard Equipment:" and "Feats:" sit inside
+    # collapsed boxes, which weren't read as labels. Same for Yujiro's
+    # boxed "Notable Attacks/Techniques:" and Nami's colon-less one.
+    html = """<h2><span class="mw-headline">Powers and Stats</span></h2>
+    <p><b>Tier:</b> 8-C</p>
+    <p><b>Attack Potency:</b> Building level</p>
+    <p><b>Speed:</b> Subsonic</p>
+    <p><b>Durability:</b> Building level</p>
+    <p><b>Range:</b> Extended melee range</p>
+    <div class="mw-collapsible mw-collapsed"><p><b>Standard Equipment</b>: A sword</p></div>
+    <p><b>Weaknesses:</b> PTSD</p>
+    <div class="mw-collapsible mw-collapsed"><b>Feats:</b><ul><li>Cut a tank in half</li></ul></div>
+    <h2>Gallery</h2>"""
+    stats = parse_character(html)
+    assert stats.range == "Extended melee range"
+    assert stats.standard_equipment == "A sword"
+    assert stats.weaknesses == "PTSD"
+    assert "tank" in stats.extra_fields["Feats"]
+
+    yujiro = parse_character(_load("YujiroHanma"))
+    assert len(yujiro.weaknesses) < 400 and "Notable Attacks/Techniques" in yujiro.extra_fields
+    nami = parse_character(_load("NamiOnePiece"))
+    assert len(nami.weaknesses) < 400 and "Clima-Tact" not in nami.weaknesses
+
+
+def test_an_unclosed_tabber_keeps_only_its_own_tabs():
+    # Obito Uchiha's Weaknesses tabber is never closed on the wiki, so the
+    # Feats list and every later section sat inside it: 73K characters
+    # of Weaknesses. Per-form splitting still needs the tabber itself.
+    html = """<h2><span class="mw-headline">Powers and Stats</span></h2>
+    <p><b>Tier:</b> 6-A</p>
+    <p><b>Key:</b> Sharingan | Rinnegan</p>
+    <p><b>Attack Potency:</b> Country level | Continent level</p>
+    <p><b>Weaknesses:</b></p>
+    <div class="tabber wds-tabber">
+      <div class="wds-tabs__wrapper"><ul class="wds-tabs"><li><a>Sharingan</a></li><li><a>Rinnegan</a></li></ul></div>
+      <div class="wds-tab__content wds-is-current"><p>Needs chakra</p></div>
+      <div class="wds-tab__content"><p>Tires quickly</p></div>
+      <p><b>Feats:</b></p>
+      <ul><li>Fought the Allied Shinobi Forces</li></ul>
+    </div>
+    <h2>Gallery</h2>"""
+    stats = parse_character(html)
+    assert "Needs chakra" in stats.weaknesses and "Tires quickly" in stats.weaknesses
+    assert "Allied Shinobi" not in stats.weaknesses
+
+
+def test_colon_less_field_names_count_only_the_first_time():
+    # "<b>Tier</b> High 7-A" with no colon (Yami Sukehiro) is his Tier, but
+    # The Guevara's Feats list has a plain "Speed" subheading after his
+    # real Speed field, which must not replace it.
+    yami = parse_character(_load("YamiSukehiro"))
+    assert yami.tier and "7-A" in yami.tier
+    assert all(f.stats.attack_potency for f in yami.forms)
+    guevara = parse_character(_load("JunGuevaru"))
+    assert guevara.speed.startswith("At least Subsonic")
+
 if __name__ == "__main__":
     import sys
 

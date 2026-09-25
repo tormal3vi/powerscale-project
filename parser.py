@@ -59,6 +59,7 @@ Key's count exactly, checked per field independently (a page can list
 one field's variation without meaning to split every field into forms).
 """
 
+import copy
 import re
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional
@@ -462,6 +463,67 @@ def _stat_siblings(heading):
         yield sib
 
 
+# Sections that follow the stat fields. Written as a plain labeled <p>
+# they already start their own block; these names also count when the
+# label opens a collapsible box, a list, or a colon-less bold line.
+_SECTION_TITLES = {
+    "feats", "notable attacks/techniques", "notable attacks and techniques",
+    "optional equipment", "standard tactics", "note", "notes", "key", "others",
+}
+
+
+def _section_start(el, seen=frozenset()):
+    """(b, label) if `el` - a box, list or line that isn't a plain labeled
+    <p> - opens with a bold field or section name; else None. Unrecognized,
+    everything in it was glued onto the field before: Raiden (Metal Gear)'s
+    collapsed "Standard Equipment:" box became 40K characters of Range,
+    and his "Feats:" box 450K of Weaknesses; Yujiro Hanma's "Notable
+    Attacks/Techniques:" box and Nami's colon-less title did the same.
+    Known names only, so a value that opens with bold per-form labels
+    ("<b>MGS2:</b> ...") isn't cut off."""
+    b = el.find("b")
+    if b is None:
+        return None
+    b_text, el_text = b.get_text(strip=True), el.get_text(strip=True)
+    if not b_text or not el_text.startswith(b_text):
+        return None
+    label = b_text.rstrip(":").strip()
+    has_colon = b_text.endswith(":") or el_text[len(b_text):].startswith(":")
+    key = label.lower()
+    # Colon-less field names count too ("<b>Tier</b> High 7-A" - Yami
+    # Sukehiro, Gin, Seras Victoria's Age), but only the first time: The
+    # Guevara's Feats list has a plain "Speed" subheading after his real
+    # Speed field.
+    if key in _SECTION_TITLES or (key in FIELD_MAP and (has_colon or key not in seen)):
+        return b, label
+    return None
+
+
+def _tabber_own_html(tabber) -> str:
+    """A tabber's own tabs, without anything the wiki left inside it by
+    mistake: Obito Uchiha's Weaknesses tabber is never closed, so the
+    Feats, Notable Attacks and even the next <h2> sections sit inside it
+    and used to read as 73K characters of Weaknesses. Stops at the first
+    direct child that starts another field or section. The tabber's own
+    wrapper stays, which _per_tab_field_value needs to split per form."""
+    children = list(tabber.children)
+    for i, child in enumerate(children):
+        name = getattr(child, "name", None)
+        if name == "h2":
+            break
+        if name in ("p", "ul", "ol", "div", "table") and "wds-tab" not in " ".join(child.get("class") or []):
+            b = child.find("b")
+            peek = (_peek_label(b) or "").lower() if b else ""
+            if peek in FIELD_MAP or peek in _SECTION_TITLES or _section_start(child):
+                break
+    else:
+        return str(tabber)
+    trimmed = copy.copy(tabber)
+    for extra in list(trimmed.children)[i:]:
+        extra.extract()
+    return str(trimmed)
+
+
 def _collect_field_blocks(heading) -> List[dict]:
     """Walk siblings after `heading` until the next <h2>, grouping content
     into one block per labeled <p> (label + its own inline value + any
@@ -485,6 +547,17 @@ def _collect_field_blocks(heading) -> List[dict]:
                     current = {"label": field_label, "html_parts": [value_html]}
                     blocks.append(current)
                 continue
+        if name in ("p", "ul", "ol", "div", "center") and "tabber" not in (sib.get("class") or []):
+            start = _section_start(sib, {blk["label"].lower() for blk in blocks})
+            if start:
+                b, label = start
+                b.extract()
+                first_text = next((s for s in sib.find_all(string=True) if s.strip()), None)
+                if first_text is not None and first_text.lstrip().startswith(":"):
+                    first_text.replace_with(first_text.lstrip()[1:])  # "<b>Label</b>: value"
+                current = {"label": label, "html_parts": [str(sib)]}
+                blocks.append(current)
+                continue
         if name == "table":
             # Tables here (e.g. a "Feats" or "Notable Attacks/Techniques"
             # block) are standalone sections, not a continuation of the
@@ -502,6 +575,9 @@ def _collect_field_blocks(heading) -> List[dict]:
             # wds-tab__content tab, never as direct children of the
             # tabber div itself.
             blocks.extend(_labeled_paragraphs_in(sib))
+            if current is not None:
+                current["html_parts"].append(_tabber_own_html(sib))
+            continue
         if current is not None:
             current["html_parts"].append(str(sib))
     return blocks
