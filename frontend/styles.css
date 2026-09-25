@@ -922,7 +922,11 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
 .t-champ-name { font-family: var(--font-serif); font-weight: 700; font-size: 26px; }
 .t-champ-actions { display: flex; gap: 10px; }
 .t-scroll-hint { display: none; font-size: 11px; color: var(--text-quaternary); margin-bottom: 8px; }
-.bracket { display: flex; gap: 48px; overflow-x: auto; padding-bottom: 8px; }
+.bracket { display: flex; gap: 48px; overflow-x: auto; padding-bottom: 8px; position: relative; }
+.t-lines { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
+.t-lines path { fill: none; stroke: var(--control-border); stroke-width: 1.5; }
+.t-lines path.gold { stroke: var(--accent-gold); stroke-width: 2; }
+.t-round { position: relative; z-index: 1; min-width: 0; } /* long names ellipsize instead of widening the column */
 .t-round { flex: 0 0 300px; display: flex; flex-direction: column; }
 .t-round-label { font-size: 11px; color: var(--text-quaternary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 28px; }
 .t-round-matches { flex: 1; display: flex; flex-direction: column; justify-content: space-around; gap: 28px; }

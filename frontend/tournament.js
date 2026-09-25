@@ -153,7 +153,7 @@ function matchHtml(m, isFinal) {
       <span class="t-tier">${escapeHtml(tierText(c))}</span>
     </div>`;
   return `
-    <a class="t-match${isFinal ? ' t-final' : ''}" href="compare.html?a=${m.a.id}&b=${m.b.id}" title="Open this matchup">
+    <a class="t-match${isFinal ? ' t-final' : ''}" data-winner="${m.winner.id}" href="compare.html?a=${m.a.id}&b=${m.b.id}" title="Open this matchup">
       ${side(m.a)}${side(m.b)}
       <div class="t-how">${escapeHtml(m.how)}</div>
     </a>`;
@@ -167,7 +167,55 @@ function renderBracket(rounds, total) {
       <div class="t-round-label">${names[total / 2 ** (r + 1)] || `Round ${r + 1}`}</div>
       <div class="t-round-matches">${matches.map((m) => matchHtml(m, r === totalRounds - 1)).join('')}</div>
     </div>`).join('');
+  drawConnectors();
 }
+
+// Bracket lines: each pair of matches joins into the match its winners
+// meet in. Drawn as one SVG behind the cards, measured from where the
+// cards actually sit (the columns space them evenly, but card heights
+// vary), and redrawn on resize. Once there's a champion, their path is gold.
+let championId = null;
+
+function drawConnectors() {
+  const bracket = $('bracket');
+  bracket.querySelector('.t-lines')?.remove();
+  const rounds = [...bracket.querySelectorAll('.t-round')].map((r) => [...r.querySelectorAll('.t-match')]);
+  if (rounds.length < 2) return;
+  const origin = bracket.getBoundingClientRect();
+  const box = (el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left - origin.left + bracket.scrollLeft, right: r.right - origin.left + bracket.scrollLeft,
+             mid: r.top - origin.top + bracket.scrollTop + r.height / 2 };
+  };
+  const paths = [];
+  for (let r = 0; r + 1 < rounds.length; r += 1) {
+    rounds[r + 1].forEach((next, i) => {
+      const to = box(next);
+      [rounds[r][2 * i], rounds[r][2 * i + 1]].forEach((from) => {
+        if (!from) return;
+        const f = box(from);
+        const midX = (f.right + to.left) / 2;
+        const gold = championId !== null && Number(from.dataset.winner) === championId;
+        paths.push(`<path d="M${f.right} ${f.mid}H${midX}V${to.mid}H${to.left}" class="${gold ? 'gold' : ''}"/>`);
+      });
+    });
+  }
+  const svg = `<svg class="t-lines" width="${bracket.scrollWidth}" height="${bracket.scrollHeight}" aria-hidden="true">${
+    paths.sort((a, b) => a.includes('gold') - b.includes('gold')).join('')}</svg>`; // gold drawn last, on top
+  bracket.insertAdjacentHTML('afterbegin', svg);
+}
+
+// Redraw whenever the cards can have moved: the window resizing, the
+// bracket changing size (web fonts or pictures arriving after the first
+// draw change card heights), and once the fonts have loaded.
+let redrawTimer = null;
+function scheduleRedraw() {
+  clearTimeout(redrawTimer);
+  redrawTimer = setTimeout(() => { if ($('bracket').querySelector('.t-round')) drawConnectors(); }, 60);
+}
+window.addEventListener('resize', scheduleRedraw);
+if (window.ResizeObserver) new ResizeObserver(scheduleRedraw).observe($('bracket'));
+if (document.fonts) document.fonts.ready.then(scheduleRedraw);
 
 function setChampionCard(label, name, champ = null) {
   $('t-champ-label').textContent = label;
@@ -184,6 +232,7 @@ async function runTournament(entrants) {
   $('setup').style.display = 'none';
   $('bracket-wrap').style.display = '';
   $('bracket').innerHTML = '';
+  championId = null;
   const totalRounds = Math.log2(entrants.length);
   const rounds = [];
   let alive = entrants.slice();
@@ -200,6 +249,8 @@ async function runTournament(entrants) {
   }
   const champ = alive[0];
   setChampionCard('Champion', shortName(champ.name), champ);
+  championId = champ.id;
+  drawConnectors();
 }
 
 // --- load ---------------------------------------------------------------------
