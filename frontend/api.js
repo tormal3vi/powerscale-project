@@ -9,7 +9,7 @@ async function apiGet(path) {
   const res = await fetch(API_BASE + path);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `${res.status} ${res.statusText}`);
+    throw Object.assign(new Error(body.detail || `${res.status} ${res.statusText}`), { status: res.status });
   }
   return res.json();
 }
@@ -68,6 +68,7 @@ const Api = {
     apiDelete(`/api/overrides?${new URLSearchParams({ a: charA, b: charB, fa: formA, fb: formB })}`),
 
   listPosts: (before) => apiGet('/api/posts' + (before ? `?before=${before}` : '')),
+  boardVersion: () => apiGet('/api/board/version'),
   getThread: (id) => apiGet(`/api/posts/${id}`),
   createPost: (post) => apiPost('/api/posts', post),
   deletePost: (id) => apiDelete(`/api/posts/${id}`),

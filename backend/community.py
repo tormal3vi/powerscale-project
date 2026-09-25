@@ -337,6 +337,7 @@ def delete_account(user_id: int) -> None:
         conn.execute(delete(avatars).where(avatars.c.user_id == user_id))
         conn.execute(delete(sessions).where(sessions.c.user_id == user_id))
         conn.execute(delete(users).where(users.c.id == user_id))
+    _board_changed()
 
 
 def delete_session(token: Optional[str]) -> None:
@@ -421,6 +422,29 @@ def _remembered(name: str, load):
 def _forget(name: str) -> None:
     with _memo_lock:
         _memo.pop(name, None)
+
+
+# --- "anything new on the Board?" -----------------------------------------------------
+# An open Board asks every few seconds. Every write it shows (posts,
+# replies, likes, deletions, overrules) goes through this module and bumps
+# the counter, so answering "nothing new" never touches Neon - same one-
+# process reasoning as _memo above. The random part changes on restart, so
+# a Board left open across a deploy refreshes once rather than missing
+# what happened while the server was down.
+
+_board_boot = secrets.token_hex(4)
+_board_changes = 0
+
+
+def board_version() -> str:
+    with _memo_lock:
+        return f"{_board_boot}.{_board_changes}"
+
+
+def _board_changed() -> None:
+    global _board_changes
+    with _memo_lock:
+        _board_changes += 1
 
 
 def set_character_image(char_id: int, image: bytes, admin_id: int) -> None:
@@ -512,11 +536,12 @@ def create_post(user_id: int, body: str, parent_id: Optional[int] = None, char_a
                 raise LookupError(parent_id)
             # One level of replies: replying to a reply joins the same thread.
             parent_id = parent.parent_id or parent.id
-        result = conn.execute(insert(posts).values(
+        post_id = conn.execute(insert(posts).values(
             user_id=user_id, parent_id=parent_id, body=body, char_a=char_a, char_b=char_b,
             form_a=form_a, form_b=form_b, created_at=_now(), kind=kind, ruling_winner=ruling_winner,
-        ))
-        return result.inserted_primary_key[0]
+        )).inserted_primary_key[0]
+    _board_changed()
+    return post_id
 
 
 def _post_rows(conn, where, viewer_id: Optional[int], order, limit: Optional[int] = None) -> List[dict]:
@@ -586,14 +611,17 @@ def delete_post(post_id: int) -> None:
         conn.execute(delete(likes).where(likes.c.post_id.in_(all_ids)))
         conn.execute(delete(posts).where(posts.c.id.in_(reply_ids)))
         conn.execute(delete(posts).where(posts.c.id == post_id))
+    _board_changed()
 
 
 def toggle_like(post_id: int, user_id: int) -> bool:
     """Returns True if the post is now liked by this user."""
     with engine.begin() as conn:
         match = and_(likes.c.post_id == post_id, likes.c.user_id == user_id)
-        if conn.execute(select(likes.c.post_id).where(match)).first():
+        liked = not conn.execute(select(likes.c.post_id).where(match)).first()
+        if liked:
+            conn.execute(insert(likes).values(post_id=post_id, user_id=user_id))
+        else:
             conn.execute(delete(likes).where(match))
-            return False
-        conn.execute(insert(likes).values(post_id=post_id, user_id=user_id))
-        return True
+    _board_changed()
+    return liked

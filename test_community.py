@@ -275,6 +275,27 @@ def test_display_names_prefer_the_page_title_over_a_real_name_lead():
     assert [C.base_name(n, wiki + t) for n, t, _ in cases] == [want for _, _, want in cases]
 
 
+def test_board_version_moves_on_every_board_write():
+    user = community.create_user("live_fan", "password123")
+    seen = [community.board_version()]
+    def moved():
+        seen.append(community.board_version())
+        return seen[-1] != seen[-2]
+    assert not moved()  # reading alone changes nothing
+    post_id = community.create_post(user["id"], "first!")
+    assert moved()
+    community.create_post(user["id"], "a reply", parent_id=post_id)
+    assert moved()
+    community.toggle_like(post_id, user["id"])
+    assert moved()
+    community.list_posts(user["id"])
+    assert not moved()
+    community.delete_post(post_id)
+    assert moved()
+    community.delete_account(user["id"])
+    assert moved()
+
+
 def test_rate_limiter_blocks_after_the_limit_per_key():
     rl = community.RateLimiter(limit=2, window=60)
     assert rl.allow("ip1") and rl.allow("ip1")

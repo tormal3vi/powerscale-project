@@ -437,10 +437,11 @@ function deleteHandler(el, post, isReply) {
 function replyEl(reply) {
   const el = document.createElement('div');
   el.className = 'reply';
+  el.dataset.id = reply.id;
   el.innerHTML = `
     ${avatarHtml(reply, 'reply-avatar')}
     <div class="reply-main">
-      <div class="reply-head">${authorHtml(reply, 'reply-author')} <span class="post-time">· ${timeAgo(reply.created_at)}</span>
+      <div class="reply-head">${authorHtml(reply, 'reply-author')} <span class="post-time" data-ts="${escapeHtml(reply.created_at)}">· ${timeAgo(reply.created_at)}</span>
         ${reply.can_delete ? '<button class="post-delete">Delete</button>' : ''}</div>
       <div class="reply-body"></div>
     </div>`;
@@ -456,12 +457,13 @@ function postEl(post) {
   const ruling = isRuling ? rulingHtml(post) : null;
   el.className = 'post' + (isRuling ? ' post-ruling' : '') +
     (isRuling && post.ruling && post.ruling.status !== 'current' ? ' stale' : '');
+  el.dataset.id = post.id;
   const inner = `
     ${avatarHtml(post, 'post-avatar')}
     <div class="post-main">
       <div class="post-head">
         ${authorHtml(post, 'post-author')}
-        <span class="post-time" title="${escapeHtml(new Date(post.created_at).toLocaleString())}">· ${timeAgo(post.created_at)}</span>
+        <span class="post-time" data-ts="${escapeHtml(post.created_at)}" title="${escapeHtml(new Date(post.created_at).toLocaleString())}">· ${timeAgo(post.created_at)}</span>
         ${post.can_delete ? '<button class="post-delete">Delete</button>' : ''}
       </div>
       ${isRuling ? ruling.main : ''}
@@ -495,18 +497,28 @@ function postEl(post) {
 
   const repliesBtn = el.querySelector('.post-replies');
   const thread = el.querySelector('.post-thread');
+  let list = null; // the open thread's replies, once loaded
+  // Adds replies not shown yet and drops deleted ones - on opening the
+  // thread, and again whenever the live Board sees it change.
+  const showReplies = (replies) => {
+    const ids = new Set(replies.map((r) => String(r.id)));
+    list.querySelectorAll(':scope > .reply').forEach((r) => { if (!ids.has(r.dataset.id)) r.remove(); });
+    replies.forEach((r) => { if (!list.querySelector(`:scope > [data-id="${r.id}"]`)) list.appendChild(replyEl(r)); });
+    repliesBtn.querySelector('span').textContent = replies.length;
+  };
   repliesBtn.addEventListener('click', async () => {
     const open = thread.style.display !== 'none';
     thread.style.display = open ? 'none' : '';
     repliesBtn.classList.toggle('open', !open);
     if (open) return;
+    list = null;
     thread.innerHTML = '<div class="post-time">Loading…</div>';
     try {
       const t = await Api.getThread(post.id);
       thread.innerHTML = '';
-      const list = document.createElement('div');
+      list = document.createElement('div');
       list.className = 'reply-list';
-      t.replies.forEach((r) => list.appendChild(replyEl(r)));
+      showReplies(t.replies);
       thread.appendChild(list);
       thread.appendChild(replyComposerEl(post.id, (reply) => {
         list.appendChild(replyEl(reply));
@@ -517,6 +529,29 @@ function postEl(post) {
       thread.innerHTML = `<div class="form-error">${escapeHtml(err.message)}</div>`;
     }
   });
+
+  // Hooks for the live Board (see the end of this file).
+  const threadOpen = () => list !== null && thread.style.display !== 'none';
+  el.live = {
+    update(p) {
+      const like = el.querySelector('.post-like');
+      like.classList.toggle('liked', p.liked_by_me);
+      like.querySelector('span').textContent = p.like_count;
+      if (!threadOpen()) repliesBtn.querySelector('span').textContent = p.reply_count;
+    },
+    // Open, and (when the post is on the newest page) its reply count moved.
+    threadOutdated(p) {
+      return threadOpen() && (!p || list.querySelectorAll(':scope > .reply').length !== p.reply_count);
+    },
+    async refreshThread() {
+      try {
+        const { replies } = await Api.getThread(post.id);
+        if (threadOpen()) showReplies(replies);
+      } catch (err) {
+        if (err.status === 404) el.remove(); // deleted since
+      }
+    },
+  };
   return el;
 }
 
@@ -553,12 +588,108 @@ async function loadPage() {
 
 loadMore.addEventListener('click', loadPage);
 
+// --- live updates ------------------------------------------------------------------
+// While the Board is open and visible, it asks every 10s whether anything
+// changed - a tiny answer the server keeps in memory. Only when something
+// did does it fetch the newest page: new posts wait behind a "new posts"
+// pill, so nothing jumps while you read; likes, reply counts, open
+// threads and deletions update in place.
+
+const LIVE_EVERY_MS = 10000;
+const newPostsBtn = document.getElementById('new-posts');
+const baseTitle = document.title;
+let boardVersion = null; // null until the first check, which always refreshes
+let waiting = []; // new posts behind the pill, newest first
+let liveTimer = null;
+let liveBusy = false;
+let liveFailures = 0;
+
+const feedPosts = () => [...feed.querySelectorAll(':scope > .post')];
+
+function updatePill() {
+  const n = waiting.length;
+  newPostsBtn.hidden = !n;
+  newPostsBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>${n} new post${n === 1 ? '' : 's'}`;
+  document.title = n ? `(${n}) ${baseTitle}` : baseTitle;
+}
+
+function showWaiting() {
+  if (!waiting.length) return;
+  const empty = feed.querySelector('.board-empty');
+  if (empty) empty.remove();
+  [...waiting].reverse().forEach((p) => feed.prepend(postEl(p)));
+  waiting = [];
+  updatePill();
+}
+
+newPostsBtn.addEventListener('click', () => {
+  showWaiting();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+function applyNewestPage(res) {
+  const byId = new Map(res.posts.map((p) => [p.id, p]));
+  const shown = feedPosts();
+  const newestShown = Math.max(0, ...shown.map((el) => Number(el.dataset.id)));
+  waiting = res.posts.filter((p) => p.id > newestShown);
+  updatePill();
+  // The page covers every post down to its oldest; one missing from that
+  // range was deleted.
+  const oldest = res.posts.length ? res.posts[res.posts.length - 1].id : Infinity;
+  for (const el of shown) {
+    const p = byId.get(Number(el.dataset.id));
+    if (p) el.live.update(p);
+    else if (Number(el.dataset.id) >= oldest) { el.remove(); continue; }
+    if (el.live.threadOutdated(p)) el.live.refreshThread();
+  }
+  if (!res.posts.length && !feed.querySelector('.post, .board-empty')) feed.appendChild(emptyStateEl());
+}
+
+function refreshTimes() {
+  feed.querySelectorAll('.post-time[data-ts]').forEach((t) => { t.textContent = `· ${timeAgo(t.dataset.ts)}`; });
+}
+
+function scheduleLive() {
+  clearTimeout(liveTimer);
+  if (document.hidden) return; // resumes on visibilitychange
+  // Back off while the server is unreachable (asleep, or a deploy).
+  liveTimer = setTimeout(liveCheck, LIVE_EVERY_MS * 2 ** Math.min(liveFailures, 3));
+}
+
+async function liveCheck() {
+  if (liveBusy) return;
+  liveBusy = true;
+  try {
+    const { version } = await Api.boardVersion();
+    if (version !== boardVersion) {
+      applyNewestPage(await Api.listPosts());
+      // Only once that worked, and the version from BEFORE the fetch: a
+      // change during it still differs next time, and a failed fetch retries.
+      boardVersion = version;
+    }
+    liveFailures = 0;
+  } catch {
+    liveFailures += 1;
+  } finally {
+    liveBusy = false;
+    refreshTimes();
+    scheduleLive();
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) clearTimeout(liveTimer);
+  else liveCheck(); // back on the tab: catch up straight away
+});
+
 (async () => {
   me = await currentUser();
   document.getElementById('composer-slot').appendChild(composerEl((post) => {
+    showWaiting(); // anything newer than what's shown goes under your post
     const empty = feed.querySelector('.board-empty');
     if (empty) empty.remove();
     feed.prepend(postEl(post));
   }));
-  loadPage();
+  await loadPage();
+  scheduleLive();
 })();

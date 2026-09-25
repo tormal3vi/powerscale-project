@@ -436,6 +436,15 @@ def _post_out(row: dict, viewer: Optional[dict], cache: dict) -> PostOut:
     )
 
 
+@router.get("/api/board/version")
+def board_version(response: Response):
+    """What an open Board polls to learn whether anything changed, answered
+    from memory (see community.board_version). Only when the version moves
+    does it fetch posts again."""
+    response.headers["Cache-Control"] = "no-store"
+    return {"version": community.board_version()}
+
+
 @router.get("/api/posts", response_model=PostListOut)
 def list_posts(before: Optional[int] = None, limit: int = 20, viewer: Optional[dict] = Depends(current_user)):
     limit = max(1, min(limit, 50))

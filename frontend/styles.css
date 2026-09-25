@@ -1162,6 +1162,19 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
   padding: 9px 16px; border-radius: var(--radius-pill); border: none; background: var(--accent-gold); color: var(--bg);
   font-weight: 700; font-size: 12.5px; font-family: inherit; cursor: pointer; flex-shrink: 0;
 }
+/* Sticks under the top edge while scrolling, without taking up room. */
+.board-live { position: sticky; top: 14px; height: 0; z-index: 20; display: flex; justify-content: center; }
+.new-posts-pill {
+  display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 16px; margin-top: 10px;
+  border: none; border-radius: var(--radius-pill); background: var(--accent-gold); color: var(--bg);
+  font: 700 13px var(--font-sans); cursor: pointer; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  animation: pill-in 0.2s ease-out;
+}
+.new-posts-pill[hidden] { display: none; }
+.new-posts-pill:hover { filter: brightness(1.08); }
+@keyframes pill-in { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .new-posts-pill { animation: none; } }
+
 .board-more {
   width: 100%; margin-top: 24px; padding: 13px; border-radius: 12px; border: 1px solid var(--control-border);
   background: transparent; color: var(--text-secondary); font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer;
