@@ -9,7 +9,7 @@ reasoning shown.
 
 ## What you can do
 
-- **Browse** 2,590 characters from 34 series, with pictures, search (names,
+- **Browse** 2,767 characters from 34 series, with pictures, search (names,
   nicknames, accents ignored), series filters and sorting by strength.
 - **Compare** two characters: their Tier, Attack Potency, Speed and
   Durability side by side, a radar chart, and a verdict ("Kratos favored —
@@ -57,7 +57,7 @@ A few scoring rules were chosen on purpose:
 
 ## Series included
 
-Dragon Ball (297) · DC (243, split into comics and adaptations) · One Piece (209) · Fairy Tail (196) · Naruto (181) ·
+DC (420, split into comics and adaptations) · Dragon Ball (297) · One Piece (209) · Fairy Tail (196) · Naruto (181) ·
 JoJo's Bizarre Adventure (152) · Bleach (139) · My Hero Academia (126) ·
 One-Punch Man (122) · Puella Magi (85) · Baki the Grappler (81) ·
 Invincible (80) · God of War (79) · Re:Zero (77) · Hunter x Hunter (75) ·

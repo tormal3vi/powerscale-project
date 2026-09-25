@@ -27,6 +27,7 @@ Run with: ./venv/bin/python3 -m pytest test_normalizer.py -v
 from pathlib import Path
 
 from parser import CharacterStats, parse_character
+import normalizer
 from normalizer import normalize_character, parse_tier_range, parse_speed_range, TIER_LADDER, SPEED_LADDER
 
 FIXTURES_DIR = Path(__file__).parent / "test_fixtures"
@@ -503,6 +504,19 @@ def test_vegeta_and_goku_forms_count_and_tier_alignment():
         assert normalized.attack_potency.baseline is None, name
         assert normalized.durability.baseline is None, name
 
+
+
+def test_tier_0_and_boundless_top_the_ladder():
+    # The Overvoid (DC): Tier "0", AP/Durability "Boundless" - above 1-A.
+    tier = normalizer.parse_tier_field("0")
+    assert tier.baseline_label == "0" and tier.baseline > normalizer.TIER_LADDER["1-a"]
+    assert normalizer.parse_tier_range("Boundless (The Presence)").baseline == tier.baseline
+    # A 0 anywhere else is not Tier 0: "Squad 0" (Bleach), "Mr. 0"
+    # (One Piece), "0.5 tons" - and the text shown is left alone.
+    ap = normalizer.parse_tier_range("Large Town level (As Mr. 0 partner, superior to Squad 0)")
+    assert ap.baseline_label == "large town level" and ap.peak_label == "large town level"
+    assert "Mr. 0 partner" in ap.raw
+    assert normalizer.parse_tier_field("High 1-A (Sequence 0)").baseline_label == "high 1-a"
 
 if __name__ == "__main__":
     import sys

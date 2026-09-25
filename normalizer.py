@@ -104,6 +104,9 @@ _TIER_ANCHORS: List[Tuple[str, str, float]] = [
     ("1-C", "Complex Multiverse level", 130.0),
     ("1-B", "Hyperverse level", 145.0),
     ("1-A", "Outerverse level", 160.0),
+    # The wiki's top tier: its Tier field says just "0" (see
+    # parse_tier_range), AP/Durability "Boundless" (The Overvoid).
+    ("Tier 0", "Boundless", 175.0),
 ]
 _ABSTRACT_STEP = 15.0  # synthetic per-tier gap used above 3-A and for 1-A's own grading
 
@@ -549,6 +552,25 @@ def parse_tier_range(text: Optional[str], stand_user: bool = False) -> Normalize
     return parse_range(text, TIER_LADDER, stand_user)
 
 
+# A bare "0" can't be a ladder label - it would match "Squad 0" or "Mr. 0"
+# in any Attack Potency - so only the Tier field's own standalone 0 means
+# Tier 0. The text shown stays as the wiki wrote it.
+_TIER_ZERO_RE = re.compile(r"(?<![\w.,-])0(?![\w.,-])")
+
+
+def parse_tier_field(text: Optional[str], stand_user: bool = False) -> NormalizedRange:
+    if not text:
+        return parse_tier_range(text, stand_user)
+    result = parse_tier_range(_TIER_ZERO_RE.sub("Tier 0", _strip_parentheses(text)), stand_user)
+    result.raw = text
+    # Shown as the wiki writes it - next to "Tier", "0" not "TIER 0".
+    if result.baseline_label == "tier 0":
+        result.baseline_label = "0"
+    if result.peak_label == "tier 0":
+        result.peak_label = "0"
+    return result
+
+
 def parse_speed_range(text: Optional[str], stand_user: bool = False) -> NormalizedRange:
     return parse_range(text, SPEED_LADDER, stand_user)
 
@@ -582,7 +604,7 @@ class NormalizedForm:
 def _normalize_form(form: CharacterForm, stand_user: bool = False) -> NormalizedForm:
     return NormalizedForm(
         name=form.name,
-        tier=parse_tier_range(form.tier, stand_user),
+        tier=parse_tier_field(form.tier, stand_user),
         attack_potency=parse_tier_range(form.stats.attack_potency, stand_user),
         speed=parse_speed_range(form.stats.speed, stand_user),
         durability=parse_tier_range(form.stats.durability, stand_user),
@@ -637,7 +659,7 @@ def normalize_character(stats: CharacterStats) -> NormalizedStats:
     return NormalizedStats(
         name=stats.name,
         source=stats.source,
-        tier=parse_tier_range(stats.tier, stand_user),
+        tier=parse_tier_field(stats.tier, stand_user),
         attack_potency=parse_tier_range(stats.attack_potency, stand_user),
         speed=parse_speed_range(stats.speed, stand_user),
         durability=parse_tier_range(stats.durability, stand_user),

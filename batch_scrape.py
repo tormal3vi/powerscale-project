@@ -69,6 +69,7 @@ SUBSERIES_BY_TITLE = {
         "Green Lantern (2011 Film Version)": "Other adaptations",
         "Superman (Titus Interactive)": "Other adaptations",
         "Superman (Superman vs The Elite)": "Animated Movies",
+        "Orion (Young Justice)": "Young Justice",
     },
 }
 
