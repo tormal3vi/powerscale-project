@@ -5,7 +5,7 @@
 the stats on [VS Battles Wiki](https://vsbattles.fandom.com), with the
 reasoning shown.
 
-**Live:** https://powerscale-sv91.onrender.com
+**Live:** https://powerscale.online
 
 ## What you can do
 
