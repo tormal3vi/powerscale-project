@@ -8,7 +8,7 @@ renderTopbar([]);
 
 const MAX_CHARS = 500;
 const HEART = '<path d="M8 13.5s-5.5-3.2-5.5-7A3 3 0 0 1 8 4.6 3 3 0 0 1 13.5 6.5c0 3.8-5.5 7-5.5 7Z"/>';
-const SHIELD = (size) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.5 14 4.5v4c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8v-4L8 1.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+const SHIELD = (size) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.2 14 3.8v3.6c0 3.7-2.5 6.1-6 7.4-3.5-1.3-6-3.7-6-7.4V3.8L8 1.2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 const ADMIN_BADGE = adminBadgeHtml();
 const feed = document.getElementById('feed');
 const loadMore = document.getElementById('load-more');

@@ -25,6 +25,8 @@ const emptyState = document.getElementById('empty-state');
 const filterRow = document.getElementById('filter-row');
 const compareBar = document.getElementById('compare-bar');
 const searchInput = document.getElementById('search-input');
+// The full placeholder is cut off mid-word on a phone.
+if (window.matchMedia('(max-width: 640px)').matches) searchInput.placeholder = 'Search characters…';
 const gridNote = document.getElementById('grid-note');
 const sortSelect = document.getElementById('sort-select');
 const tierSelect = document.getElementById('tier-select');
@@ -108,6 +110,11 @@ function filteredCharacters() {
   return list;
 }
 
+// "HIGH 3-A" -> "High 3-A"
+function prettifyTier(label) {
+  return label.toLowerCase().replace(/^(low|high)\b/, (w) => w[0].toUpperCase() + w.slice(1)).replace(/\d-[abc]/, (t) => t.toUpperCase());
+}
+
 function characterCard(c, rank) {
   const card = document.createElement('div');
   card.className = 'character-card';
@@ -142,6 +149,13 @@ function characterCard(c, rank) {
     card.classList.add('ranked');
     if (rank === 1) card.classList.add('rank-first');
   }
+  // Phones show the tier in the card's top-right corner instead of a row
+  // under the name (phone design); CSS picks one.
+  const corner = document.createElement('div');
+  corner.className = 'card-tier-corner';
+  corner.innerHTML = 'Tier<span></span>';
+  corner.querySelector('span').textContent = c.tier_label ? prettifyTier(c.tier_label) : '—';
+  head.appendChild(corner);
   card.appendChild(head);
 
   const statsRow = document.createElement('div');
@@ -215,6 +229,14 @@ function renderCompareBar() {
   const names = state.selected.map((c) => c.name).join(' vs. ');
   compareBar.innerHTML = '';
 
+  // Phones show the picked characters as chips (picture + short name).
+  const chips = document.createElement('div');
+  chips.className = 'compare-bar-chips';
+  chips.innerHTML = state.selected.map((c) => `
+    <span class="compare-chip"><span class="compare-chip-tile${c.image_url ? ' has-pic' : ''}" style="background:${accentFor(c.id)}">${
+      characterTileInner(c.name, c.image_url, 44)}</span><span class="compare-chip-name">${escapeHtml(bareName(c.name))}</span></span>`).join('');
+  compareBar.appendChild(chips);
+
   const label = document.createElement('div');
   label.className = 'compare-bar-label';
   label.innerHTML = state.selected.length === 2 ? 'Comparing <strong></strong>' : 'Selected <strong></strong> — pick one more';
@@ -223,7 +245,7 @@ function renderCompareBar() {
 
   const cta = document.createElement('button');
   cta.className = 'compare-bar-cta';
-  cta.textContent = 'Compare →';
+  cta.innerHTML = '<span class="desktop-only">Compare →</span><span class="phone-only">Compare</span>';
   cta.disabled = state.selected.length !== 2;
   cta.addEventListener('click', () => {
     if (state.selected.length !== 2) return;

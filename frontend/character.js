@@ -188,7 +188,7 @@ async function renderPictureAdmin() {
   slot.innerHTML = `
     <div class="char-card char-card-sm char-pic-admin">
       <div class="admin-head">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 1.5 14 4.5v4c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8v-4L8 1.5Z" stroke="#D9A441" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 1.2 14 3.8v3.6c0 3.7-2.5 6.1-6 7.4-3.5-1.3-6-3.7-6-7.4V3.8L8 1.2Z" stroke="#D9A441" stroke-width="1.3" stroke-linejoin="round"/></svg>
         <span>Picture</span>
         <span class="admin-scope">${c.image_replaced ? 'replaced by an admin' : c.image_url ? "from the wiki" : 'none on the wiki'}</span>
       </div>

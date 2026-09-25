@@ -88,6 +88,7 @@ function buildLayout() {
     <div class="vs-hero">
       ${heroCardHtml('a', state.a, accentA)}
       <div class="vs-mark">
+        <div class="vs-mark-line vs-mark-lead"></div>
         <div class="vs-mark-word">vs</div>
         <div class="vs-mark-line"></div>
       </div>
@@ -127,6 +128,12 @@ function buildLayout() {
 
   bindFormPills('a');
   bindFormPills('b');
+  // Phones hide each fighter's abilities behind this toggle (the phone
+  // design keeps both fighters on one screen); desktop never shows it.
+  root.querySelectorAll('.ability-toggle').forEach((btn) => btn.addEventListener('click', () => {
+    const open = btn.closest('.vs-card').classList.toggle('abilities-open');
+    btn.setAttribute('aria-expanded', String(open));
+  }));
 }
 
 function heroCardHtml(side, char, accent) {
@@ -136,12 +143,12 @@ function heroCardHtml(side, char, accent) {
   const VISIBLE_ABILITIES = 8;
 
   return `
-    <div class="vs-card">
+    <div class="vs-card" style="--accent:${accent};">
       <div class="vs-card-head">
         <div class="avatar avatar-lg${(form.image_url || char.image_url) ? ' has-pic' : ''}" id="hero-avatar-${side}" style="background:${accent};">${characterTileInner(char.name, form.image_url || char.image_url, 128)}</div>
         <div class="vs-card-ident">
           <a class="vs-card-name" href="character.html?id=${char.id}" title="${escapeHtml(char.name)}">${escapeHtml(char.name)}</a>
-          <div class="vs-card-subtitle">${escapeHtml(char.category)}${char.classification ? ' · ' + escapeHtml(char.classification) : ''}</div>
+          <div class="vs-card-subtitle">${escapeHtml(char.category)}<span class="vs-card-class">${char.classification ? ' · ' + escapeHtml(char.classification) : ''}</span></div>
         </div>
         <div class="vs-card-tier">
           <div class="vs-card-tier-label">Tier</div>
@@ -155,6 +162,7 @@ function heroCardHtml(side, char, accent) {
           <div class="pill-row" id="form-pills-${side}"></div>
         </div>
       ` : ''}
+      ${abilities.length ? `<button type="button" class="ability-toggle" aria-expanded="false">Powers and abilities (${abilities.length})</button>` : ''}
       <div class="ability-row" id="ability-row-${side}">
         ${abilities.slice(0, VISIBLE_ABILITIES).map((a) => abilityPillHtml(a, accent)).join('')}
         ${abilities.length > VISIBLE_ABILITIES ? `<div class="ability-pill more" id="ability-more-${side}">+${abilities.length - VISIBLE_ABILITIES} more</div>` : ''}
@@ -201,6 +209,12 @@ function bindFormPills(side) {
     });
     container.appendChild(btn);
   });
+  // On phones the forms are one sideways-scrolling row; start it at the
+  // selected form rather than leaving that off-screen.
+  const active = container.querySelector('.form-pill.active');
+  if (active && container.scrollWidth > container.clientWidth) {
+    container.scrollLeft = Math.max(0, active.offsetLeft - container.offsetLeft - 16);
+  }
 
   const moreBtn = document.getElementById(`ability-more-${side}`);
   if (moreBtn) {
@@ -381,7 +395,7 @@ async function renderAdminPanel(card) {
   panel.className = 'admin-panel';
   panel.innerHTML = `
     <div class="admin-head">
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 1.5 14 4.5v4c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8v-4L8 1.5Z" stroke="#D9A441" stroke-width="1.3" stroke-linejoin="round"/></svg>
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 1.2 14 3.8v3.6c0 3.7-2.5 6.1-6 7.4-3.5-1.3-6-3.7-6-7.4V3.8L8 1.2Z" stroke="#D9A441" stroke-width="1.3" stroke-linejoin="round"/></svg>
       <span>Admin panel</span>
       <span class="admin-scope">applies to these two forms only · saving posts it to the Board</span>
     </div>

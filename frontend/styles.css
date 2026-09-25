@@ -643,6 +643,7 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
   color: var(--accent-gold);
 }
 .vs-mark-line { width: 1px; height: 64px; background: var(--card-border); }
+.vs-mark-lead, .ability-toggle, .card-tier-corner, .compare-bar-chips { display: none; }
 
 /* --- Compare screen: radar + stat table ------------------------------ */
 
@@ -1406,12 +1407,69 @@ body.modal-open { overflow: hidden; }
   .stat-table-card { min-width: 0; padding: 20px; }
 
   .verdict-section { padding: 8px 20px 40px; }
-  .verdict-card { padding: 24px 20px; }
-  .verdict-headline { font-size: 22px; }
+
   .verdict-disclaimer { text-align: left; max-width: none; }
   .verdict-reasons { grid-template-columns: 1fr; }
 
-  .compare-bar { margin: 24px 0 0; max-width: none; }
+  /* Pinned to the bottom edge, full width, with the picks as chips. */
+  .compare-bar {
+    bottom: 0; margin: 24px 0 0; max-width: none; border-radius: 0; border-width: 1px 0 0;
+    padding: 12px 16px; gap: 10px; box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.4);
+  }
+  .compare-bar-label { display: none; }
+  .compare-bar-chips { display: flex; gap: 8px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .compare-chip {
+    display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 150px;
+    background: var(--pill-bg); border-radius: var(--radius-pill); padding: 4px 10px 4px 4px;
+  }
+  .compare-chip-tile {
+    width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font: 700 10px var(--font-serif); color: var(--bg);
+  }
+  .compare-chip-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .compare-bar-cta { flex-shrink: 0; padding: 10px 18px; font-size: 13px; }
+
+  /* Browse cards: tier in the top-right corner. */
+  .card-tier-corner {
+    display: block; margin-left: auto; flex-shrink: 0; text-align: right;
+    font: 11.5px var(--font-mono); color: var(--text-tertiary);
+  }
+  .card-tier-corner span { display: block; color: var(--text-primary); font-weight: 600; }
+  .character-card-stats { display: none; }
+
+  /* Compare, phone design: compact fighter cards, one row of forms,
+     abilities behind a toggle, "vs" between two rules. */
+  .vs-card { border-color: color-mix(in srgb, var(--accent) 27%, transparent); border-radius: var(--radius-md); padding: 16px; gap: 12px; }
+  .vs-card .avatar-lg { width: 48px; height: 48px; border-radius: 12px; font-size: 20px; }
+  .vs-card-name { font-size: 17px; }
+  .vs-card-class { display: none; }
+  .vs-card-tier-label { font-size: 9.5px; }
+  .vs-card-tier-value { font-size: 16px; font-weight: 700; }
+  .vs-card .section-label { display: none; }
+  .vs-card .pill-row { flex-wrap: nowrap; overflow-x: auto; gap: 7px; scrollbar-width: none; }
+  .vs-card .pill-row::-webkit-scrollbar { display: none; }
+  .vs-card .form-pill { flex-shrink: 0; padding: 7px 12px; font-size: 11.5px; }
+  .ability-toggle {
+    display: flex; align-items: center; justify-content: space-between; width: 100%;
+    background: none; border: none; border-top: 1px solid var(--divider); padding: 12px 0 0; cursor: pointer;
+    font: 600 12px var(--font-sans); color: var(--text-tertiary);
+  }
+  .ability-toggle::after { content: "+"; font-size: 15px; }
+  .vs-card.abilities-open .ability-toggle::after { content: "–"; }
+  .vs-card .ability-row { display: none; }
+  .vs-card.abilities-open .ability-row { display: flex; }
+  .vs-mark-lead { display: block; }
+  .vs-mark { gap: 12px; }
+  .vs-mark-word { font-size: 15px; }
+
+  .verdict-card { border-radius: 18px; padding: 22px; }
+  .verdict-headline { font-size: 20px; line-height: 1.25; }
+  .override-banner { border-radius: 12px; padding: 14px 16px; }
+  .override-note { font-size: 13px; }
+  .override-meta { font-size: 11px; }
+  .admin-panel .admin-row { flex-direction: column; gap: 10px; }
+  .admin-panel .admin-buttons { gap: 8px; }
+  .admin-panel .admin-buttons > * { width: 100%; padding: 12px; }
 
   .page-head-actions { width: 100%; }
   .page-head-actions > * { flex: 1; min-width: 0; padding-left: 10px; padding-right: 10px; }

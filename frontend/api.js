@@ -359,7 +359,7 @@ function userColor(name) {
 // The gold "ADMIN" pill. `solid` is the filled version used on profiles
 // (settings header, popover, phone menu); the outline one sits in feeds.
 function adminBadgeHtml({ solid = false } = {}) {
-  const shield = `<svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.5 14 4.5v4c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8v-4L8 1.5Z" ${solid ? 'fill="currentColor"' : 'stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"'}/></svg>`;
+  const shield = `<svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.2 14 3.8v3.6c0 3.7-2.5 6.1-6 7.4-3.5-1.3-6-3.7-6-7.4V3.8L8 1.2Z" ${solid ? 'fill="currentColor"' : 'stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"'}/></svg>`;
   return `<span class="admin-badge${solid ? ' solid' : ''}" title="Site admin">${shield}Admin</span>`;
 }
 
