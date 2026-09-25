@@ -56,9 +56,16 @@ class FormOut(BaseModel):
 
 # --- /api/categories ------------------------------------------------------
 
+class SubseriesOut(BaseModel):
+    name: str
+    count: int
+
+
 class CategoryOut(BaseModel):
     name: str
     count: int
+    # Parts of a franchise too big for one filter (DC: Comics, Arkham, ...).
+    subseries: List[SubseriesOut] = []
 
 
 # --- /api/characters (list) ------------------------------------------------
@@ -67,6 +74,7 @@ class CharacterSummaryOut(BaseModel):
     id: int
     name: str
     category: str
+    subseries: Optional[str] = None
     tier_label: Optional[str] = None  # highest-tier form's Tier, for the card badge
     tier_score: Optional[float] = None  # same form's numeric Tier - for sorting by strength
     aliases: str = ""  # the full stored name/alias list - searchable, not displayed
@@ -89,6 +97,7 @@ class CharacterDetailOut(BaseModel):
     id: int
     name: str
     category: str
+    subseries: Optional[str] = None
     source_url: str
     origin: Optional[str] = None
     classification: Optional[str] = None

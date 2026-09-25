@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS characters (
     last_scraped_at TEXT NOT NULL,
     raw_json TEXT NOT NULL,
     normalized_json TEXT NOT NULL,
-    image_url TEXT
+    image_url TEXT,
+    subseries TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_characters_name ON characters(name);
@@ -60,6 +61,10 @@ def init_db(db_path: Path = DB_PATH) -> None:
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(characters)")}
         if "image_url" not in columns:
             conn.execute("ALTER TABLE characters ADD COLUMN image_url TEXT")
+        # A big franchise's part (DC: "Comics", "Arkham", "DCEU"...), shown as
+        # a second row of filters under the series. NULL for everyone else.
+        if "subseries" not in columns:
+            conn.execute("ALTER TABLE characters ADD COLUMN subseries TEXT")
 
 
 def get_character(source_url: str, db_path: Path = DB_PATH) -> Optional[sqlite3.Row]:
@@ -89,20 +94,24 @@ def upsert_character(
     raw: Dict[str, Any],
     normalized: Dict[str, Any],
     db_path: Path = DB_PATH,
+    subseries: Optional[str] = None,
 ) -> None:
+    """Insert or refresh a character. A None subseries keeps the stored one,
+    so re-parsing a page doesn't forget which part of its series it's in."""
     now = datetime.now(timezone.utc).isoformat()
     with connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO characters (name, source_url, category, last_scraped_at, raw_json, normalized_json, image_url)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO characters (name, source_url, category, last_scraped_at, raw_json, normalized_json, image_url, subseries)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(source_url) DO UPDATE SET
                 name = excluded.name,
                 category = excluded.category,
                 last_scraped_at = excluded.last_scraped_at,
                 raw_json = excluded.raw_json,
                 normalized_json = excluded.normalized_json,
-                image_url = excluded.image_url
+                image_url = excluded.image_url,
+                subseries = COALESCE(excluded.subseries, characters.subseries)
             """,
             (
                 name,
@@ -112,8 +121,15 @@ def upsert_character(
                 json.dumps(raw, ensure_ascii=False),
                 json.dumps(normalized, ensure_ascii=False),
                 raw.get("image_url"),
+                subseries,
             ),
         )
+
+
+def set_series(source_url: str, category: str, subseries: Optional[str], db_path: Path = DB_PATH) -> None:
+    with connect(db_path) as conn:
+        conn.execute("UPDATE characters SET category = ?, subseries = ? WHERE source_url = ?",
+                     (category, subseries, source_url))
 
 
 def get_characters_by_category(category: str, db_path: Path = DB_PATH) -> List[Dict[str, Any]]:

@@ -9,7 +9,7 @@ reasoning shown.
 
 ## What you can do
 
-- **Browse** 2,348 characters from 34 series, with pictures, search (names,
+- **Browse** 2,590 characters from 34 series, with pictures, search (names,
   nicknames, accents ignored), series filters and sorting by strength.
 - **Compare** two characters: their Tier, Attack Potency, Speed and
   Durability side by side, a radar chart, and a verdict ("Kratos favored —
@@ -57,7 +57,7 @@ A few scoring rules were chosen on purpose:
 
 ## Series included
 
-Dragon Ball (297) · One Piece (209) · Fairy Tail (196) · Naruto (181) ·
+Dragon Ball (297) · DC (243, split into comics and adaptations) · One Piece (209) · Fairy Tail (196) · Naruto (181) ·
 JoJo's Bizarre Adventure (152) · Bleach (139) · My Hero Academia (126) ·
 One-Punch Man (122) · Puella Magi (85) · Baki the Grappler (81) ·
 Invincible (80) · God of War (79) · Re:Zero (77) · Hunter x Hunter (75) ·
@@ -65,7 +65,7 @@ Black Clover (61) · Devil May Cry (52) · Jujutsu Kaisen (51) · Demon Slayer
 (45) · Yu Yu Hakusho (42) · Overlord (38) · Metal Gear (34) · Chainsaw Man (33) · Attack on
 Titan (20) · Mob Psycho 100 (17) · Hellsing (14) · Tengen Toppa Gurren
 Lagann (14) · Frieren (11) · Despicable Me (4) · Lord of the Mysteries (4) ·
-Mushoku Tensei (3) · Marvel (2) · Zoolander (2) · DC (1) · Solo Leveling (1)
+Mushoku Tensei (3) · Marvel (2) · Zoolander (2) · Solo Leveling (1)
 
 ## How it's built
 

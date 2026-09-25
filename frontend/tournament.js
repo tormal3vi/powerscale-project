@@ -45,7 +45,7 @@ function renderResults() {
     row.className = 't-result';
     row.innerHTML = `<span class="t-result-name"><strong></strong> <span></span></span><span class="t-tier"></span>`;
     row.querySelector('strong').textContent = c.name;
-    row.querySelector('.t-result-name > span').textContent = `· ${c.category}`;
+    row.querySelector('.t-result-name > span').textContent = `· ${seriesLabel(c)}`;
     row.querySelector('.t-tier').textContent = tierText(c);
     row.disabled = state.picked.length >= state.size;
     row.addEventListener('click', () => addEntrant(c));

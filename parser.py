@@ -488,13 +488,13 @@ def _section_start(el, seen=frozenset()):
     if not b_text or not el_text.startswith(b_text):
         return None
     label = b_text.rstrip(":").strip()
-    has_colon = b_text.endswith(":") or el_text[len(b_text):].startswith(":")
     key = label.lower()
-    # Colon-less field names count too ("<b>Tier</b> High 7-A" - Yami
-    # Sukehiro, Gin, Seras Victoria's Age), but only the first time: The
-    # Guevara's Feats list has a plain "Speed" subheading after his real
-    # Speed field.
-    if key in _SECTION_TITLES or (key in FIELD_MAP and (has_colon or key not in seen)):
+    # Field names count with or without a colon ("<b>Tier</b> High 7-A" -
+    # Yami Sukehiro, Gin, Seras Victoria's Age), but only the first time:
+    # feats are often grouped by stat after the real fields - The Guevara's
+    # plain "Speed" subheading, Superman (Post-Crisis)'s boxed "Attack
+    # Potency:" list of feats, which replaced his actual Attack Potency.
+    if key in _SECTION_TITLES or (key in FIELD_MAP and key not in seen):
         return b, label
     return None
 

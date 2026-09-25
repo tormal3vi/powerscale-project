@@ -67,8 +67,8 @@ def _title_is_better_known(name: str, title: str, bare: str) -> bool:
         # The first alias split mid-note: "Mistral (Her codename, true name
         # is unknown)", "Raiden (雷電?) (Birth name unknown, but ...".
         return _name_words(re.sub(r"\(.*", "", first)) == title_words
-    if lead == {"unknown"}:
-        return True  # "Unknown, impersonated Captain Tennille"
+    if re.match(r"\s*unknown\b", name, re.I):
+        return True  # "Unknown, impersonated Captain Tennille", "Unknown. Aliases include the Phantom Stranger"
     if not title_words <= _name_words(name) or not lead or title_words <= lead:
         return False  # "Son Goku, Kakarot" is fine next to a page titled "Goku"
     qualifier = re.search(r"\(([^)]*)\)\s*$", title)

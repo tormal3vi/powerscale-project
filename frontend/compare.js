@@ -148,7 +148,7 @@ function heroCardHtml(side, char, accent) {
         <div class="avatar avatar-lg${(form.image_url || char.image_url) ? ' has-pic' : ''}" id="hero-avatar-${side}" style="background:${accent};">${characterTileInner(char.name, form.image_url || char.image_url, 128)}</div>
         <div class="vs-card-ident">
           <a class="vs-card-name" href="character.html?id=${char.id}" title="${escapeHtml(char.name)}">${escapeHtml(char.name)}</a>
-          <div class="vs-card-subtitle">${escapeHtml(char.category)}<span class="vs-card-class">${char.classification ? ' · ' + escapeHtml(char.classification) : ''}</span></div>
+          <div class="vs-card-subtitle">${escapeHtml(seriesLabel(char))}<span class="vs-card-class">${char.classification ? ' · ' + escapeHtml(char.classification) : ''}</span></div>
         </div>
         <div class="vs-card-tier">
           <div class="vs-card-tier-label">Tier</div>

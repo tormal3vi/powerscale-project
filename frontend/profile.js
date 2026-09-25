@@ -154,7 +154,7 @@ function renderFavorite() {
       ? items.map((c, i) => `
           <button type="button" class="fav-result" role="option" data-i="${i}">
             <span class="fav-result-tile${c.image_url ? ' has-pic' : ''}" style="background:${accentFor(c.id)}">${characterTileInner(c.name, c.image_url, 64)}</span>
-            <span class="fav-result-text"><span class="fav-result-name">${escapeHtml(shortName(c.name))}</span><span class="fav-result-cat">${escapeHtml(c.category)}</span></span>
+            <span class="fav-result-text"><span class="fav-result-name">${escapeHtml(shortName(c.name))}</span><span class="fav-result-cat">${escapeHtml(seriesLabel(c))}</span></span>
           </button>`).join('')
       : '<div class="fav-empty">No characters match that.</div>';
     paint();

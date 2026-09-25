@@ -122,7 +122,7 @@ function matchupPickerEl({ onChange, onClose }) {
     slot.innerHTML = `
       <div class="mu-pick">
         <span class="mu-pick-dot" style="background:${accentFor(c.id)}"></span>
-        <span class="mu-pick-name">${escapeHtml(bareName(c.name))}<span class="mu-pick-cat"> · ${escapeHtml(own ? own[1] : c.category)}</span></span>
+        <span class="mu-pick-name">${escapeHtml(bareName(c.name))}<span class="mu-pick-cat"> · ${escapeHtml(own ? own[1] : seriesLabel(c))}</span></span>
         <button type="button" class="mu-pick-clear" aria-label="Change character">×</button>
       </div>
       ${c.forms.length > 1 ? '<select class="mu-pick-form" aria-label="Form"></select>' : ''}`;
@@ -166,7 +166,7 @@ function matchupPickerEl({ onChange, onClose }) {
         ? items.map((c, i) => `
             <button type="button" class="mu-result" role="option" data-i="${i}">
               <span class="mu-result-name">${escapeHtml(shortName(c.name))}</span>
-              <span class="mu-result-cat">${escapeHtml(c.category)}</span>
+              <span class="mu-result-cat">${escapeHtml(seriesLabel(c))}</span>
             </button>`).join('')
         : '<div class="mu-picker-note">No characters match that.</div>';
       paint();

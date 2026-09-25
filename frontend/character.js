@@ -120,7 +120,7 @@ function renderAbilities(showAll) {
 function render() {
   const c = character;
   accent = accentFor(c.id);
-  const subtitle = [c.category, c.classification].filter(Boolean).join(' · ');
+  const subtitle = [seriesLabel(c), c.classification].filter(Boolean).join(' · ');
   const wikiLink = c.source_url.startsWith('http')
     ? `<a class="pill-button" href="${escapeHtml(c.source_url)}" target="_blank" rel="noopener">View on wiki ↗</a>`
     : '';

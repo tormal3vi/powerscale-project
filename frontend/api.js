@@ -170,6 +170,11 @@ function shortName(name) {
   return (name || '').split(/;|,\s/)[0].trim();
 }
 
+// "DC · Arkham" for a part of a big franchise, else just the series.
+function seriesLabel(c) {
+  return c.subseries ? `${c.category} · ${c.subseries}` : c.category;
+}
+
 // "Dante (Devil May Cry)" -> "Dante": for tight spots like "Dante wins".
 function bareName(name) {
   return shortName(name).replace(/\s*\([^)]*\)/g, '').trim() || shortName(name);
@@ -272,7 +277,7 @@ let rosterPromise = null;
 function roster() {
   if (!rosterPromise) {
     rosterPromise = Api.listCharacters().then((r) => r.characters.map((c) => ({
-      ...c, _name: fold(c.name), _aliases: fold(c.aliases), _cat: fold(c.category),
+      ...c, _name: fold(c.name), _aliases: fold(c.aliases), _cat: fold(seriesLabel(c)),
     })));
   }
   return rosterPromise;

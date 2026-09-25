@@ -8,6 +8,7 @@ const state = {
   characters: [],
   categories: [],
   activeCategory: 'All',
+  activeSubseries: null, // one part of a split series (DC: 'Arkham'...), or null for all of it
   query: '',
   sort: 'alpha', // 'alpha' | 'strong' | 'weak'
   tierGroup: 'any', // 'any' | '1'..'10'
@@ -23,6 +24,7 @@ const DEFAULT_SUBTITLE = pageSubtitle.textContent;
 const grid = document.getElementById('character-grid');
 const emptyState = document.getElementById('empty-state');
 const filterRow = document.getElementById('filter-row');
+const subfilterRow = document.getElementById('subfilter-row');
 const compareBar = document.getElementById('compare-bar');
 const searchInput = document.getElementById('search-input');
 // The full placeholder is cut off mid-word on a phone.
@@ -81,17 +83,53 @@ function renderFilterRow() {
     btn.textContent = name;
     btn.addEventListener('click', () => {
       state.activeCategory = name;
+      state.activeSubseries = null;
       renderFilterRow();
       renderGrid();
     });
     filterRow.appendChild(btn);
   }
+  keepActiveInView(filterRow);
+  renderSubfilterRow();
+}
+
+// On phones each row is one line you swipe; rebuilding it on a tap reset
+// the swipe to the start, hiding the pill just picked (DC, far right).
+function keepActiveInView(row) {
+  const active = row.querySelector('.filter-pill.active');
+  if (active && row.scrollWidth > row.clientWidth) {
+    row.scrollLeft = active.offsetLeft - row.offsetLeft - (row.clientWidth - active.offsetWidth) / 2;
+  }
+}
+
+// A second row under a series split into parts (DC: Comics, Arkham,
+// DCEU...), shown only while that series is picked.
+function renderSubfilterRow() {
+  const cat = state.categories.find((c) => c.name === state.activeCategory);
+  const parts = cat ? cat.subseries || [] : [];
+  subfilterRow.hidden = parts.length < 2;
+  filterRow.classList.toggle('has-sub', !subfilterRow.hidden);
+  subfilterRow.innerHTML = '';
+  if (subfilterRow.hidden) return;
+  for (const part of [{ name: null, count: cat.count }, ...parts]) {
+    const btn = document.createElement('button');
+    btn.className = 'filter-pill sub' + (part.name === state.activeSubseries ? ' active' : '');
+    btn.innerHTML = `${escapeHtml(part.name || `All ${cat.name}`)} <span class="filter-count">${part.count.toLocaleString()}</span>`;
+    btn.addEventListener('click', () => {
+      state.activeSubseries = part.name;
+      renderSubfilterRow();
+      renderGrid();
+    });
+    subfilterRow.appendChild(btn);
+  }
+  keepActiveInView(subfilterRow);
 }
 
 function filteredCharacters() {
   const q = fold(state.query.trim());
   const list = state.characters.filter((c) => {
     if (state.activeCategory !== 'All' && c.category !== state.activeCategory) return false;
+    if (state.activeSubseries && c.subseries !== state.activeSubseries) return false;
     if (state.tierGroup !== 'any' && tierNumber(c.tier_label) !== state.tierGroup) return false;
     // Search the display name AND the full alias list ("Kakarot",
     // "Salamander", "Homulily" - no longer part of the shown name).
@@ -137,7 +175,7 @@ function characterCard(c, rank) {
   nameEl.title = c.name;
   const catEl = document.createElement('div');
   catEl.className = 'character-card-category';
-  catEl.textContent = c.category;
+  catEl.textContent = seriesLabel(c);
   nameBlock.appendChild(nameEl);
   nameBlock.appendChild(catEl);
   head.appendChild(nameBlock);
@@ -210,7 +248,8 @@ function renderGrid() {
   } else {
     gridNote.textContent = '';
   }
-  const where = state.activeCategory === 'All' ? 'across every category' : `in ${state.activeCategory}`;
+  const where = state.activeCategory === 'All' ? 'across every category'
+    : `in ${state.activeCategory}${state.activeSubseries ? ` · ${state.activeSubseries}` : ''}`;
   pageSubtitle.textContent = state.sort === 'strong' ? `Sorted by strength, ${where}.`
     : state.sort === 'weak' ? `Sorted weakest first, ${where}.` : DEFAULT_SUBTITLE;
 

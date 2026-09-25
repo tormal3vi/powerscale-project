@@ -14,7 +14,7 @@ import re
 import unicodedata
 from html import escape as html_escape
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -37,6 +37,7 @@ from backend.schemas import (
     FetchCharacterIn,
     FormOut,
     NormalizedRangeOut,
+    SubseriesOut,
     VerdictOut,
 )
 
@@ -140,11 +141,19 @@ def _verdict_out(v: "calculator.Verdict") -> VerdictOut:
 @app.get("/api/categories", response_model=List[CategoryOut])
 def list_categories():
     with db.connect() as conn:
-        cur = conn.execute(
-            "SELECT category, COUNT(*) AS n FROM characters GROUP BY category ORDER BY category"
-        )
-        rows = cur.fetchall()
-    return [CategoryOut(name=r["category"] or "Uncategorized", count=r["n"]) for r in rows]
+        rows = conn.execute(
+            "SELECT category, subseries, COUNT(*) AS n FROM characters GROUP BY category, subseries"
+        ).fetchall()
+    out: Dict[str, CategoryOut] = {}
+    for r in rows:
+        name = r["category"] or "Uncategorized"
+        cat = out.setdefault(name, CategoryOut(name=name, count=0))
+        cat.count += r["n"]
+        if r["subseries"]:
+            cat.subseries.append(SubseriesOut(name=r["subseries"], count=r["n"]))
+    for cat in out.values():
+        cat.subseries.sort(key=lambda sub: -sub.count)  # biggest first: DC's Comics, then Arrowverse...
+    return sorted(out.values(), key=lambda c: c.name)
 
 
 # --- /api/characters (list/search) ------------------------------------------
@@ -162,7 +171,7 @@ def _sort_key(name: str) -> str:
 
 @app.get("/api/characters", response_model=CharacterListOut)
 def list_characters(q: Optional[str] = None, category: Optional[str] = None):
-    sql = "SELECT id, name, source_url, category, normalized_json, image_url FROM characters"
+    sql = "SELECT id, name, source_url, category, subseries, normalized_json, image_url FROM characters"
     clauses, params = [], []
     if q:
         clauses.append("name LIKE ?")
@@ -196,6 +205,7 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
             id=row["id"],
             name=characters.display_name(row["name"], row["source_url"], colliding),
             category=row["category"] or "Uncategorized",
+            subseries=row["subseries"],
             tier_label=tier_label,
             tier_score=tier_score,
             aliases=row["name"],
@@ -240,6 +250,7 @@ def get_character(char_id: int):
         id=row["id"],
         name=characters.display_name(row["name"], row["source_url"], colliding),
         category=row["category"] or "Uncategorized",
+        subseries=row["subseries"],
         source_url=row["source_url"],
         origin=raw.get("origin"),
         classification=raw.get("classification"),

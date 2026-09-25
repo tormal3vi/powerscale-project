@@ -263,6 +263,8 @@ def test_display_names_prefer_the_page_title_over_a_real_name_lead():
         ("Real name unknown, known as The Sorrow", "The_Sorrow", "The Sorrow"),
         ("Ocelot/Revolver Ocelot (code-name), ADAM (his CIA code-name)", "Revolver_Ocelot", "Revolver Ocelot"),
         ("Unknown, impersonated Captain Tennille", "Impostor_Captain_Tennille", "Impostor Captain Tennille"),
+        ("Unknown. Aliases include the Phantom Stranger, the Grey Walker", "The_Phantom_Stranger_(Post-Crisis)",
+         "The Phantom Stranger"),
         ("Mistral (Her codename, true name is unknown)", "Mistral", "Mistral"),
         ("Raiden (雷電?) (Birth name unknown, but was given the name Jack)", "Raiden_(Metal_Gear)", "Raiden"),
         # Kept: the page is titled "Real name (Hero name)"...
@@ -294,6 +296,20 @@ def test_board_version_moves_on_every_board_write():
     assert moved()
     community.delete_account(user["id"])
     assert moved()
+
+
+def test_subseries_survives_a_re_parse_and_can_be_refiled():
+    import tempfile
+    from pathlib import Path
+    import db
+    path = Path(tempfile.mkdtemp()) / "chars.db"
+    db.init_db(path)
+    url = "https://vsbattles.fandom.com/wiki/Batman_(Arkham)"
+    db.upsert_character("Batman", url, "DC", {}, {}, db_path=path, subseries="Arkham")
+    db.upsert_character("Batman", url, "DC", {}, {}, db_path=path)  # a re-parse passes no subseries
+    assert db.get_character(url, path)["subseries"] == "Arkham"
+    db.set_series(url, "DC", "Comics", db_path=path)
+    assert db.get_character(url, path)["subseries"] == "Comics"
 
 
 def test_rate_limiter_blocks_after_the_limit_per_key():

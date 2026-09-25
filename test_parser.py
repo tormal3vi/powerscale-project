@@ -539,8 +539,12 @@ def test_sections_in_boxes_lists_and_bare_titles_end_the_field_before():
     <div class="mw-collapsible mw-collapsed"><p><b>Standard Equipment</b>: A sword</p></div>
     <p><b>Weaknesses:</b> PTSD</p>
     <div class="mw-collapsible mw-collapsed"><b>Feats:</b><ul><li>Cut a tank in half</li></ul></div>
+    <div class="mw-collapsible mw-collapsed"><b>Attack Potency:</b> Shook the planet</div>
     <h2>Gallery</h2>"""
     stats = parse_character(html)
+    # A feats box grouped by stat (Superman (Post-Crisis)) isn't a second
+    # Attack Potency field.
+    assert stats.attack_potency == "Building level"
     assert stats.range == "Extended melee range"
     assert stats.standard_equipment == "A sword"
     assert stats.weaknesses == "PTSD"

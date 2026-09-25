@@ -300,6 +300,14 @@ input::placeholder { color: var(--text-placeholder); }
   border: 1px solid var(--accent-gold);
 }
 
+/* The parts of a split series (DC: Comics, Arkham...), under its pill. */
+.filter-row.has-sub { margin-bottom: 12px; }
+.subfilter-row[hidden] { display: none; }
+.filter-pill.sub { padding: 7px 13px; font-size: 12.5px; border-color: var(--divider); }
+.filter-pill.sub.active { background: transparent; color: var(--accent-gold); border-color: var(--accent-gold); }
+.filter-count { font: 500 11px var(--font-mono); color: var(--text-quaternary); margin-left: 3px; }
+.filter-pill.sub.active .filter-count { color: var(--accent-gold); opacity: 0.75; }
+
 /* --- Sort / tier / random toolbar (Browse) ------------------------------ */
 
 .toolbar-row {
@@ -1408,6 +1416,7 @@ body.modal-open { overflow: hidden; }
   }
   .filter-row::-webkit-scrollbar { display: none; }
   .filter-row .filter-pill { flex-shrink: 0; white-space: nowrap; }
+  .filter-row.has-sub { margin-bottom: 10px; }
   .page-title { font-size: 26px; }
 
   .vs-hero { padding: 24px 20px 0; }
