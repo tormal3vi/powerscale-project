@@ -6,12 +6,13 @@
 const NAV_LINKS = [
   { href: 'browse.html', label: 'Characters' },
   { href: 'tournament.html', label: 'Tournament' },
+  { href: 'duels.html', label: 'Duels' },
   { href: 'board.html', label: 'Board' },
 ];
 const PAGE_TITLES = {
   'browse.html': 'Characters', 'compare.html': 'Compare', 'character.html': 'Character',
   'tournament.html': 'Tournament', 'board.html': 'Board', 'login.html': 'Log in',
-  'profile.html': 'Profile settings',
+  'profile.html': 'Profile settings', 'duels.html': 'Duels',
 };
 
 const MENU_ICON = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 6h14M3 10h14M3 14h14" stroke="#D8D0C0" stroke-width="1.4" stroke-linecap="round"/></svg>';
@@ -115,6 +116,7 @@ async function renderAccount(el) {
     </div>`;
   el.querySelector('.topbar-username').textContent = user.username;
   el.querySelector('.acct-phone-name').textContent = user.username;
+  showDuelsDot();
 
   const btn = el.querySelector('.acct-btn');
   btn.addEventListener('click', (e) => {
@@ -140,6 +142,19 @@ async function renderAccount(el) {
     await Api.logout().catch(() => {});
     location.href = location.pathname.endsWith('profile.html') ? 'board.html' : location.href;
   }));
+}
+
+// A gold dot on Duels (and, on phones, the menu button) while a challenge
+// is waiting for you or you have rounds to play. Fetched after the bar is
+// drawn, so it never holds the page up.
+async function showDuelsDot() {
+  let count = 0;
+  try { count = (await Api.pendingGames()).count; } catch { return; }
+  const link = document.querySelector('.topbar-nav a[href="duels.html"]');
+  if (!link) return;
+  link.classList.toggle('has-dot', count > 0);
+  link.title = count ? `${count} duel${count === 1 ? '' : 's'} waiting for you` : '';
+  document.querySelector('.topbar-menu-btn')?.classList.toggle('has-dot', count > 0);
 }
 
 function pillButton(label, { href, id, gold = false } = {}) {

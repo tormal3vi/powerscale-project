@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from sqlalchemy import (
-    Column, DateTime, ForeignKey, Integer, LargeBinary, MetaData, String, Table, Text,
+    Column, DateTime, ForeignKey, Index, Integer, LargeBinary, MetaData, String, Table, Text,
     UniqueConstraint, and_, create_engine, delete, exists, func, insert, inspect, literal, select, text,
     update,
 )
@@ -115,6 +115,19 @@ likes = Table(
     "likes", metadata,
     Column("post_id", Integer, ForeignKey("posts.id"), primary_key=True),
     Column("user_id", Integer, ForeignKey("users.id"), primary_key=True),
+)
+# Comments under one matchup on the Compare page - separate from the
+# Board. Keyed by the character pair, lower id first, so A-vs-B and B-vs-A
+# share one thread whichever forms are being compared.
+matchup_comments = Table(
+    "matchup_comments", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("char_low", Integer, nullable=False),
+    Column("char_high", Integer, nullable=False),
+    Column("user_id", Integer, ForeignKey("users.id"), nullable=False),
+    Column("body", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Index("ix_matchup_comments_pair", "char_low", "char_high"),
 )
 
 
@@ -334,6 +347,7 @@ def delete_account(user_id: int) -> None:
             conn.execute(delete(posts).where(and_(posts.c.id.in_(doomed), posts.c.parent_id.isnot(None))))
             conn.execute(delete(posts).where(posts.c.id.in_(doomed)))
         conn.execute(delete(likes).where(likes.c.user_id == user_id))
+        conn.execute(delete(matchup_comments).where(matchup_comments.c.user_id == user_id))
         conn.execute(delete(avatars).where(avatars.c.user_id == user_id))
         conn.execute(delete(sessions).where(sessions.c.user_id == user_id))
         conn.execute(delete(users).where(users.c.id == user_id))
@@ -625,3 +639,41 @@ def toggle_like(post_id: int, user_id: int) -> bool:
             conn.execute(delete(likes).where(match))
     _board_changed()
     return liked
+
+
+# --- matchup comments -------------------------------------------------------------------
+
+def _pair(a: int, b: int):
+    low, high = min(a, b), max(a, b)
+    return and_(matchup_comments.c.char_low == low, matchup_comments.c.char_high == high)
+
+
+def list_matchup_comments(a: int, b: int) -> List[dict]:
+    """Oldest first, with each author's name, picture and favorite."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(matchup_comments, users.c.username, users.c.favorite_char_id,
+                   avatars.c.updated_at.label("avatar_at"))
+            .join(users, users.c.id == matchup_comments.c.user_id)
+            .outerjoin(avatars, avatars.c.user_id == matchup_comments.c.user_id)
+            .where(_pair(a, b)).order_by(matchup_comments.c.id)).mappings().all()
+    return [{**r, "created_at": _aware(r["created_at"]),
+             "avatar_at": _aware(r["avatar_at"]) if r["avatar_at"] else None} for r in rows]
+
+
+def add_matchup_comment(user_id: int, a: int, b: int, body: str) -> int:
+    with engine.begin() as conn:
+        return conn.execute(insert(matchup_comments).values(
+            char_low=min(a, b), char_high=max(a, b), user_id=user_id, body=body, created_at=_now(),
+        )).inserted_primary_key[0]
+
+
+def get_matchup_comment(comment_id: int) -> Optional[dict]:
+    with engine.connect() as conn:
+        row = conn.execute(select(matchup_comments).where(matchup_comments.c.id == comment_id)).mappings().first()
+    return dict(row) if row else None
+
+
+def delete_matchup_comment(comment_id: int) -> None:
+    with engine.begin() as conn:
+        conn.execute(delete(matchup_comments).where(matchup_comments.c.id == comment_id))

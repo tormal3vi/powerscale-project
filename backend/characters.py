@@ -2,10 +2,11 @@
 (the core API in main.py and the community/message-board API)."""
 
 import functools
+import json
 import re
 import threading
 import unicodedata
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import calculator
 import db
@@ -161,6 +162,25 @@ def invalidate() -> None:
     with _colliding_lock:
         _colliding = None
     _compare_cached.cache_clear()
+    scorable_pool.cache_clear()
+
+
+@functools.lru_cache(maxsize=1)
+def scorable_pool() -> Tuple[Tuple[int, float], ...]:
+    """(id, Tier score) of every character whose default form can get a
+    verdict - what prediction duels draw random matchups from."""
+    pool = []
+    with db.connect() as conn:
+        for row in conn.execute("SELECT id, normalized_json FROM characters"):
+            normalized = json.loads(row["normalized_json"])
+            if not normalized.get("forms"):
+                continue
+            form = calculator.select_form(normalized)
+            tier = (form.get("tier") or {}).get("baseline")
+            scored = sum(1 for axis in calculator.AXES if (form.get(axis) or {}).get("baseline") is not None)
+            if tier is not None and scored >= calculator.MIN_AXES_FOR_VERDICT:
+                pool.append((row["id"], tier))
+    return tuple(pool)
 
 
 @functools.lru_cache(maxsize=4096)

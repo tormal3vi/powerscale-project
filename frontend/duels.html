@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Powerscale — Duels</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page">
+  <div id="topbar"></div>
+  <main class="page-content duels">
+    <header class="duels-head">
+      <h1 class="page-title">Prediction duels</h1>
+      <p class="page-subtitle">Five matchups, 20 seconds each. Call who the site's verdict favors. Whoever gets more right wins.</p>
+    </header>
+
+    <div class="duels-grid">
+      <div class="duels-main">
+        <section class="duel-card" id="duel-new" aria-labelledby="new-title"></section>
+        <div id="duel-lists"></div>
+      </div>
+      <aside class="duels-side">
+        <section class="duel-card" aria-labelledby="lb-title">
+          <h2 class="duel-card-title" id="lb-title">Leaderboard</h2>
+          <div id="leaderboard"><div class="duel-note">Loading…</div></div>
+        </section>
+        <section class="duel-card duel-how" aria-labelledby="how-title">
+          <h2 class="duel-card-title" id="how-title">How it works</h2>
+          <ol>
+            <li>Challenge anyone, or one user by name. Pick up to five matchups yourself, or let them be drawn at random from close tiers.</li>
+            <li>Each round shows two characters, with no stats. You have 20 seconds to call who the site says wins: its verdict, or an admin's overrule.</li>
+            <li>You each play on your own time. Answers stay hidden until both of you are done.</li>
+            <li>More right answers wins. The same count is a draw. Unplayed rounds count as wrong after 3 days.</li>
+          </ol>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<div class="duel-play" id="duel-play" hidden role="dialog" aria-modal="true" aria-labelledby="play-title"></div>
+
+<script src="api.js"></script>
+<script src="nav.js"></script>
+<script src="matchups.js"></script>
+<script src="duels.js"></script>
+</body>
+</html>

@@ -25,7 +25,7 @@ import db
 import normalizer
 import parser as parser_module
 import scraper
-from backend import characters, community, community_api
+from backend import characters, community, community_api, duels_api
 from backend.schemas import (
     AbilityFlagOut,
     AxisComparisonOut,
@@ -45,6 +45,7 @@ FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
 app = FastAPI(title="Powerscale API")
 app.include_router(community_api.router)
+app.include_router(duels_api.router)
 db.init_db()  # adds columns newer code expects to an older powerscale.db
 community.init()
 

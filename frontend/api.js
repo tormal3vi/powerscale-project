@@ -73,6 +73,21 @@ const Api = {
   createPost: (post) => apiPost('/api/posts', post),
   deletePost: (id) => apiDelete(`/api/posts/${id}`),
   likePost: (id) => apiPost(`/api/posts/${id}/like`, {}),
+
+  matchupComments: (a, b) => apiGet(`/api/matchups/${a}/${b}/comments`),
+  addMatchupComment: (a, b, body) => apiPost(`/api/matchups/${a}/${b}/comments`, { body }),
+  deleteMatchupComment: (id) => apiDelete(`/api/matchup-comments/${id}`),
+
+  listGames: () => apiGet('/api/games'),
+  pendingGames: () => apiGet('/api/games/pending'),
+  getGame: (id) => apiGet(`/api/games/${id}`),
+  createGame: (opponent, matchups) => apiPost('/api/games', { opponent: opponent || null, matchups }),
+  acceptGame: (id) => apiPost(`/api/games/${id}/accept`, {}),
+  declineGame: (id) => apiPost(`/api/games/${id}/decline`, {}),
+  cancelGame: (id) => apiPost(`/api/games/${id}/cancel`, {}),
+  nextRound: (id) => apiPost(`/api/games/${id}/next`, {}),
+  pickRound: (id, roundNo, pickId) => apiPost(`/api/games/${id}/pick`, { round_no: roundNo, pick_id: pickId }),
+  leaderboard: () => apiGet('/api/leaderboard'),
   // XHR rather than fetch: only XHR reports upload progress (onProgress
   // gets 0-100).
   uploadAvatar: (blob, onProgress) => new Promise((resolve, reject) => {
@@ -168,6 +183,21 @@ function shortName(name) {
   // Split at ';' or ', ' only: "170,000 Year Cicada Nymph" has a comma
   // inside a number and used to become just "170".
   return (name || '').split(/;|,\s/)[0].trim();
+}
+
+// "now", "5m", "3h", "2d", then a date - for posts, replies and comments.
+function timeAgo(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'now';
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 86400 * 7) return `${Math.floor(s / 86400)}d`;
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// " · Duels 3–1–2" (wins–draws–losses) once someone has finished a duel.
+function duelRecordText(r) {
+  return r && r.wins + r.draws + r.losses ? ` · Duels ${r.wins}–${r.draws}–${r.losses}` : '';
 }
 
 // "DC · Arkham" for a part of a big franchise, else just the series.

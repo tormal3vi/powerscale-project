@@ -12,6 +12,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_DB.name}"
 os.environ["ADMIN_USERNAMES"] = "Boss, other_admin"
 
 from backend import community  # noqa: E402  (must import after DATABASE_URL is set)
+from backend import duels  # noqa: E402  (registers its tables before init creates them)
 
 community.init()
 
@@ -313,6 +314,115 @@ def test_subseries_survives_a_re_parse_and_can_be_refiled():
     assert db.get_character(url, path)["subseries"] == "Arkham"
     db.set_series(url, "DC", "Comics", db_path=path)
     assert db.get_character(url, path)["subseries"] == "Comics"
+
+
+def test_matchup_comments_are_shared_by_both_orders_and_leave_with_the_account():
+    u = community.create_user("commenter", "password123")
+    c1 = community.add_matchup_comment(u["id"], 12, 7, "Superman stomps")
+    community.add_matchup_comment(u["id"], 7, 12, "Agreed")
+    assert [c["body"] for c in community.list_matchup_comments(7, 12)] == ["Superman stomps", "Agreed"]
+    assert community.list_matchup_comments(7, 13) == []
+    community.delete_matchup_comment(c1)
+    assert [c["body"] for c in community.list_matchup_comments(12, 7)] == ["Agreed"]
+    community.delete_account(u["id"])
+    assert community.list_matchup_comments(7, 12) == []
+
+
+def _play(game_id, user_id, right):
+    """Plays every round, picking the answer (right=True) or the other side."""
+    from sqlalchemy import select
+    while True:
+        r = duels.next_round(game_id, user_id)
+        if r is None:
+            return
+        wrong = r["char_b"] if r["answer_id"] == r["char_a"] else r["char_a"]
+        assert duels.pick(game_id, user_id, r["round_no"], r["answer_id"] if right else wrong)
+
+
+def test_duel_best_of_five_decides_a_winner_and_keeps_records():
+    alice = community.create_user("duel_alice", "password123")
+    bob = community.create_user("duel_bob", "password123")
+    game_id = duels.create(alice["id"], None, [])
+    _play(game_id, alice["id"], right=True)  # the creator can play before anyone accepts
+    assert duels.game(game_id, alice["id"])["game"]["status"] == "open"
+    duels.accept(game_id, bob["id"])
+    assert duels.game(game_id, bob["id"])["game"]["status"] == "active"
+    _play(game_id, bob["id"], right=False)
+    g = duels.game(game_id, alice["id"])["game"]
+    assert g["status"] == "done" and g["winner_id"] == alice["id"]
+    recs = duels.records([alice["id"], bob["id"]])
+    assert recs[alice["id"]] == {"wins": 1, "draws": 0, "losses": 0}
+    assert recs[bob["id"]] == {"wins": 0, "draws": 0, "losses": 1}
+    assert duels.next_round(game_id, alice["id"]) is None  # nothing left to play
+
+
+def test_duel_late_picks_count_as_wrong_and_reloads_keep_the_clock():
+    from datetime import timedelta
+    from sqlalchemy import update
+    carol = community.create_user("duel_carol", "password123")
+    game_id = duels.create(carol["id"], None, [])
+    first = duels.next_round(game_id, carol["id"])
+    again = duels.next_round(game_id, carol["id"])
+    assert again["round_no"] == first["round_no"] and again["seconds_left"] <= first["seconds_left"]
+    with community.engine.begin() as conn:  # the round was shown a minute ago
+        conn.execute(update(duels.game_picks).where(duels.game_picks.c.game_id == game_id)
+                     .values(started_at=community._now() - timedelta(seconds=60)))
+    assert duels.pick(game_id, carol["id"], first["round_no"], first["answer_id"]) is False
+
+
+def test_duel_challenges_can_only_be_taken_once_and_by_whoever_was_invited():
+    dan = community.create_user("duel_dan", "password123")
+    eve = community.create_user("duel_eve", "password123")
+    fay = community.create_user("duel_fay", "password123")
+    open_game = duels.create(dan["id"], None, [])
+    for bad in (lambda: duels.accept(open_game, dan["id"]),):  # your own challenge
+        try:
+            bad()
+            assert False
+        except duels.DuelError:
+            pass
+    duels.accept(open_game, eve["id"])
+    try:
+        duels.accept(open_game, fay["id"])
+        assert False, "a second accept must fail"
+    except duels.DuelError as exc:
+        assert exc.status == 409
+    invite = duels.create(dan["id"], "DUEL_EVE", [])  # usernames match any case
+    try:
+        duels.accept(invite, fay["id"])
+        assert False, "only the invited user may accept"
+    except duels.DuelError as exc:
+        assert exc.status == 403
+    duels.decline(invite, eve["id"])
+    assert duels.game(invite, dan["id"])["game"]["status"] == "declined"
+
+
+def test_duel_picked_matchups_need_a_clear_winner():
+    from backend import characters
+    gina = community.create_user("duel_gina", "password123")
+    pool = characters.scorable_pool()
+    clear = close = None
+    for i, (a, ta) in enumerate(pool[:300]):
+        for b, tb in pool[i + 1:i + 40]:
+            v = characters.run_compare(a, b, None, None)
+            if v.favored and not clear:
+                clear = (a, b)
+            # (skipping pairs an earlier test overruled: an overrule is a clear answer)
+            if v.favored is None and v.composite is not None and not close \
+                    and community.get_override(a, b, v.form_a, v.form_b) is None:
+                close = (a, b)
+        if clear and close:
+            break
+    game_id = duels.create(gina["id"], None, [{"char_a": clear[0], "char_b": clear[1]}])
+    from sqlalchemy import select
+    with community.engine.connect() as conn:
+        rounds = conn.execute(select(duels.game_rounds).where(duels.game_rounds.c.game_id == game_id)).mappings().all()
+    assert len(rounds) == duels.ROUNDS and sum(r["picked"] for r in rounds) == 1
+    try:
+        duels.create(gina["id"], None, [{"char_a": close[0], "char_b": close[1]}])
+        assert False, "a too-close matchup can't be a round"
+    except duels.DuelError as exc:
+        assert "no clear winner" in str(exc)
 
 
 def test_rate_limiter_blocks_after_the_limit_per_key():

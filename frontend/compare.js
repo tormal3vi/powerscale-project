@@ -58,6 +58,7 @@ async function loadCharacters() {
   document.title = `${shortName(a.name)} vs ${shortName(b.name)} — Powerscale`;
 
   buildLayout();
+  renderComments(); // per character pair, so not redone when forms change
   await refreshComparison();
 }
 
@@ -124,6 +125,7 @@ function buildLayout() {
     <div class="verdict-section">
       <div class="verdict-card" id="verdict-card"></div>
     </div>
+    <section class="mc-card" id="matchup-comments" aria-labelledby="mc-title"></section>
   `;
 
   bindFormPills('a');
@@ -533,6 +535,86 @@ shareBtn.addEventListener('click', () => {
   location.href = `board.html?${p}`;
 });
 renderTopbar([copyLinkBtn, shareBtn, pillButton('Change characters', { href: 'browse.html' })]);
+
+// --- comments -----------------------------------------------------------
+// This matchup's own discussion, separate from the Board: shared by A vs B
+// and B vs A, whichever forms are picked. Newest first, composer on top.
+
+async function renderComments() {
+  const box = document.getElementById('matchup-comments');
+  box.innerHTML = `
+    <div class="mc-head"><h2 class="section-label" id="mc-title">Comments</h2><span class="mc-count"></span></div>
+    <div class="mc-compose"></div>
+    <div class="mc-list"><div class="mc-note">Loading comments…</div></div>`;
+  const list = box.querySelector('.mc-list');
+  const count = box.querySelector('.mc-count');
+  const [user, res] = await Promise.all([currentUser(), Api.matchupComments(state.a.id, state.b.id).catch((e) => e)]);
+  let comments = res instanceof Error ? null : res.comments.slice().reverse();
+
+  const paint = () => {
+    if (!comments) { list.innerHTML = `<div class="form-error">${escapeHtml(res.message)}</div>`; return; }
+    count.textContent = comments.length ? String(comments.length) : '';
+    list.innerHTML = comments.length ? '' : `<div class="mc-note">No comments yet. Who takes this one, and why?</div>`;
+    for (const c of comments) {
+      const el = document.createElement('div');
+      el.className = 'mc-item';
+      el.innerHTML = `
+        ${userAvatarHtml(c.author, c.author_avatar, 'mc-avatar', { admin: c.author_is_admin })}
+        <div class="mc-main">
+          <div class="mc-meta"><span class="mc-author">${escapeHtml(c.author)}</span>${c.author_is_admin ? adminBadgeHtml() : ''}
+            <span class="mc-time" title="${escapeHtml(new Date(c.created_at).toLocaleString())}">· ${timeAgo(c.created_at)}</span>
+            ${c.can_delete ? '<button type="button" class="mc-delete">Delete</button>' : ''}</div>
+          <div class="mc-body"></div>
+        </div>`;
+      el.querySelector('.mc-body').textContent = c.body;
+      const del = el.querySelector('.mc-delete');
+      if (del) del.addEventListener('click', async () => {
+        if (!confirm('Delete this comment?')) return;
+        try {
+          await Api.deleteMatchupComment(c.id);
+          comments = comments.filter((x) => x.id !== c.id);
+          paint();
+        } catch (err) { alert(err.message); }
+      });
+      list.appendChild(el);
+    }
+  };
+  paint();
+
+  const compose = box.querySelector('.mc-compose');
+  if (!user) {
+    const next = encodeURIComponent(location.pathname.split('/').pop() + location.search);
+    compose.innerHTML = `<div class="mc-login"><a href="login.html?next=${next}">Log in</a> to comment on this matchup.</div>`;
+    return;
+  }
+  compose.innerHTML = `
+    <form class="mc-form">
+      <label class="visually-hidden" for="mc-input">Write a comment</label>
+      <textarea id="mc-input" rows="2" maxlength="500" placeholder="Who wins, and why?"></textarea>
+      <div class="mc-form-row"><span class="form-error mc-error"></span><button class="btn-gold mc-post">Comment</button></div>
+    </form>`;
+  const form = compose.querySelector('form');
+  const input = form.querySelector('textarea');
+  const btn = form.querySelector('button');
+  const err = form.querySelector('.mc-error');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = input.value.trim();
+    if (!body) return;
+    btn.disabled = true;
+    err.textContent = '';
+    try {
+      const c = await Api.addMatchupComment(state.a.id, state.b.id, body);
+      input.value = '';
+      comments = [c, ...(comments || [])];
+      paint();
+    } catch (e2) {
+      err.textContent = e2.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
 
 loadCharacters().catch((err) => {
   root.innerHTML = `<div class="error-state">Failed to load: ${escapeHtml(err.message)}</div>`;

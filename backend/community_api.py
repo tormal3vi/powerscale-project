@@ -12,10 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
 import db
-from backend import avatars, characters, community
+from backend import avatars, characters, community, duels
 from backend.schemas import (
-    AuthIn, DeleteAccountIn, FavoriteOut, LikeOut, MatchupOut, MeOut, OverrideIn, OverrideOut,
-    PasswordIn, PostIn, PostListOut, PostOut, ProfileIn, ProfileOut, RulingOut, ThreadOut, UserOut,
+    AuthIn, CommentIn, CommentListOut, CommentOut, DeleteAccountIn, FavoriteOut, LikeOut, MatchupOut, MeOut,
+    OverrideIn, OverrideOut, PasswordIn, PostIn, PostListOut, PostOut, ProfileIn, ProfileOut, RecordOut, RulingOut,
+    ThreadOut, UserOut,
 )
 
 router = APIRouter()
@@ -155,6 +156,7 @@ def _profile_out(profile: dict, own: bool) -> ProfileOut:
         bio=profile["bio"] or "", favorite=_favorite_out(profile["favorite_char_id"]),
         member_since=profile["created_at"], post_count=profile["post_count"],
         likes_received=profile["likes_received"] if own else None,
+        record=RecordOut(**duels.records([profile["id"]]).get(profile["id"], {})),
     )
 
 
@@ -221,6 +223,7 @@ def delete_account(payload: DeleteAccountIn, response: Response, user: dict = De
     if user["is_admin"] or community.has_admin_records(user["id"]):
         raise HTTPException(status_code=403, detail="Admin accounts can't be deleted here - their overrules "
                                                     "and pictures are tied to them")
+    duels.delete_user_games(user["id"])
     community.delete_account(user["id"])
     response.delete_cookie(COOKIE, path="/")
     return {"ok": True}
@@ -512,3 +515,55 @@ def like_post(post_id: int, user: dict = Depends(require_user)):
         raise HTTPException(status_code=404, detail="Post not found")
     liked = community.toggle_like(post_id, user["id"])
     return LikeOut(liked=liked, like_count=community.get_post_view(post_id, user["id"])["like_count"])
+
+
+# --- matchup comments ---------------------------------------------------------------------
+
+def _comment_out(row: dict, viewer: Optional[dict], favorites: dict) -> CommentOut:
+    return CommentOut(
+        id=row["id"], author=row["username"], author_is_admin=community.is_admin(row["username"]),
+        author_avatar=avatar_url(row["username"], row.get("avatar_at")),
+        author_favorite=_favorite_out(row.get("favorite_char_id"), favorites),
+        body=row["body"], created_at=row["created_at"],
+        can_delete=viewer is not None and (viewer["id"] == row["user_id"] or viewer["is_admin"]),
+    )
+
+
+def _check_pair(a: int, b: int) -> None:
+    if a == b:
+        raise HTTPException(status_code=400, detail="A matchup needs two different characters")
+    for cid in (a, b):
+        if db.get_character_by_id(cid) is None:
+            raise HTTPException(status_code=404, detail=f"No character with id {cid}")
+
+
+@router.get("/api/matchups/{a}/{b}/comments", response_model=CommentListOut)
+def matchup_comments(a: int, b: int, viewer: Optional[dict] = Depends(current_user)):
+    favorites: dict = {}
+    return CommentListOut(comments=[_comment_out(r, viewer, favorites) for r in community.list_matchup_comments(a, b)])
+
+
+@router.post("/api/matchups/{a}/{b}/comments", response_model=CommentOut, dependencies=[Depends(same_origin)])
+def add_matchup_comment(a: int, b: int, payload: CommentIn, user: dict = Depends(require_user)):
+    if not post_limit.allow(f"user:{user['id']}"):
+        raise HTTPException(status_code=429, detail="You're posting too fast - wait a minute")
+    body = payload.body.strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Write something first")
+    if len(body) > MAX_POST_CHARS:
+        raise HTTPException(status_code=400, detail=f"Comments are limited to {MAX_POST_CHARS} characters")
+    _check_pair(a, b)
+    comment_id = community.add_matchup_comment(user["id"], a, b, body)
+    row = next(r for r in community.list_matchup_comments(a, b) if r["id"] == comment_id)
+    return _comment_out(row, user, {})
+
+
+@router.delete("/api/matchup-comments/{comment_id}", dependencies=[Depends(same_origin)])
+def delete_matchup_comment(comment_id: int, user: dict = Depends(require_user)):
+    comment = community.get_matchup_comment(comment_id)
+    if comment is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    if comment["user_id"] != user["id"] and not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="You can only delete your own comments")
+    community.delete_matchup_comment(comment_id)
+    return {"ok": True}

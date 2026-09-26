@@ -242,6 +242,7 @@ class ProfileOut(BaseModel):
     member_since: datetime
     post_count: int
     likes_received: Optional[int] = None  # only on your own profile
+    record: Optional["RecordOut"] = None  # prediction duels
 
 
 class ProfileIn(BaseModel):
@@ -296,3 +297,136 @@ class ThreadOut(BaseModel):
 class LikeOut(BaseModel):
     liked: bool
     like_count: int
+
+
+# --- matchup comments ------------------------------------------------------------
+
+class CommentIn(BaseModel):
+    body: str = Field(..., max_length=2000)
+
+
+class CommentOut(BaseModel):
+    id: int
+    author: str
+    author_is_admin: bool = False
+    author_avatar: Optional[str] = None
+    author_favorite: Optional[FavoriteOut] = None
+    body: str
+    created_at: datetime
+    can_delete: bool
+
+
+class CommentListOut(BaseModel):
+    comments: List[CommentOut]
+
+
+# --- prediction duels ---------------------------------------------------------------
+
+class RecordOut(BaseModel):
+    wins: int = 0
+    draws: int = 0
+    losses: int = 0
+
+
+class DuelMatchupIn(BaseModel):
+    char_a: int
+    char_b: int
+    form_a: Optional[str] = None
+    form_b: Optional[str] = None
+
+
+class DuelCreateIn(BaseModel):
+    opponent: Optional[str] = Field(None, max_length=40)  # a username, or None: open to anyone
+    matchups: List[DuelMatchupIn] = Field([], max_length=5)  # picked ones; the rest are random
+
+
+class DuelPlayerOut(BaseModel):
+    username: str
+    is_admin: bool = False
+    avatar_url: Optional[str] = None
+
+
+class DuelSideOut(BaseModel):
+    id: int
+    name: str
+    series: str
+    form: Optional[str] = None  # only when it isn't the character's default form
+    image_url: Optional[str] = None
+
+
+class DuelRoundOut(BaseModel):
+    """A round being played: the two sides, and the time left to pick."""
+    game_id: int
+    round_no: int
+    total: int
+    seconds_left: float
+    a: DuelSideOut
+    b: DuelSideOut
+
+
+class DuelNextOut(BaseModel):
+    round: Optional[DuelRoundOut] = None  # None: nothing left for you to play
+    game: "DuelOut"
+
+
+class DuelPickIn(BaseModel):
+    round_no: int
+    pick_id: int
+
+
+class DuelResultRoundOut(BaseModel):
+    round_no: int
+    a: DuelSideOut
+    b: DuelSideOut
+    answer_id: int
+    verdict: str  # what decided it: "Superman favored — Clear favorite" or an overrule
+    picked: bool  # chosen by the challenger rather than drawn at random
+    my_pick: Optional[int] = None
+    their_pick: Optional[int] = None
+    my_correct: bool = False
+    their_correct: bool = False
+    compare_url: str
+
+
+class DuelOut(BaseModel):
+    id: int
+    status: str  # open | active | done | expired | declined | cancelled
+    created_at: datetime
+    creator: DuelPlayerOut
+    opponent: Optional[DuelPlayerOut] = None  # who accepted (or was invited)
+    open_to_anyone: bool
+    me_is_creator: bool = False
+    my_played: int = 0
+    their_played: int = 0
+    total: int = 5
+    can_play: bool = False
+    can_accept: bool = False
+    can_decline: bool = False
+    can_cancel: bool = False
+    my_score: Optional[int] = None  # once done
+    their_score: Optional[int] = None
+    outcome: Optional[str] = None  # win | loss | draw (yours), once done
+    rounds: List[DuelResultRoundOut] = []  # once done
+
+
+class DuelListOut(BaseModel):
+    mine: List[DuelOut]
+    open: List[DuelOut]  # others' open challenges you can take
+
+
+class LeaderboardRowOut(BaseModel):
+    username: str
+    is_admin: bool = False
+    avatar_url: Optional[str] = None
+    wins: int
+    draws: int
+    losses: int
+
+
+class LeaderboardOut(BaseModel):
+    rows: List[LeaderboardRowOut]
+
+
+# Both name a model defined further down this file.
+ProfileOut.model_rebuild()
+DuelNextOut.model_rebuild()

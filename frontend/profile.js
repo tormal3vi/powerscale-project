@@ -49,8 +49,8 @@ function renderHeader() {
   const posts = `${profile.post_count} post${profile.post_count === 1 ? '' : 's'}`;
   const likes = `${profile.likes_received} like${profile.likes_received === 1 ? '' : 's'}`;
   $('head-stats').innerHTML = `
-    <span class="desktop-only">Member since ${since} · ${posts} · ${likes} received</span>
-    <span class="phone-only">${since} · ${posts} · ${likes}</span>`;
+    <span class="desktop-only">Member since ${since} · ${posts} · ${likes} received${duelRecordText(profile.record)}</span>
+    <span class="phone-only">${since} · ${posts} · ${likes}${duelRecordText(profile.record)}</span>`;
   $('pw-username').value = profile.username; // lets password managers file the new password correctly
 }
 
