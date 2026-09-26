@@ -265,6 +265,9 @@ def test_display_names_prefer_the_page_title_over_a_real_name_lead():
         ("Unknown, impersonated Captain Tennille", "Impostor_Captain_Tennille", "Impostor Captain Tennille"),
         ("Unknown. Aliases include the Phantom Stranger, the Grey Walker", "The_Phantom_Stranger_(Post-Crisis)",
          "The Phantom Stranger"),
+        ("Real name unknown. Referred as Prometheus", "Prometheus_(Post-Crisis)", "Prometheus"),
+        ("Joker (Real name is unknown)", "Joker_(2008_Graphic_Novel)", "Joker"),
+        ("Rudeus Greyrat (Pre-reincarnation name unknown); Rudi", "Rudeus_Greyrat", "Rudeus Greyrat"),
         ("Mistral (Her codename, true name is unknown)", "Mistral", "Mistral"),
         ("Raiden (雷電?) (Birth name unknown, but was given the name Jack)", "Raiden_(Metal_Gear)", "Raiden"),
         # Kept: the page is titled "Real name (Hero name)"...

@@ -74,6 +74,18 @@ SUBSERIES_BY_TITLE = {
 }
 
 
+# Other franchises the wiki files under a series because it published a
+# crossover or licensed comic - not part of it here.
+EXCLUDED_TITLES = {
+    "DC": {
+        "007", "Dexter's Laboratory", "Dungeons and Dragons", "God of War", "InFAMOUS",
+        "Masters of the Universe", "Ratchet & Clank", "Sly Cooper (Universe)", "Star Trek",
+        "Street Fighter", "The Boys", "The Powerpuff Girls",
+        "DC Comics Cosmology",  # an overview of DC's universe, not a character
+    },
+}
+
+
 def subseries_lookup(series: str):
     """title -> subseries for `series`, from the member lists of its parts'
     categories (a few cheap API calls, no character pages)."""
@@ -133,6 +145,8 @@ def run_batch(
     lookup already built, when running several categories in a row."""
     print(f"Fetching member list for {category!r}...")
     titles = fetch_category_members(category)
+    if series:
+        titles = [t for t in titles if t not in EXCLUDED_TITLES.get(series, ())]
     print(f"Found {len(titles)} character page(s) after filtering.")
     if series and subseries_of is None:
         subseries_of = subseries_lookup(series)
