@@ -155,7 +155,8 @@ function filteredCharacters() {
   return list;
 }
 
-// Tier first, then Attack Potency, Durability and Speed. Tier alone left
+// Tier first, then Attack Potency, Durability and Speed, then the top of
+// those ranges and the strongest form (from the API). Tier alone left
 // ~2,700 characters on ~50 distinct values, so rank order within a tier
 // was just alphabetical and shuffled from one view to the next.
 function strengthKey(c) {
@@ -269,7 +270,7 @@ function renderGrid() {
     });
     gridNote.appendChild(showAllBtn);
   } else if (state.sort !== 'alpha') {
-    gridNote.textContent = `${matches.length.toLocaleString()} characters, ranked by their default form's Tier, then Attack Potency, Durability and Speed.`;
+    gridNote.textContent = `${matches.length.toLocaleString()} characters, ranked by Tier, then Attack Potency, Durability and Speed, then their strongest form.`;
   } else {
     gridNote.textContent = '';
   }

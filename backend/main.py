@@ -78,7 +78,8 @@ def _tier_badge(normalized: dict) -> Optional[str]:
 
 def _card_info(normalized: dict) -> tuple:
     """(tier badge label, tier score, scorable, tie-breakers) for the default
-    form - the tie-breakers being its AP, Durability and Speed scores."""
+    form. Tie-breakers, in order: its AP, Durability and Speed; then the top
+    of its ranges ("up to ..."); then the character's strongest form."""
     if not normalized.get("forms"):
         return None, None, False, []
     form = calculator.select_form(normalized)
@@ -88,7 +89,12 @@ def _card_info(normalized: dict) -> tuple:
         1 for axis in calculator.AXES
         if (form.get(axis) or {}).get("baseline") is not None or (form.get(axis) or {}).get("peak") is not None
     )
-    tiebreak = [(form.get(axis) or {}).get("baseline") for axis in ("attack_potency", "durability", "speed")]
+    axes = ("tier", "attack_potency", "durability", "speed")
+    tiebreak = [(form.get(axis) or {}).get("baseline") for axis in axes[1:]]
+    tiebreak += [(form.get(axis) or {}).get("peak") for axis in axes]
+    for axis in axes:
+        peaks = [(f.get(axis) or {}).get("peak") for f in normalized["forms"]]
+        tiebreak.append(max((p for p in peaks if p is not None), default=None))
     return (label.upper() if label else None), tier.get("baseline"), scored >= calculator.MIN_AXES_FOR_VERDICT, tiebreak
 
 
