@@ -336,14 +336,24 @@ class DuelMatchupIn(BaseModel):
 
 
 class DuelCreateIn(BaseModel):
-    opponent: Optional[str] = Field(None, max_length=40)  # a username, or None: open to anyone
+    format: str = "1v1"  # see duels.FORMATS
+    invite: List[str] = Field([], max_length=5)  # usernames for a private game; empty: open to anyone
     matchups: List[DuelMatchupIn] = Field([], max_length=5)  # picked ones; the rest are random
+
+
+class DuelJoinIn(BaseModel):
+    team: Optional[int] = None  # None: whichever team has the most room
 
 
 class DuelPlayerOut(BaseModel):
     username: str
     is_admin: bool = False
     avatar_url: Optional[str] = None
+    team: int
+    played: int = 0
+    score: Optional[int] = None  # once done
+    outcome: Optional[str] = None  # win | draw | loss, once done
+    me: bool = False
 
 
 class DuelSideOut(BaseModel):
@@ -364,14 +374,21 @@ class DuelRoundOut(BaseModel):
     b: DuelSideOut
 
 
-class DuelNextOut(BaseModel):
-    round: Optional[DuelRoundOut] = None  # None: nothing left for you to play
-    game: "DuelOut"
-
-
 class DuelPickIn(BaseModel):
     round_no: int
     pick_id: int
+
+
+class DuelPickOut(BaseModel):
+    in_time: bool
+    next: Optional[DuelRoundOut] = None  # the following round, already started; None when done
+
+
+class DuelRoundPickOut(BaseModel):
+    username: str
+    team: int
+    pick_id: Optional[int] = None
+    correct: bool = False
 
 
 class DuelResultRoundOut(BaseModel):
@@ -381,10 +398,7 @@ class DuelResultRoundOut(BaseModel):
     answer_id: int
     verdict: str  # what decided it: "Superman favored — Clear favorite" or an overrule
     picked: bool  # chosen by the challenger rather than drawn at random
-    my_pick: Optional[int] = None
-    their_pick: Optional[int] = None
-    my_correct: bool = False
-    their_correct: bool = False
+    picks: List[DuelRoundPickOut]
     compare_url: str
 
 
@@ -392,26 +406,31 @@ class DuelOut(BaseModel):
     id: int
     status: str  # open | active | done | expired | declined | cancelled
     created_at: datetime
-    creator: DuelPlayerOut
-    opponent: Optional[DuelPlayerOut] = None  # who accepted (or was invited)
-    open_to_anyone: bool
-    me_is_creator: bool = False
+    format: str  # "1v1", "2v2", "1v1v1"...
+    teams: int
+    team_size: int
+    creator: str
+    players: List[DuelPlayerOut]
+    invited: List[str] = []  # invited players who haven't joined yet
+    private: bool = False
+    seats_left: int = 0
+    my_team: Optional[int] = None
     my_played: int = 0
-    their_played: int = 0
     total: int = 5
     can_play: bool = False
-    can_accept: bool = False
+    can_join: bool = False
+    join_teams: List[int] = []  # teams with room, when you can join
+    can_leave: bool = False
     can_decline: bool = False
     can_cancel: bool = False
-    my_score: Optional[int] = None  # once done
-    their_score: Optional[int] = None
-    outcome: Optional[str] = None  # win | loss | draw (yours), once done
+    outcome: Optional[str] = None  # yours, once done
+    team_scores: List[int] = []  # by team, once done
     rounds: List[DuelResultRoundOut] = []  # once done
 
 
 class DuelListOut(BaseModel):
     mine: List[DuelOut]
-    open: List[DuelOut]  # others' open challenges you can take
+    open: List[DuelOut]  # others' open games with a free seat
 
 
 class LeaderboardRowOut(BaseModel):
@@ -427,6 +446,5 @@ class LeaderboardOut(BaseModel):
     rows: List[LeaderboardRowOut]
 
 
-# Both name a model defined further down this file.
+# Names a model defined further down this file.
 ProfileOut.model_rebuild()
-DuelNextOut.model_rebuild()

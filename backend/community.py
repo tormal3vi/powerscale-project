@@ -140,15 +140,30 @@ _ADDED_COLUMNS = {
 }
 
 
+# Other modules' tables living in this database (duels.py) add their own
+# new columns and data migrations here; each runs after the tables exist.
+_init_hooks: list = []
+
+
+def on_init(fn):
+    _init_hooks.append(fn)
+    return fn
+
+
+def add_missing_columns(conn, table: str, columns) -> None:
+    have = {c["name"] for c in inspect(conn).get_columns(table)}
+    for name, sql_type in columns:
+        if name not in have:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
+
+
 def init() -> None:
     metadata.create_all(engine)
-    inspector = inspect(engine)
     with engine.begin() as conn:
         for table, columns in _ADDED_COLUMNS.items():
-            have = {c["name"] for c in inspector.get_columns(table)}
-            for name, sql_type in columns:
-                if name not in have:
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
+            add_missing_columns(conn, table, columns)
+    for hook in _init_hooks:
+        hook()
 
 
 def _now() -> datetime:

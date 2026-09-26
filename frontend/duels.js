@@ -1,7 +1,7 @@
-// Prediction duels: make a challenge, see your games and the leaderboard,
-// and play rounds against the clock. Rules live on the server
-// (backend/duels.py) - the clock there is the one that counts; the one
-// drawn here only shows it.
+// Prediction duels: make a game (1v1, free-for-all or teams), see your
+// games and the leaderboard, and play rounds against the clock. Rules live
+// on the server (backend/duels.py) - its clock is the one that counts; the
+// one drawn here only shows it.
 
 renderTopbar([]);
 
@@ -9,23 +9,39 @@ const newBox = document.getElementById('duel-new');
 const listsBox = document.getElementById('duel-lists');
 const boardBox = document.getElementById('leaderboard');
 const playBox = document.getElementById('duel-play');
+const FORMATS = ['1v1', '1v1v1', '1v1v1v1', '2v2', '2v2v2', '3v3'];
 let me = null;
 let games = { mine: [], open: [] };
 const expanded = new Set(); // finished games whose rounds are shown
 
 // --- small pieces ----------------------------------------------------------------
 
-function playerHtml(p, cls = 'duel-avatar') {
-  return p ? userAvatarHtml(p.username, p.avatar_url, cls, { admin: p.is_admin }) : '';
-}
+const avatarHtml = (p, cls = 'duel-avatar') => userAvatarHtml(p.username, p.avatar_url, cls, { admin: p.is_admin });
+const isTeamGame = (g) => g.team_size > 1;
+const teamName = (g, t) => (isTeamGame(g) ? `Team ${t}` : `Seat ${t}`);
+const names = (list) => list.map((p) => escapeHtml(p.username)).join(', ');
 
-function other(g) {
-  return g.me_is_creator ? g.opponent : g.creator;
+// "vs duel_bob" / "with alice · vs bob, carl" / "vs bob, carl" for the
+// player looking at it; "alice's 2v2" for someone else's open game.
+function gameTitle(g) {
+  const mine = g.players.find((p) => p.me);
+  if (!mine && !g.invited.includes(me?.username)) return `${escapeHtml(g.creator)}'s ${g.format}`;
+  const team = mine ? mine.team : null;
+  const mates = g.players.filter((p) => !p.me && team && p.team === team);
+  const rivals = g.players.filter((p) => !p.me && p.team !== team);
+  const parts = [];
+  if (mates.length) parts.push(`with ${names(mates)}`);
+  if (rivals.length) parts.push(`vs ${names(rivals)}`);
+  return parts.join(' · ') || (g.private ? `vs ${g.invited.map(escapeHtml).join(', ')}` : 'Open game');
 }
 
 function sideTileHtml(side, px) {
-  return `<span class="duel-tile${side.image_url ? ' has-pic' : ''}" style="background:${accentFor(side.id)}">${
-    characterTileInner(side.name, side.image_url, px)}</span>`;
+  // Eager, high priority: the round's clock is already running.
+  const pic = characterPictureUrl(side.image_url, px);
+  return `<span class="duel-tile${pic ? ' has-pic' : ''}" style="background:${accentFor(side.id)}">
+    <span class="tile-initial">${escapeHtml(initialFor(side.name))}</span>${pic
+      ? `<img src="${escapeHtml(pic)}" alt="" fetchpriority="high" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('has-pic');this.remove()">`
+      : ''}</span>`;
 }
 
 function sideLabel(side) {
@@ -36,25 +52,31 @@ function gameLink(id) {
   return `${location.origin}${location.pathname.replace(/[^/]*$/, '')}duels.html?game=${id}`;
 }
 
-// --- new challenge -----------------------------------------------------------------
+// --- new game ------------------------------------------------------------------------
 
 function renderNew() {
   if (!me) {
     const next = encodeURIComponent('duels.html' + location.search);
     newBox.innerHTML = `
       <h2 class="duel-card-title" id="new-title">Start a duel</h2>
-      <p class="duel-note"><a href="login.html?next=${next}">Log in</a> or <a href="login.html?mode=register&next=${next}">create an account</a> to challenge someone.</p>`;
+      <p class="duel-note"><a href="login.html?next=${next}">Log in</a> or <a href="login.html?mode=register&next=${next}">create an account</a> to play.</p>`;
     return;
   }
   newBox.innerHTML = `
-    <h2 class="duel-card-title" id="new-title">New challenge</h2>
+    <h2 class="duel-card-title" id="new-title">New game</h2>
     <div class="duel-field">
-      <span class="lbl">Opponent</span>
-      <div class="seg" role="radiogroup" aria-label="Opponent">
-        <button type="button" class="seg-btn active" data-opp="anyone" role="radio" aria-checked="true">Anyone</button>
-        <button type="button" class="seg-btn" data-opp="user" role="radio" aria-checked="false">A specific user</button>
+      <span class="lbl">Format</span>
+      <div class="seg seg-wrap" role="radiogroup" aria-label="Format">
+        ${FORMATS.map((f, i) => `<button type="button" class="seg-btn${i ? '' : ' active'}" data-fmt="${f}" role="radio" aria-checked="${!i}">${f}</button>`).join('')}
       </div>
-      <input type="text" class="duel-input" id="duel-opponent" placeholder="Their username" maxlength="20" autocomplete="off" spellcheck="false" hidden>
+    </div>
+    <div class="duel-field">
+      <span class="lbl">Players</span>
+      <div class="seg" role="radiogroup" aria-label="Players">
+        <button type="button" class="seg-btn active" data-opp="anyone" role="radio" aria-checked="true">Open to anyone</button>
+        <button type="button" class="seg-btn" data-opp="invite" role="radio" aria-checked="false">Invite players</button>
+      </div>
+      <div class="duel-invites" hidden></div>
     </div>
     <div class="duel-field">
       <span class="lbl">Matchups</span>
@@ -64,19 +86,21 @@ function renderNew() {
       </div>
       <div class="duel-pickers" hidden></div>
       <button type="button" class="duel-add" hidden>+ Add a matchup</button>
-      <p class="duel-hint" id="duel-mu-hint">Five matchups drawn at random from characters of similar tiers.</p>
+      <p class="duel-hint" id="duel-mu-hint"></p>
     </div>
     <div class="duel-actions">
       <span class="form-error" id="duel-error"></span>
-      <button type="button" class="btn-gold" id="duel-create">Create challenge</button>
+      <button type="button" class="btn-gold" id="duel-create">Create game</button>
     </div>`;
 
-  const oppInput = newBox.querySelector('#duel-opponent');
+  const invitesBox = newBox.querySelector('.duel-invites');
   const pickers = newBox.querySelector('.duel-pickers');
   const addBtn = newBox.querySelector('.duel-add');
   const hint = newBox.querySelector('#duel-mu-hint');
   const err = newBox.querySelector('#duel-error');
   const picked = new Map(); // picker element -> matchup or null
+  let format = '1v1';
+  let inviting = false;
   let mode = 'random';
 
   const setSeg = (attr, value) => newBox.querySelectorAll(`[data-${attr}]`).forEach((b) => {
@@ -84,10 +108,25 @@ function renderNew() {
     b.classList.toggle('active', on);
     b.setAttribute('aria-checked', String(on));
   });
+  const seats = () => format.split('v').reduce((n, s) => n + Number(s), 0) - 1;
+  // One username box per seat to fill, keeping whatever was typed.
+  const drawInvites = () => {
+    invitesBox.hidden = !inviting;
+    const typed = [...invitesBox.querySelectorAll('input')].map((i) => i.value);
+    invitesBox.innerHTML = Array.from({ length: seats() }, (_, i) => `
+      <input type="text" class="duel-input" placeholder="Username ${seats() > 1 ? i + 1 : ''}" maxlength="20"
+        autocomplete="off" spellcheck="false" aria-label="Invited player ${i + 1}" value="${escapeHtml(typed[i] || '')}">`).join('');
+  };
+  newBox.querySelectorAll('[data-fmt]').forEach((b) => b.addEventListener('click', () => {
+    format = b.dataset.fmt;
+    setSeg('fmt', format);
+    drawInvites();
+  }));
   newBox.querySelectorAll('[data-opp]').forEach((b) => b.addEventListener('click', () => {
+    inviting = b.dataset.opp === 'invite';
     setSeg('opp', b.dataset.opp);
-    oppInput.hidden = b.dataset.opp !== 'user';
-    if (!oppInput.hidden) oppInput.focus();
+    drawInvites();
+    if (inviting) invitesBox.querySelector('input')?.focus();
   }));
 
   const updateHint = () => {
@@ -95,7 +134,7 @@ function renderNew() {
     addBtn.hidden = mode !== 'pick' || n >= 5;
     hint.textContent = mode === 'random'
       ? 'Five matchups drawn at random from characters of similar tiers.'
-      : `${n} picked${n < 5 ? `, ${5 - n} drawn at random` : ''}. Only clear wins count: "too close to call" matchups can't be used. You'll know the ones you pick; your opponent sees each only when its 20 seconds start.`;
+      : `${n} picked${n < 5 ? `, ${5 - n} drawn at random` : ''}. Only clear wins count: "too close to call" matchups can't be used. You'll know the ones you pick; the others see each only when its 20 seconds start.`;
   };
   const addPicker = () => {
     const el = matchupPickerEl({
@@ -116,18 +155,19 @@ function renderNew() {
     updateHint();
   }));
   addBtn.addEventListener('click', addPicker);
+  updateHint();
 
   const createBtn = newBox.querySelector('#duel-create');
   createBtn.addEventListener('click', async () => {
     err.textContent = '';
-    const opponent = oppInput.hidden ? null : oppInput.value.trim();
-    if (!oppInput.hidden && !opponent) { err.textContent = 'Type their username, or pick "Anyone".'; return; }
+    const invite = inviting ? [...invitesBox.querySelectorAll('input')].map((i) => i.value.trim()) : [];
+    if (invite.some((n) => !n)) { err.textContent = `Fill in all ${seats()} players, or open it to anyone.`; return; }
     const matchups = mode === 'pick' ? [...picked.values()] : [];
     if (matchups.some((m) => !m)) { err.textContent = 'Finish each matchup, or remove it.'; return; }
     createBtn.disabled = true;
     createBtn.textContent = 'Creating…';
     try {
-      const g = await Api.createGame(opponent, matchups);
+      const g = await Api.createGame(format, invite, matchups);
       renderNew(); // a fresh form
       await refresh();
       showCreated(g);
@@ -135,7 +175,7 @@ function renderNew() {
       err.textContent = e.message;
     } finally {
       createBtn.disabled = false;
-      createBtn.textContent = 'Create challenge';
+      createBtn.textContent = 'Create game';
     }
   });
 }
@@ -144,9 +184,10 @@ function renderNew() {
 function showCreated(g) {
   const box = document.createElement('div');
   box.className = 'duel-created';
-  const who = g.open_to_anyone ? 'Anyone can take it from the open challenges.' : `${escapeHtml(g.opponent.username)} will see it on their Duels page.`;
+  const who = g.private ? `${g.invited.map(escapeHtml).join(', ')} will see it on their Duels page.`
+    : 'Anyone can join it from the open games.';
   box.innerHTML = `
-    <div class="duel-created-title">Challenge created</div>
+    <div class="duel-created-title">${g.format} created</div>
     <div class="duel-note">${who} Play your five rounds whenever you're ready.</div>
     <div class="duel-created-row">
       <button type="button" class="btn-gold" data-act="play">Play now</button>
@@ -163,64 +204,93 @@ function showCreated(g) {
 
 // --- your games ------------------------------------------------------------------------
 
+function scoreLine(g) {
+  if (g.teams === 2) return g.my_team === 2 ? `${g.team_scores[1]}–${g.team_scores[0]}` : g.team_scores.join('–');
+  return g.team_scores.join(' · ');
+}
+
 function statusText(g) {
-  const them = other(g);
-  const theirName = them ? escapeHtml(them.username) : 'your opponent';
   switch (g.status) {
     case 'done': {
       const word = { win: 'Won', loss: 'Lost', draw: 'Draw' }[g.outcome] || 'Finished';
-      return `<span class="duel-outcome ${g.outcome || ''}">${word} ${g.my_score}–${g.their_score}</span>`;
+      return `<span class="duel-outcome ${g.outcome || ''}">${word}</span> ${scoreLine(g)}`;
     }
-    case 'expired': return 'Expired: nobody took it';
-    case 'declined': return g.me_is_creator ? `${theirName} declined` : 'You declined';
+    case 'expired': return "Expired: it didn't fill in time";
+    case 'declined': return 'Declined by an invited player';
     case 'cancelled': return 'Cancelled';
     default: break;
   }
-  if (g.can_accept) return g.open_to_anyone ? `Open challenge from ${escapeHtml(g.creator.username)}` : `${escapeHtml(g.creator.username)} challenged you`;
-  if (g.can_play && g.my_played < g.total) {
-    return `Your turn · ${g.my_played}/${g.total} played`;
-  }
-  if (g.status === 'open') return g.open_to_anyone ? 'Waiting for someone to accept' : `Waiting for ${theirName} to accept`;
-  return `Waiting for ${theirName} · ${g.their_played}/${g.total} played`;
+  if (g.can_decline || (g.can_join && g.private)) return `${escapeHtml(g.creator)} invited you`;
+  if (g.can_join) return `${g.seats_left} seat${g.seats_left === 1 ? '' : 's'} left`;
+  const waitingFor = g.status === 'open'
+    ? (g.invited.length ? `waiting for ${g.invited.map(escapeHtml).join(', ')} to join` : `${g.seats_left} seat${g.seats_left === 1 ? '' : 's'} left`)
+    : null;
+  if (g.can_play && g.my_played < g.total) return `Your turn · ${g.my_played}/${g.total} played${waitingFor ? ` · ${waitingFor}` : ''}`;
+  if (waitingFor) return waitingFor.charAt(0).toUpperCase() + waitingFor.slice(1);
+  const done = g.players.filter((p) => p.played >= g.total).length;
+  return `Waiting for the others · ${done} of ${g.players.length} done`;
+}
+
+function playersHtml(g) {
+  const seats = g.teams * g.team_size;
+  const shown = g.players.slice(0, 4).map((p) => avatarHtml(p, 'duel-avatar duel-avatar-stack')).join('');
+  const empty = Math.min(seats - g.players.length, 4 - Math.min(g.players.length, 4));
+  return `<span class="duel-stack">${shown}${'<span class="duel-avatar duel-avatar-stack duel-avatar-open" aria-hidden="true">?</span>'.repeat(Math.max(0, empty))}</span>`;
 }
 
 function duelRow(g) {
   const el = document.createElement('div');
   el.className = 'duel-row';
   el.dataset.id = g.id;
-  const them = other(g);
-  const title = g.status === 'open' && g.open_to_anyone && g.me_is_creator
-    ? 'Open challenge'
-    : them ? `vs ${escapeHtml(them.username)}` : 'Open challenge';
   const buttons = [];
-  if (g.can_accept) buttons.push('<button type="button" class="btn-gold btn-sm" data-act="accept">Accept &amp; play</button>');
+  if (g.can_join) {
+    if (isTeamGame(g) && g.join_teams.length > 1) {
+      g.join_teams.forEach((t) => buttons.push(`<button type="button" class="btn-gold btn-sm" data-act="join" data-team="${t}">Join ${teamName(g, t)}</button>`));
+    } else {
+      buttons.push('<button type="button" class="btn-gold btn-sm" data-act="join">Join &amp; play</button>');
+    }
+  }
   if (g.can_decline) buttons.push('<button type="button" class="pill-button btn-sm" data-act="decline">Decline</button>');
   if (g.can_play && g.my_played < g.total) buttons.push(`<button type="button" class="btn-gold btn-sm" data-act="play">${g.my_played ? 'Continue' : 'Play'}</button>`);
+  if (g.can_leave) buttons.push('<button type="button" class="pill-button btn-sm" data-act="leave">Leave</button>');
   if (g.can_cancel) buttons.push('<button type="button" class="pill-button btn-sm" data-act="cancel">Cancel</button>');
-  if (g.status === 'done') buttons.push(`<button type="button" class="pill-button btn-sm" data-act="results" aria-expanded="${expanded.has(g.id)}">${expanded.has(g.id) ? 'Hide' : 'Rounds'}</button>`);
+  if (g.status === 'done') buttons.push(`<button type="button" class="pill-button btn-sm" data-act="results" aria-expanded="${expanded.has(g.id)}">${expanded.has(g.id) ? 'Hide' : 'Results'}</button>`);
   el.innerHTML = `
     <div class="duel-row-main">
-      ${them ? playerHtml(them) : '<span class="duel-avatar duel-avatar-open" aria-hidden="true">?</span>'}
+      ${playersHtml(g)}
       <div class="duel-row-text">
-        <div class="duel-row-title">${title}${them && them.is_admin ? adminBadgeHtml() : ''}</div>
+        <div class="duel-row-title"><span class="duel-format">${g.format}</span>${gameTitle(g)}</div>
         <div class="duel-row-status">${statusText(g)}</div>
       </div>
       <div class="duel-row-buttons">${buttons.join('')}</div>
     </div>
     ${g.status === 'done' && expanded.has(g.id) ? resultsHtml(g) : ''}`;
   el.addEventListener('click', (e) => {
-    const act = e.target.closest('[data-act]')?.dataset.act;
-    if (act) onRowAction(g, act, e.target.closest('button'));
+    const btn = e.target.closest('[data-act]');
+    if (btn) onRowAction(g, btn.dataset.act, btn);
   });
   return el;
 }
 
+// Final standings (teams or seats, best first) and every round with each
+// player's pick.
 function resultsHtml(g) {
-  const them = other(g);
-  const mark = (ok, picked) => picked == null ? '<span class="duel-mark miss" title="No answer">—</span>'
-    : `<span class="duel-mark ${ok ? 'ok' : 'bad'}" title="${ok ? 'Right' : 'Wrong'}">${ok ? '✓' : '✗'}</span>`;
-  const nameOf = (r, id) => id == null ? 'no answer' : id === r.a.id ? bareName(r.a.name) : bareName(r.b.name);
+  const teams = Array.from({ length: g.teams }, (_, i) => i + 1)
+    .map((t) => ({ t, score: g.team_scores[t - 1], members: g.players.filter((p) => p.team === t) }))
+    .sort((a, b) => b.score - a.score);
+  const top = teams[0].score;
+  const mark = (p) => p.pick_id == null ? '<span class="duel-mark miss" title="No answer">—</span>'
+    : `<span class="duel-mark ${p.correct ? 'ok' : 'bad'}" title="${p.correct ? 'Right' : 'Wrong'}">${p.correct ? '✓' : '✗'}</span>`;
+  const nameOf = (r, id) => (id == null ? 'no answer' : id === r.a.id ? bareName(r.a.name) : bareName(r.b.name));
   return `
+    <div class="duel-standings">
+      ${teams.map(({ t, score, members }) => `
+        <div class="duel-standing${score === top ? ' top' : ''}${members.some((p) => p.me) ? ' mine' : ''}">
+          ${isTeamGame(g) ? `<span class="duel-standing-team">${teamName(g, t)}</span>` : ''}
+          <span class="duel-standing-names">${members.map((p) => `${escapeHtml(p.username)}${isTeamGame(g) ? ` <span class="duel-standing-pts">${p.score}</span>` : ''}`).join(', ')}</span>
+          <span class="duel-standing-score">${score}</span>
+        </div>`).join('')}
+    </div>
     <ol class="duel-rounds">
       ${g.rounds.map((r) => `
         <li class="duel-round">
@@ -230,8 +300,7 @@ function resultsHtml(g) {
           </div>
           <div class="duel-round-verdict">${escapeHtml(r.verdict)}</div>
           <div class="duel-round-picks">
-            <span>${mark(r.my_correct, r.my_pick)} You: ${escapeHtml(nameOf(r, r.my_pick))}</span>
-            <span>${mark(r.their_correct, r.their_pick)} ${escapeHtml(them ? them.username : 'Them')}: ${escapeHtml(nameOf(r, r.their_pick))}</span>
+            ${r.picks.map((p) => `<span>${mark(p)} ${escapeHtml(p.username === me?.username ? 'You' : p.username)}: ${escapeHtml(nameOf(r, p.pick_id))}</span>`).join('')}
           </div>
         </li>`).join('')}
     </ol>`;
@@ -244,14 +313,16 @@ async function onRowAction(g, act, btn) {
       if (expanded.has(g.id)) expanded.delete(g.id); else expanded.add(g.id);
       return renderLists();
     }
-    if (btn) btn.disabled = true;
-    if (act === 'accept') { await Api.acceptGame(g.id); await refresh(); return play(g.id); }
-    if (act === 'decline') { if (!confirm('Decline this challenge?')) { btn.disabled = false; return; } await Api.declineGame(g.id); }
-    if (act === 'cancel') { if (!confirm('Cancel this challenge?')) { btn.disabled = false; return; } await Api.cancelGame(g.id); }
+    const ask = { decline: 'Decline this invite?', cancel: 'Cancel this game?', leave: 'Leave this game?' }[act];
+    if (ask && !confirm(ask)) return;
+    btn.disabled = true;
+    if (act === 'join') { await Api.joinGame(g.id, Number(btn.dataset.team) || null); await refresh(); return play(g.id); }
+    if (act === 'decline') await Api.declineGame(g.id);
+    if (act === 'cancel') await Api.cancelGame(g.id);
+    if (act === 'leave') await Api.leaveGame(g.id);
     await refresh();
   } catch (e) {
     alert(e.message);
-    if (btn) btn.disabled = false;
     refresh();
   }
 }
@@ -270,39 +341,61 @@ function renderLists() {
   listsBox.innerHTML = '';
   if (!me) return;
   const live = (g) => g.status === 'open' || g.status === 'active';
-  const forYou = games.mine.filter((g) => live(g) && g.can_accept);
-  const yourTurn = games.mine.filter((g) => live(g) && !g.can_accept && g.can_play && g.my_played < g.total);
-  const waiting = games.mine.filter((g) => live(g) && !g.can_accept && !(g.can_play && g.my_played < g.total));
+  const myTurn = (g) => g.can_play && g.my_played < g.total;
+  const forYou = games.mine.filter((g) => live(g) && (g.can_join || g.can_decline));
+  const yourTurn = games.mine.filter((g) => live(g) && !forYou.includes(g) && myTurn(g));
+  const waiting = games.mine.filter((g) => live(g) && !forYou.includes(g) && !myTurn(g));
   const finished = games.mine.filter((g) => !live(g)).slice(0, 15);
   [
-    section('Challenges for you', forYou),
-    section('Your turn', yourTurn, forYou.length ? null : 'Nothing to play right now. Start a challenge, or take an open one.'),
+    section('Invites for you', forYou),
+    section('Your turn', yourTurn, forYou.length ? null : 'Nothing to play right now. Start a game, or join an open one.'),
     section('Waiting', waiting),
-    section('Open challenges', games.open, 'No open challenges from others right now.'),
+    section('Open games', games.open, 'No open games from others right now.'),
     section('Finished', finished),
   ].filter(Boolean).forEach((s) => listsBox.appendChild(s));
 }
+
+let finishedIds = null; // for "your game just finished" toasts
 
 async function refresh() {
   if (!me) return;
   try {
     games = await Api.listGames();
   } catch (e) {
-    listsBox.innerHTML = `<div class="error-state">Couldn't load your duels: ${escapeHtml(e.message)}</div>`;
+    listsBox.innerHTML = `<div class="error-state">Couldn't load your games: ${escapeHtml(e.message)}</div>`;
     return;
   }
+  const doneNow = games.mine.filter((g) => g.status === 'done');
+  if (finishedIds) doneNow.filter((g) => !finishedIds.has(g.id)).forEach(toastFinished);
+  finishedIds = new Set(doneNow.map((g) => g.id));
   renderLists();
   showDuelsDot();
+}
+
+function toastFinished(g) {
+  const t = document.createElement('div');
+  t.className = 'duel-toast';
+  t.setAttribute('role', 'status');
+  const word = { win: 'You won', loss: 'You lost', draw: "It's a draw" }[g.outcome] || 'Game over';
+  t.innerHTML = `<span><b>${word}</b> · ${g.format} ${gameTitle(g)} · ${scoreLine(g)}</span><button type="button" class="pill-button btn-sm">Results</button>`;
+  t.querySelector('button').addEventListener('click', () => {
+    expanded.add(g.id);
+    renderLists();
+    document.querySelector(`.duel-row[data-id="${g.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    t.remove();
+  });
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 12000);
 }
 
 async function renderLeaderboard() {
   try {
     const { rows } = await Api.leaderboard();
-    if (!rows.length) { boardBox.innerHTML = '<div class="duel-note">No finished duels yet. Be the first on the board.</div>'; return; }
+    if (!rows.length) { boardBox.innerHTML = '<div class="duel-note">No finished games yet. Be the first on the board.</div>'; return; }
     boardBox.innerHTML = `<ol class="lb">${rows.map((r, i) => `
       <li class="lb-row${me && r.username === me.username ? ' me' : ''}">
         <span class="lb-rank">${i + 1}</span>
-        ${playerHtml(r, 'lb-avatar')}
+        ${avatarHtml(r, 'lb-avatar')}
         <span class="lb-name">${escapeHtml(r.username)}</span>
         <span class="lb-rec" title="${r.wins} wins, ${r.draws} draws, ${r.losses} losses">${r.wins}–${r.draws}–${r.losses}</span>
       </li>`).join('')}</ol>
@@ -312,65 +405,96 @@ async function renderLeaderboard() {
   }
 }
 
+// --- live updates -------------------------------------------------------------------------
+// Like the Board: while the page is visible, ask every 8s whether anything
+// changed (answered from the server's memory), and only then reload the
+// games and leaderboard. Paused while a round is being played.
+
+let liveVersion = null;
+let liveTimer = null;
+
+async function liveCheck() {
+  clearTimeout(liveTimer);
+  if (document.hidden) return;
+  if (playBox.hidden && me) {
+    try {
+      const { version } = await Api.gamesVersion();
+      if (liveVersion !== null && version !== liveVersion) await Promise.all([refresh(), renderLeaderboard()]);
+      liveVersion = version;
+    } catch { /* offline or deploying: try again next time */ }
+  }
+  liveTimer = setTimeout(liveCheck, 8000);
+}
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) liveCheck(); });
+
 // --- playing ---------------------------------------------------------------------------
 // One overlay per game: each round's two characters and a countdown. The
-// server starts a round's clock when it hands the round out, and the
-// remaining time comes from there - reopening mid-round continues it.
+// server starts a round's clock when it hands the round out (a pick's
+// response already carries the next round), and the time left comes from
+// there - reopening mid-round continues it.
 
 let timer = null;
+let playing = null; // the game being played
 
 function closePlay() {
   clearInterval(timer);
   playBox.hidden = true;
   playBox.innerHTML = '';
   document.body.classList.remove('duel-playing');
+  playing = null;
   refresh();
 }
 
-async function play(gameId) {
+function playFrame(inner) {
   playBox.hidden = false;
   document.body.classList.add('duel-playing');
-  playBox.innerHTML = '<div class="duel-play-inner"><div class="duel-note">Loading the round…</div></div>';
-  let res;
-  try {
-    res = await Api.nextRound(gameId);
-  } catch (e) {
-    playBox.innerHTML = `<div class="duel-play-inner"><div class="form-error">${escapeHtml(e.message)}</div>
-      <button type="button" class="pill-button" data-act="close">Close</button></div>`;
-    playBox.querySelector('[data-act="close"]').addEventListener('click', closePlay);
-    return;
-  }
-  if (!res.round) return showFinished(res.game);
-  showRound(res.round, res.game);
+  playBox.innerHTML = `<div class="duel-play-inner">${inner}</div>`;
 }
 
-function showRound(r, g) {
-  const them = other(g);
-  playBox.innerHTML = `
-    <div class="duel-play-inner">
-      <div class="duel-play-head">
-        <div>
-          <div class="duel-play-round" id="play-title">Round ${r.round_no} of ${r.total}</div>
-          <div class="duel-play-sub">${them ? `vs ${escapeHtml(them.username)}` : 'Open challenge'} · who does the site say wins?</div>
-        </div>
-        <button type="button" class="duel-play-close" aria-label="Close (the clock keeps running)" title="Close (the clock keeps running)">✕</button>
+async function play(gameId) {
+  playing = [...games.mine, ...games.open].find((g) => g.id === gameId) || null;
+  playFrame('<div class="duel-note">Loading the round…</div>');
+  try {
+    const { round } = await Api.nextRound(gameId);
+    if (round) showRound(round);
+    else await showFinished(gameId);
+  } catch (e) {
+    playFrame(`<div class="form-error">${escapeHtml(e.message)}</div><button type="button" class="pill-button" data-act="close">Close</button>`);
+    playBox.querySelector('[data-act="close"]').addEventListener('click', closePlay);
+  }
+}
+
+function showRound(r) {
+  const title = playing ? `${playing.format} ${gameTitle(playing)}` : '';
+  playFrame(`
+    <div class="duel-play-head">
+      <div>
+        <div class="duel-play-round" id="play-title">Round ${r.round_no} of ${r.total}</div>
+        <div class="duel-play-sub">${title} · who does the site say wins?</div>
       </div>
-      <div class="duel-clock"><div class="duel-clock-bar"></div><span class="duel-clock-num"></span></div>
-      <div class="duel-choices">
-        ${[r.a, r.b].map((s) => `
-          <button type="button" class="duel-choice" data-pick="${s.id}">
-            ${sideTileHtml(s, 320)}
-            <span class="duel-choice-name">${escapeHtml(bareName(s.name))}</span>
-            <span class="duel-choice-series">${escapeHtml(s.series)}${s.form ? ` · ${escapeHtml(s.form)}` : ''}</span>
-          </button>`).join('<span class="duel-choice-vs">vs</span>')}
-      </div>
-      <div class="duel-play-status" aria-live="polite"></div>
-    </div>`;
+      <button type="button" class="duel-play-close" aria-label="Close (the clock keeps running)" title="Close (the clock keeps running)">✕</button>
+    </div>
+    <div class="duel-clock"><div class="duel-clock-bar"></div><span class="duel-clock-num"></span></div>
+    <div class="duel-choices">
+      ${[r.a, r.b].map((s) => `
+        <button type="button" class="duel-choice" data-pick="${s.id}">
+          ${sideTileHtml(s, 320)}
+          <span class="duel-choice-name">${escapeHtml(bareName(s.name))}</span>
+          <span class="duel-choice-series">${escapeHtml(s.series)}${s.form ? ` · ${escapeHtml(s.form)}` : ''}</span>
+        </button>`).join('<span class="duel-choice-vs">vs</span>')}
+    </div>
+    <div class="duel-play-status" aria-live="polite"></div>`);
   const bar = playBox.querySelector('.duel-clock-bar');
   const num = playBox.querySelector('.duel-clock-num');
   const status = playBox.querySelector('.duel-play-status');
   const endAt = performance.now() + r.seconds_left * 1000;
   let locked = false;
+  const lock = () => {
+    locked = true;
+    clearInterval(timer);
+    playBox.querySelectorAll('.duel-choice').forEach((b) => { b.disabled = true; });
+  };
 
   const tick = () => {
     const left = Math.max(0, (endAt - performance.now()) / 1000);
@@ -378,11 +502,9 @@ function showRound(r, g) {
     bar.classList.toggle('urgent', left <= 5);
     num.textContent = Math.ceil(left);
     if (left <= 0 && !locked) {
-      locked = true;
-      clearInterval(timer);
-      playBox.querySelectorAll('.duel-choice').forEach((b) => { b.disabled = true; });
+      lock();
       status.textContent = "Time's up: this round counts as wrong.";
-      setTimeout(() => play(g.id), 1200);
+      setTimeout(() => play(r.game_id), 1000);
     }
   };
   clearInterval(timer);
@@ -394,41 +516,45 @@ function showRound(r, g) {
   });
   playBox.querySelectorAll('.duel-choice').forEach((btn) => btn.addEventListener('click', async () => {
     if (locked) return;
-    locked = true;
-    clearInterval(timer);
-    playBox.querySelectorAll('.duel-choice').forEach((b) => { b.disabled = true; });
+    lock();
     btn.classList.add('chosen');
     status.textContent = 'Locked in';
     try {
-      const { in_time: inTime } = await Api.pickRound(g.id, r.round_no, Number(btn.dataset.pick));
-      if (!inTime) status.textContent = 'Too late: this round counts as wrong.';
+      const res = await Api.pickRound(r.game_id, r.round_no, Number(btn.dataset.pick));
+      if (!res.in_time) status.textContent = 'Too late: this round counts as wrong.';
+      // The next round is already in the response - its clock started
+      // with it, so show it straight away.
+      setTimeout(() => (res.next ? showRound(res.next) : showFinished(r.game_id)), res.in_time ? 250 : 900);
     } catch (e) {
       status.textContent = e.message;
+      setTimeout(() => play(r.game_id), 900);
     }
-    setTimeout(() => play(g.id), 700);
   }));
 }
 
-function showFinished(g) {
+async function showFinished(gameId) {
   clearInterval(timer);
-  const them = other(g);
-  const body = g.status === 'done'
-    ? `<div class="duel-final ${g.outcome}">${{ win: 'You won', loss: 'You lost', draw: "It's a draw" }[g.outcome] || 'Finished'}</div>
-       <div class="duel-final-score">${g.my_score} – ${g.their_score}</div>
-       ${resultsHtml(g)}`
-    : `<div class="duel-final">All ${g.total} locked in</div>
-       <div class="duel-note">${g.status === 'open'
-          ? 'Results come once someone accepts and plays their rounds.'
-          : `Results come once ${them ? escapeHtml(them.username) : 'your opponent'} has played (${g.their_played}/${g.total} so far).`}</div>`;
-  playBox.innerHTML = `
-    <div class="duel-play-inner">
-      <div class="duel-play-head">
-        <div class="duel-play-round" id="play-title">${them ? `vs ${escapeHtml(them.username)}` : 'Open challenge'}</div>
-        <button type="button" class="duel-play-close" aria-label="Close">✕</button>
-      </div>
-      ${body}
-      <button type="button" class="btn-gold duel-done-btn">Done</button>
-    </div>`;
+  let g = null;
+  try { g = await Api.getGame(gameId); } catch { /* fall through with what we have */ }
+  g = g || playing;
+  const others = g ? g.players.filter((p) => !p.me && p.played < g.total).map((p) => p.username) : [];
+  let body;
+  if (g && g.status === 'done') {
+    body = `<div class="duel-final ${g.outcome}">${{ win: 'You won', loss: 'You lost', draw: "It's a draw" }[g.outcome] || 'Game over'}</div>
+      <div class="duel-final-score">${scoreLine(g)}</div>${resultsHtml(g)}`;
+  } else {
+    const wait = g && g.status === 'open'
+      ? 'Results come once the game fills and everyone has played.'
+      : `Results come once ${others.length ? others.map(escapeHtml).join(', ') : 'everyone'} ${others.length === 1 ? 'has' : 'have'} played.`;
+    body = `<div class="duel-final">All ${g ? g.total : 5} locked in</div><div class="duel-note">${wait}</div>`;
+  }
+  playFrame(`
+    <div class="duel-play-head">
+      <div class="duel-play-round" id="play-title">${g ? `${g.format} ${gameTitle(g)}` : 'Game'}</div>
+      <button type="button" class="duel-play-close" aria-label="Close">✕</button>
+    </div>
+    ${body}
+    <button type="button" class="btn-gold duel-done-btn">Done</button>`);
   playBox.querySelectorAll('.duel-play-close, .duel-done-btn').forEach((b) => b.addEventListener('click', closePlay));
 }
 
@@ -443,14 +569,15 @@ document.addEventListener('keydown', (e) => {
   renderNew();
   renderLeaderboard();
   await refresh();
-  // A shared link: duels.html?game=ID opens that game - to accept it, or
+  liveCheck();
+  // A shared link: duels.html?game=ID opens that game - to join it, or
   // straight to its rounds or results.
   const id = Number(new URLSearchParams(location.search).get('game'));
   if (!id || !me) return;
   const g = [...games.mine, ...games.open].find((x) => x.id === id) || await Api.getGame(id).catch(() => null);
   if (!g) return;
-  if (g.can_accept && confirm(`Accept ${g.creator.username}'s challenge and play now?`)) {
-    try { await Api.acceptGame(id); await refresh(); play(id); } catch (e) { alert(e.message); }
+  if (g.can_join && confirm(`Join ${g.creator}'s ${g.format} and play now?`)) {
+    try { await Api.joinGame(id, null); await refresh(); play(id); } catch (e) { alert(e.message); }
   } else if (g.can_play && g.my_played < g.total) {
     play(id);
   } else if (g.status === 'done') {

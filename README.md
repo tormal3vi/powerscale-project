@@ -21,10 +21,11 @@ reasoning shown.
 - **Matchup comments:** every matchup has its own comment thread, under
   the verdict on its Compare page.
 - **Tournaments:** seed 8 or 16 characters and watch the bracket play out.
-- **Prediction duels:** challenge anyone (or one user) to five matchups,
-  20 seconds each, and call who the site's verdict favors. Rounds are
-  random or picked by the challenger; answers stay hidden until both have
-  played. Wins go on your profile and a leaderboard.
+- **Prediction duels:** five matchups, 20 seconds each - call who the
+  site's verdict favors. 1v1, free-for-alls (1v1v1, 1v1v1v1) or teams (2v2,
+  2v2v2, 3v3), open to anyone or invite-only. Rounds are random or picked
+  by the challenger; answers stay hidden until everyone has played. The
+  page updates live, and wins go on your profile and a leaderboard.
 - **The Board:** a small message board. Post takes, attach a matchup (with
   a live verdict preview), like, and reply.
 - **Accounts:** profile picture, bio and favorite character, which show next

@@ -1056,7 +1056,7 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
 .composer .form-error { margin-top: 8px; }
 
 .post { display: flex; gap: 14px; padding: 22px 0; border-bottom: 1px solid var(--divider); }
-.post-avatar, .reply-avatar {
+.post-avatar, .reply-avatar, .mc-avatar, .lb-avatar, .duel-avatar {
   flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   font-family: var(--font-serif); font-weight: 700; color: var(--bg);
 }
@@ -1165,7 +1165,7 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
   background: var(--accent-gold); color: var(--bg); border: none; font-weight: 700;
   font-size: 10.5px; letter-spacing: 0.05em; padding: 4px 9px; gap: 5px;
 }
-.post-avatar.is-admin, .reply-avatar.is-admin { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--accent-gold); }
+.post-avatar.is-admin, .reply-avatar.is-admin, .mc-avatar.is-admin, .lb-avatar.is-admin { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--accent-gold); }
 
 /* Posts an admin overrule makes on its own - a boxed gold card, not a feed row. */
 .post.post-ruling {
@@ -1725,6 +1725,10 @@ body.modal-open { overflow: hidden; }
 }
 .duel-input[hidden] { display: none; }
 .duel-input:focus { border-color: var(--text-quaternary); }
+.seg-wrap { flex-wrap: wrap; border-radius: var(--radius-md); }
+.duel-invites { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin-top: 10px; max-width: 560px; }
+.duel-invites[hidden] { display: none; }
+.duel-invites .duel-input { margin-top: 0; max-width: none; }
 .duel-pickers { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .duel-pickers[hidden], .duel-add[hidden] { display: none; }
 .duel-add {
@@ -1752,7 +1756,31 @@ body.modal-open { overflow: hidden; }
   color: var(--text-quaternary); font: 700 16px var(--font-serif); box-sizing: border-box;
 }
 .duel-row-text { flex: 1; min-width: 0; }
-.duel-row-title { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14.5px; }
+.duel-stack { display: inline-flex; flex-shrink: 0; }
+.duel-avatar-stack { width: 34px; height: 34px; border-radius: 50%; font-size: 14px; border: 2px solid var(--card); box-sizing: border-box; }
+.duel-avatar-stack + .duel-avatar-stack { margin-left: -10px; }
+.duel-avatar-stack.duel-avatar-open { border: 1.5px dashed var(--control-border); background: var(--card); font-size: 13px; }
+.duel-avatar-stack.is-admin { border-color: var(--accent-gold); }
+.duel-format {
+  font: 600 11px var(--font-mono); color: var(--accent-gold); border: 1px solid rgba(217, 164, 65, 0.45);
+  border-radius: 5px; padding: 1px 6px; margin-right: 8px; flex-shrink: 0;
+}
+.duel-standings { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--divider); }
+.duel-standing { display: flex; align-items: baseline; gap: 10px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--pill-bg); font-size: 13.5px; }
+.duel-standing.top { box-shadow: inset 0 0 0 1px var(--accent-gold); }
+.duel-standing.mine .duel-standing-names { color: var(--text-primary); font-weight: 600; }
+.duel-standing-team { font: 600 11px var(--font-mono); color: var(--text-quaternary); text-transform: uppercase; min-width: 52px; }
+.duel-standing-names { flex: 1; min-width: 0; color: var(--text-secondary); }
+.duel-standing-pts { font: 500 11px var(--font-mono); color: var(--text-quaternary); }
+.duel-standing-score { font: 700 16px var(--font-mono); }
+.duel-standing.top .duel-standing-score { color: var(--accent-gold); }
+.duel-toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 90;
+  display: flex; align-items: center; gap: 14px; max-width: calc(100vw - 32px); box-sizing: border-box;
+  background: var(--card); border: 1px solid var(--accent-gold); border-radius: var(--radius-md);
+  padding: 12px 14px 12px 18px; font-size: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.duel-row-title { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14.5px; flex-wrap: wrap; }
 .duel-row-status { font-size: 13px; color: var(--text-tertiary); margin-top: 2px; }
 .duel-row-buttons { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .duel-row-buttons .btn-sm { padding: 8px 14px; font-size: 13px; }
@@ -1837,7 +1865,7 @@ body.duel-playing { overflow: hidden; }
 @media (max-width: 640px) {
   .duel-card { padding: 20px; }
   .duel-row-main { flex-wrap: wrap; }
-  .duel-row-buttons { width: 100%; justify-content: flex-start; padding-left: 50px; }
+  .duel-row-buttons { width: 100%; justify-content: flex-start; }
   .duel-play { padding: 16px; align-items: flex-start; }
   .duel-play-round { font-size: 21px; }
   .duel-choices { grid-template-columns: 1fr; gap: 10px; }

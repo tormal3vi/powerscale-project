@@ -330,26 +330,28 @@ def test_matchup_comments_are_shared_by_both_orders_and_leave_with_the_account()
 
 def _play(game_id, user_id, right):
     """Plays every round, picking the answer (right=True) or the other side."""
-    from sqlalchemy import select
-    while True:
-        r = duels.next_round(game_id, user_id)
-        if r is None:
-            return
+    r = duels.next_round(game_id, user_id)
+    while r is not None:
         wrong = r["char_b"] if r["answer_id"] == r["char_a"] else r["char_a"]
-        assert duels.pick(game_id, user_id, r["round_no"], r["answer_id"] if right else wrong)
+        in_time, r_next = duels.pick(game_id, user_id, r["round_no"], r["answer_id"] if right else wrong)
+        assert in_time
+        r = r_next  # the next round comes back with the pick
+
+
+def _users(*names):
+    return [community.create_user(n, "password123") for n in names]
 
 
 def test_duel_best_of_five_decides_a_winner_and_keeps_records():
-    alice = community.create_user("duel_alice", "password123")
-    bob = community.create_user("duel_bob", "password123")
-    game_id = duels.create(alice["id"], None, [])
-    _play(game_id, alice["id"], right=True)  # the creator can play before anyone accepts
-    assert duels.game(game_id, alice["id"])["game"]["status"] == "open"
-    duels.accept(game_id, bob["id"])
-    assert duels.game(game_id, bob["id"])["game"]["status"] == "active"
+    alice, bob = _users("duel_alice", "duel_bob")
+    game_id = duels.create(alice["id"], "1v1", [], [])
+    _play(game_id, alice["id"], right=True)  # the creator can play before anyone joins
+    assert duels.game(game_id)["games"][0]["status"] == "open"
+    duels.join(game_id, bob["id"])
+    assert duels.game(game_id)["games"][0]["status"] == "active"
     _play(game_id, bob["id"], right=False)
-    g = duels.game(game_id, alice["id"])["game"]
-    assert g["status"] == "done" and g["winner_id"] == alice["id"]
+    g = duels.game(game_id)["games"][0]
+    assert g["status"] == "done" and g["winning_team"] == 1
     recs = duels.records([alice["id"], bob["id"]])
     assert recs[alice["id"]] == {"wins": 1, "draws": 0, "losses": 0}
     assert recs[bob["id"]] == {"wins": 0, "draws": 0, "losses": 1}
@@ -359,47 +361,93 @@ def test_duel_best_of_five_decides_a_winner_and_keeps_records():
 def test_duel_late_picks_count_as_wrong_and_reloads_keep_the_clock():
     from datetime import timedelta
     from sqlalchemy import update
-    carol = community.create_user("duel_carol", "password123")
-    game_id = duels.create(carol["id"], None, [])
+    (carol,) = _users("duel_carol")
+    game_id = duels.create(carol["id"], "1v1", [], [])
     first = duels.next_round(game_id, carol["id"])
     again = duels.next_round(game_id, carol["id"])
     assert again["round_no"] == first["round_no"] and again["seconds_left"] <= first["seconds_left"]
     with community.engine.begin() as conn:  # the round was shown a minute ago
         conn.execute(update(duels.game_picks).where(duels.game_picks.c.game_id == game_id)
                      .values(started_at=community._now() - timedelta(seconds=60)))
-    assert duels.pick(game_id, carol["id"], first["round_no"], first["answer_id"]) is False
+    in_time, nxt = duels.pick(game_id, carol["id"], first["round_no"], first["answer_id"])
+    assert in_time is False and nxt["round_no"] == first["round_no"] + 1
 
 
-def test_duel_challenges_can_only_be_taken_once_and_by_whoever_was_invited():
-    dan = community.create_user("duel_dan", "password123")
-    eve = community.create_user("duel_eve", "password123")
-    fay = community.create_user("duel_fay", "password123")
-    open_game = duels.create(dan["id"], None, [])
-    for bad in (lambda: duels.accept(open_game, dan["id"]),):  # your own challenge
-        try:
-            bad()
-            assert False
-        except duels.DuelError:
-            pass
-    duels.accept(open_game, eve["id"])
+def _raises(fn, status=None, text=None):
     try:
-        duels.accept(open_game, fay["id"])
-        assert False, "a second accept must fail"
+        fn()
     except duels.DuelError as exc:
-        assert exc.status == 409
-    invite = duels.create(dan["id"], "DUEL_EVE", [])  # usernames match any case
-    try:
-        duels.accept(invite, fay["id"])
-        assert False, "only the invited user may accept"
-    except duels.DuelError as exc:
-        assert exc.status == 403
-    duels.decline(invite, eve["id"])
-    assert duels.game(invite, dan["id"])["game"]["status"] == "declined"
+        assert status is None or exc.status == status, exc.status
+        assert text is None or text in str(exc), str(exc)
+        return
+    assert False, "expected a DuelError"
+
+
+def test_duel_seats_invites_and_leaving():
+    dan, eve, fay = _users("duel_dan", "duel_eve", "duel_fay")
+    open_game = duels.create(dan["id"], "1v1", [], [])
+    _raises(lambda: duels.join(open_game, dan["id"]), 409)  # already in it: made it
+    duels.join(open_game, eve["id"])
+    _raises(lambda: duels.join(open_game, fay["id"]), 409)  # full
+    private = duels.create(dan["id"], "1v1", ["DUEL_EVE"], [])  # usernames match any case
+    _raises(lambda: duels.join(private, fay["id"]), 403)
+    duels.decline(private, eve["id"])
+    assert duels.game(private)["games"][0]["status"] == "declined"
+    _raises(lambda: duels.create(dan["id"], "2v2", ["duel_eve"], []), text="needs 3 invited")
+    lobby = duels.create(dan["id"], "1v1v1", [], [])
+    duels.join(lobby, fay["id"])
+    duels.leave(lobby, fay["id"])  # before playing, a joiner can still back out
+    assert [m["user_id"] for m in duels.game(lobby)["members"][lobby]] == [dan["id"]]
+
+
+def test_team_games_add_up_members_and_share_the_result():
+    a1, a2, b1, b2 = _users("team_a1", "team_a2", "team_b1", "team_b2")
+    game_id = duels.create(a1["id"], "2v2", [], [])
+    duels.join(game_id, a2["id"], 1)
+    _raises(lambda: duels.join(game_id, b1["id"], 1), 409, "team is full")
+    duels.join(game_id, b1["id"])  # placed on the team with room
+    duels.join(game_id, b2["id"], 2)
+    assert duels.game(game_id)["games"][0]["status"] == "active"
+    _play(game_id, a1["id"], right=True)
+    _play(game_id, a2["id"], right=False)  # team 1: 5 + 0
+    _play(game_id, b1["id"], right=True)
+    _play(game_id, b2["id"], right=True)  # team 2: 5 + 5
+    g = duels.game(game_id)["games"][0]
+    assert g["status"] == "done" and g["winning_team"] == 2
+    recs = duels.records([a1["id"], b2["id"]])
+    assert recs[a1["id"]]["losses"] == 1 and recs[b2["id"]]["wins"] == 1
+
+
+def test_free_for_all_ties_at_the_top_are_draws():
+    x, y, z = _users("ffa_x", "ffa_y", "ffa_z")
+    game_id = duels.create(x["id"], "1v1v1", [], [])
+    duels.join(game_id, y["id"])
+    duels.join(game_id, z["id"])
+    for u, right in ((x, True), (y, True), (z, False)):
+        _play(game_id, u["id"], right)
+    recs = duels.records([x["id"], y["id"], z["id"]])
+    assert recs[x["id"]]["draws"] == 1 and recs[y["id"]]["draws"] == 1 and recs[z["id"]]["losses"] == 1
+    assert duels.game(game_id)["games"][0]["winning_team"] is None
+
+
+def test_games_from_before_teams_get_players_and_outcomes():
+    from sqlalchemy import insert
+    old_a, old_b = _users("old_a", "old_b")
+    now = community._now()
+    with community.engine.begin() as conn:
+        gid = conn.execute(insert(duels.games).values(
+            creator_id=old_a["id"], opponent_id=old_b["id"], status="done", created_at=now,
+            accepted_at=now, finished_at=now, winner_id=old_b["id"])).inserted_primary_key[0]
+    duels._migrate()
+    members = {m["user_id"]: m for m in duels.game(gid)["members"][gid]}
+    assert members[old_a["id"]]["team"] == 1 and members[old_a["id"]]["outcome"] == "loss"
+    assert members[old_b["id"]]["team"] == 2 and members[old_b["id"]]["outcome"] == "win"
+    assert duels.game(gid)["games"][0]["winning_team"] == 2
 
 
 def test_duel_picked_matchups_need_a_clear_winner():
     from backend import characters
-    gina = community.create_user("duel_gina", "password123")
+    (gina,) = _users("duel_gina")
     pool = characters.scorable_pool()
     clear = close = None
     for i, (a, ta) in enumerate(pool[:300]):
@@ -413,16 +461,13 @@ def test_duel_picked_matchups_need_a_clear_winner():
                 close = (a, b)
         if clear and close:
             break
-    game_id = duels.create(gina["id"], None, [{"char_a": clear[0], "char_b": clear[1]}])
+    game_id = duels.create(gina["id"], "1v1", [], [{"char_a": clear[0], "char_b": clear[1]}])
     from sqlalchemy import select
     with community.engine.connect() as conn:
         rounds = conn.execute(select(duels.game_rounds).where(duels.game_rounds.c.game_id == game_id)).mappings().all()
     assert len(rounds) == duels.ROUNDS and sum(r["picked"] for r in rounds) == 1
-    try:
-        duels.create(gina["id"], None, [{"char_a": close[0], "char_b": close[1]}])
-        assert False, "a too-close matchup can't be a round"
-    except duels.DuelError as exc:
-        assert "no clear winner" in str(exc)
+    _raises(lambda: duels.create(gina["id"], "1v1", [], [{"char_a": close[0], "char_b": close[1]}]),
+            text="no clear winner")
 
 
 def test_rate_limiter_blocks_after_the_limit_per_key():
