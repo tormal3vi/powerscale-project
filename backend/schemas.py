@@ -77,6 +77,9 @@ class CharacterSummaryOut(BaseModel):
     subseries: Optional[str] = None
     tier_label: Optional[str] = None  # highest-tier form's Tier, for the card badge
     tier_score: Optional[float] = None  # same form's numeric Tier - for sorting by strength
+    # Same form's Attack Potency, Durability, Speed: tie-breakers, since
+    # ~2,700 characters share only ~50 distinct Tier scores.
+    tiebreak: List[Optional[float]] = []
     aliases: str = ""  # the full stored name/alias list - searchable, not displayed
     scorable: bool = False  # default form has 2+ scored stats (can get a verdict)
     form_count: int = 1

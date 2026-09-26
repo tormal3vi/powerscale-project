@@ -138,14 +138,39 @@ function filteredCharacters() {
   });
   if (state.sort !== 'alpha') {
     const dir = state.sort === 'strong' ? -1 : 1;
-    // Unscored tiers always sort last, whichever direction.
     list.sort((a, b) => {
-      if (a.tier_score == null) return b.tier_score == null ? 0 : 1;
-      if (b.tier_score == null) return -1;
-      return dir * (a.tier_score - b.tier_score);
+      const ka = strengthKey(a), kb = strengthKey(b);
+      for (let i = 0; i < ka.length; i++) {
+        // Unscored always last, whichever direction.
+        if (ka[i] == null || kb[i] == null) {
+          if (ka[i] != null) return -1;
+          if (kb[i] != null) return 1;
+          continue;
+        }
+        if (ka[i] !== kb[i]) return dir * (ka[i] - kb[i]);
+      }
+      return 0; // a real tie: stays A-Z
     });
   }
   return list;
+}
+
+// Tier first, then Attack Potency, Durability and Speed. Tier alone left
+// ~2,700 characters on ~50 distinct values, so rank order within a tier
+// was just alphabetical and shuffled from one view to the next.
+function strengthKey(c) {
+  return [c.tier_score, ...(c.tiebreak || [])];
+}
+
+// Characters equal on every stat share a rank: #12, #12, #14.
+function rankNumbers(list) {
+  const ranks = [];
+  list.forEach((c, i) => {
+    const prev = list[i - 1];
+    const same = prev && strengthKey(prev).every((v, k) => v === strengthKey(c)[k]);
+    ranks.push(c.tier_score == null ? null : same ? ranks[i - 1] : i + 1);
+  });
+  return ranks;
 }
 
 // "HIGH 3-A" -> "High 3-A"
@@ -244,7 +269,7 @@ function renderGrid() {
     });
     gridNote.appendChild(showAllBtn);
   } else if (state.sort !== 'alpha') {
-    gridNote.textContent = `${matches.length.toLocaleString()} characters, ranked by their default form's Tier.`;
+    gridNote.textContent = `${matches.length.toLocaleString()} characters, ranked by their default form's Tier, then Attack Potency, Durability and Speed.`;
   } else {
     gridNote.textContent = '';
   }
@@ -255,7 +280,8 @@ function renderGrid() {
 
   const ranked = state.sort !== 'alpha';
   const frag = document.createDocumentFragment();
-  list.forEach((c, i) => frag.appendChild(characterCard(c, ranked && c.tier_score != null ? i + 1 : null)));
+  const ranks = ranked ? rankNumbers(list) : [];
+  list.forEach((c, i) => frag.appendChild(characterCard(c, ranks[i] || null)));
   grid.appendChild(frag);
 }
 

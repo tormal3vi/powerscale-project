@@ -77,9 +77,10 @@ def _tier_badge(normalized: dict) -> Optional[str]:
 
 
 def _card_info(normalized: dict) -> tuple:
-    """(tier badge label, tier score, scorable) for the default form."""
+    """(tier badge label, tier score, scorable, tie-breakers) for the default
+    form - the tie-breakers being its AP, Durability and Speed scores."""
     if not normalized.get("forms"):
-        return None, None, False
+        return None, None, False, []
     form = calculator.select_form(normalized)
     tier = form.get("tier") or {}
     label = tier.get("baseline_label")
@@ -87,7 +88,8 @@ def _card_info(normalized: dict) -> tuple:
         1 for axis in calculator.AXES
         if (form.get(axis) or {}).get("baseline") is not None or (form.get(axis) or {}).get("peak") is not None
     )
-    return (label.upper() if label else None), tier.get("baseline"), scored >= calculator.MIN_AXES_FOR_VERDICT
+    tiebreak = [(form.get(axis) or {}).get("baseline") for axis in ("attack_potency", "durability", "speed")]
+    return (label.upper() if label else None), tier.get("baseline"), scored >= calculator.MIN_AXES_FOR_VERDICT, tiebreak
 
 
 def _form_out(raw_form: dict, normalized_form: dict, use_form_images: bool = True) -> FormOut:
@@ -200,7 +202,7 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
     for row in rows:
         normalized = json.loads(row["normalized_json"])
         forms = normalized.get("forms") or []
-        tier_label, tier_score, scorable = _card_info(normalized)
+        tier_label, tier_score, scorable, tiebreak = _card_info(normalized)
         out.append(CharacterSummaryOut(
             id=row["id"],
             name=characters.display_name(row["name"], row["source_url"], colliding),
@@ -208,6 +210,7 @@ def list_characters(q: Optional[str] = None, category: Optional[str] = None):
             subseries=row["subseries"],
             tier_label=tier_label,
             tier_score=tier_score,
+            tiebreak=tiebreak,
             aliases=row["name"],
             scorable=scorable,
             form_count=len(forms) or 1,
