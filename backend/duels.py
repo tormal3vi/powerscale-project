@@ -28,7 +28,7 @@ from sqlalchemy import (
     update,
 )
 
-from backend import characters, community
+from backend import characters, community, prewarm
 from backend.community import _aware, _now, avatars, engine, metadata, users
 
 ROUNDS = 5
@@ -58,6 +58,8 @@ games = Table(
     Column("teams", Integer, nullable=True),  # NULL on old rows: 2
     Column("team_size", Integer, nullable=True),  # NULL on old rows: 1
     Column("winning_team", Integer, nullable=True),  # NULL once done: a draw at the top
+    Column("picked", Integer, nullable=True),  # how many rounds the creator chose (NULL on old rows)
+    Column("excluded", String(1000), nullable=True),  # series left out of the random rounds, "|"-joined
 )
 game_players = Table(
     "game_players", metadata,
@@ -102,7 +104,8 @@ def _migrate() -> None:
     each old game its player rows, invite and outcomes."""
     with engine.begin() as conn:
         community.add_missing_columns(conn, "games", [
-            ("teams", "INTEGER"), ("team_size", "INTEGER"), ("winning_team", "INTEGER")])
+            ("teams", "INTEGER"), ("team_size", "INTEGER"), ("winning_team", "INTEGER"),
+            ("picked", "INTEGER"), ("excluded", "VARCHAR(1000)")])
         has_players = select(game_players.c.game_id).where(game_players.c.game_id == games.c.id).exists()
         old = conn.execute(select(games).where(~has_players)).mappings().all()
         for g in old:
@@ -176,8 +179,10 @@ def _answer(a: int, b: int, form_a: Optional[str], form_b: Optional[str]) -> Opt
             "answer_id": winner, "verdict": verdict}
 
 
-def _random_rounds(n: int, taken: set) -> List[dict]:
-    pool = characters.scorable_pool()
+def _random_rounds(n: int, taken: set, excluded: frozenset = frozenset()) -> List[dict]:
+    pool = [(cid, tier) for cid, tier, series in characters.scorable_pool() if series not in excluded]
+    if n and len(pool) < 20:
+        raise DuelError("Too few characters left to draw from - exclude fewer series")
     rounds, tries = [], 0
     while len(rounds) < n and tries < 60 * n:
         tries += 1
@@ -209,9 +214,12 @@ def format_name(g: dict) -> str:
     return "v".join([str(size)] * teams)
 
 
-def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict]) -> int:
+def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exclude: List[str] = ()) -> int:
+    """`exclude`: series whose characters the random rounds leave out
+    (picked matchups are the creator's own choice either way)."""
     if fmt not in FORMATS:
         raise DuelError("Unknown format")
+    excluded = frozenset(s.strip() for s in exclude if s and s.strip())
     teams, size = FORMATS[fmt]
     seats = teams * size - 1
     names = [n.strip() for n in invite if n and n.strip()]
@@ -244,12 +252,14 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict]) -> 
             raise DuelError(f"Matchup {i} is already in this challenge")
         taken.add(frozenset((r["char_a"], r["char_b"])))
         rounds.append({**r, "picked": True})
-    rounds += _random_rounds(ROUNDS - len(rounds), taken)
+    n_picked = len(rounds)
+    rounds += _random_rounds(ROUNDS - len(rounds), taken, excluded)
     random.shuffle(rounds)
     now = _now()
     with engine.begin() as conn:
         game_id = conn.execute(insert(games).values(
             creator_id=creator_id, status="open", created_at=now, teams=teams, team_size=size,
+            picked=n_picked, excluded="|".join(sorted(excluded)) or None,
         )).inserted_primary_key[0]
         conn.execute(insert(game_players).values(game_id=game_id, user_id=creator_id, team=1, joined_at=now))
         if invitees:
@@ -257,6 +267,7 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict]) -> 
         conn.execute(insert(game_rounds), [{"game_id": game_id, "round_no": i, **r}
                                            for i, r in enumerate(rounds, start=1)])
     _changed()
+    prewarm.round_pictures([(r["char_a"], r["char_b"]) for r in rounds])
     return game_id
 
 

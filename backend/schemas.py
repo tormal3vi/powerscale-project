@@ -339,6 +339,7 @@ class DuelCreateIn(BaseModel):
     format: str = "1v1"  # see duels.FORMATS
     invite: List[str] = Field([], max_length=5)  # usernames for a private game; empty: open to anyone
     matchups: List[DuelMatchupIn] = Field([], max_length=5)  # picked ones; the rest are random
+    exclude: List[str] = Field([], max_length=100)  # series left out of the random rounds
 
 
 class DuelJoinIn(BaseModel):
@@ -414,6 +415,8 @@ class DuelOut(BaseModel):
     invited: List[str] = []  # invited players who haven't joined yet
     private: bool = False
     seats_left: int = 0
+    picked: Optional[int] = None  # rounds the creator chose; the rest are random (None: not recorded)
+    excluded: List[str] = []  # series left out of the random rounds
     my_team: Optional[int] = None
     my_played: int = 0
     total: int = 5

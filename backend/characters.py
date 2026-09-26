@@ -166,12 +166,12 @@ def invalidate() -> None:
 
 
 @functools.lru_cache(maxsize=1)
-def scorable_pool() -> Tuple[Tuple[int, float], ...]:
-    """(id, Tier score) of every character whose default form can get a
-    verdict - what prediction duels draw random matchups from."""
+def scorable_pool() -> Tuple[Tuple[int, float, str], ...]:
+    """(id, Tier score, series) of every character whose default form can
+    get a verdict - what prediction duels draw random matchups from."""
     pool = []
     with db.connect() as conn:
-        for row in conn.execute("SELECT id, normalized_json FROM characters"):
+        for row in conn.execute("SELECT id, category, normalized_json FROM characters"):
             normalized = json.loads(row["normalized_json"])
             if not normalized.get("forms"):
                 continue
@@ -179,7 +179,7 @@ def scorable_pool() -> Tuple[Tuple[int, float], ...]:
             tier = (form.get("tier") or {}).get("baseline")
             scored = sum(1 for axis in calculator.AXES if (form.get(axis) or {}).get("baseline") is not None)
             if tier is not None and scored >= calculator.MIN_AXES_FOR_VERDICT:
-                pool.append((row["id"], tier))
+                pool.append((row["id"], tier, row["category"] or "Uncategorized"))
     return tuple(pool)
 
 

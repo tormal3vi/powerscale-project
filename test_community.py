@@ -10,6 +10,7 @@ import tempfile
 _DB = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 os.environ["DATABASE_URL"] = f"sqlite:///{_DB.name}"
 os.environ["ADMIN_USERNAMES"] = "Boss, other_admin"
+os.environ["PREWARM_PICTURES"] = "0"  # duels would fetch pictures from the wiki
 
 from backend import community  # noqa: E402  (must import after DATABASE_URL is set)
 from backend import duels  # noqa: E402  (registers its tables before init creates them)
@@ -430,6 +431,21 @@ def test_free_for_all_ties_at_the_top_are_draws():
     assert duels.game(game_id)["games"][0]["winning_team"] is None
 
 
+def test_random_rounds_leave_out_excluded_series():
+    from sqlalchemy import select
+    from backend import characters
+    (hana,) = _users("duel_hana")
+    series = {cid: s for cid, _, s in characters.scorable_pool()}
+    biggest = max(set(series.values()), key=lambda s: sum(1 for x in series.values() if x == s))
+    game_id = duels.create(hana["id"], "1v1", [], [], [biggest])
+    with community.engine.connect() as conn:
+        rounds = conn.execute(select(duels.game_rounds).where(duels.game_rounds.c.game_id == game_id)).mappings().all()
+    assert all(series[r["char_a"]] != biggest and series[r["char_b"]] != biggest for r in rounds)
+    assert duels.game(game_id)["games"][0]["excluded"] == biggest
+    everything = sorted(set(series.values()))
+    _raises(lambda: duels.create(hana["id"], "1v1", [], [], everything), text="exclude fewer")
+
+
 def test_games_from_before_teams_get_players_and_outcomes():
     from sqlalchemy import insert
     old_a, old_b = _users("old_a", "old_b")
@@ -450,8 +466,8 @@ def test_duel_picked_matchups_need_a_clear_winner():
     (gina,) = _users("duel_gina")
     pool = characters.scorable_pool()
     clear = close = None
-    for i, (a, ta) in enumerate(pool[:300]):
-        for b, tb in pool[i + 1:i + 40]:
+    for i, (a, _, _) in enumerate(pool[:300]):
+        for b, _, _ in pool[i + 1:i + 40]:
             v = characters.run_compare(a, b, None, None)
             if v.favored and not clear:
                 clear = (a, b)

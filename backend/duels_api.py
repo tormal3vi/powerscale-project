@@ -83,6 +83,7 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
         teams=teams, team_size=size, creator=person(g["creator_id"])[0], players=out_players,
         invited=[person(u)[0] for u in invited if u not in member_ids], private=bool(invited),
         seats_left=teams * size - len(members) if g["status"] == "open" else 0,
+        picked=g.get("picked"), excluded=[s for s in (g.get("excluded") or "").split("|") if s],
         my_team=mine["team"] if mine else None,
         my_played=duels.played(picks, g["id"], me, now) if mine else 0, total=duels.ROUNDS,
         can_play=me is not None and duels.can_play(g, me, members),
@@ -157,7 +158,8 @@ def create_game(payload: DuelCreateIn, user: dict = Depends(require_user)):
         for cid in (m.char_a, m.char_b):
             if db.get_character_by_id(cid) is None:
                 raise HTTPException(status_code=404, detail=f"No character with id {cid}")
-    game_id = _run(duels.create, user["id"], payload.format, payload.invite, [m.model_dump() for m in payload.matchups])
+    game_id = _run(duels.create, user["id"], payload.format, payload.invite, [m.model_dump() for m in payload.matchups],
+                   payload.exclude)
     return _one(game_id, user["id"])
 
 
