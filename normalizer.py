@@ -225,6 +225,7 @@ _TIER_TYPO_ALIASES: Dict[str, str] = {
     # Block" too, or its "City Block" would match inside it one tier low.
     # Rihan (Hunter x Hunter) Durability: "At least Peak Human" - no "level".
     "Peak Human": "Athlete level",  # = "Peak Human level" (10-A)
+    "Athletic Human": "Athletic Human level",  # Spellbinder (DCAU) Durability, no "level"
     "City Block": "City Block level",
     "Multi-City Block": "Multi-City Block level",
     "City-Block level+": "City Block level+",
