@@ -16,7 +16,7 @@ from html import escape as html_escape
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -25,7 +25,7 @@ import db
 import normalizer
 import parser as parser_module
 import scraper
-from backend import characters, community, community_api, duels_api, profiles_api, tickets_api
+from backend import characters, community, community_api, duels, duels_api, profiles_api, tickets_api
 from backend.schemas import (
     AbilityFlagOut,
     AxisComparisonOut,
@@ -347,23 +347,55 @@ def _preview_image(char_id: int) -> Optional[str]:
     return f"{path}/top-crop/width/400/height/400" + (f"?{query}" if query else "")
 
 
-def _page_with_preview(filename: str, title: Optional[str], description: Optional[str],
+# Every page gets a card: its own title and a line about the site, unless
+# a page below writes a more specific one (a matchup, a character, a duel,
+# a profile, a tournament).
+SITE_DESCRIPTION = ("Who would win? Compare VS Battles Wiki characters' tiers and stats, "
+                    "run tournaments, and duel other fans on the verdicts.")
+PAGE_TITLES = {
+    "browse.html": "Powerscale — who would win?",
+    "compare.html": "Compare — Powerscale",
+    "character.html": "Character — Powerscale",
+    "tournament.html": "Tournament — Powerscale",
+    "duels.html": "Duels — Powerscale",
+    "board.html": "Board — Powerscale",
+    "user.html": "Profile — Powerscale",
+    "login.html": "Log in — Powerscale",
+    "profile.html": "Your profile — Powerscale",
+    "tickets.html": "Tickets — Powerscale",
+}
+SITE_IMAGE = "/apple-touch-icon.png"
+
+
+def _base_url(request: Request) -> str:
+    """This site's origin as the visitor sees it (Render's proxy says
+    https in X-Forwarded-Proto) - link previews need absolute image URLs."""
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+    return f"{proto}://{request.headers.get('host', request.url.netloc)}"
+
+
+def _page_with_preview(request: Request, filename: str, title: Optional[str], description: Optional[str],
                        image: Optional[str] = None) -> HTMLResponse:
     html = (FRONTEND_DIR / filename).read_text(encoding="utf-8")
-    if title:
-        t, d = html_escape(title), html_escape(description or "")
-        tags = (
-            f'<meta property="og:title" content="{t}">\n'
-            f'<meta property="og:description" content="{d}">\n'
-            f'<meta property="og:type" content="website">\n'
-            f'<meta property="og:site_name" content="Powerscale">\n'
-            f'<meta name="twitter:card" content="summary">\n'
-            f'<meta name="description" content="{d}">\n'
-        )
-        if image:
-            tags += f'<meta property="og:image" content="{html_escape(image)}">\n'
-        html = html.replace("</head>", tags + "</head>", 1)
-    return HTMLResponse(html)
+    base = _base_url(request)
+    t = html_escape(title or PAGE_TITLES.get(filename, "Powerscale"))
+    d = html_escape(description or SITE_DESCRIPTION)
+    image = image or SITE_IMAGE
+    if image.startswith("/"):
+        image = base + image
+    url = base + request.url.path + (f"?{request.url.query}" if request.url.query else "")
+    tags = (
+        f'<meta property="og:title" content="{t}">\n'
+        f'<meta property="og:description" content="{d}">\n'
+        f'<meta property="og:type" content="website">\n'
+        f'<meta property="og:site_name" content="Powerscale">\n'
+        f'<meta property="og:url" content="{html_escape(url)}">\n'
+        f'<meta property="og:image" content="{html_escape(image)}">\n'
+        f'<meta name="twitter:card" content="summary">\n'
+        f'<meta name="theme-color" content="#D9A441">\n'
+        f'<meta name="description" content="{d}">\n'
+    )
+    return HTMLResponse(html.replace("</head>", tags + "</head>", 1))
 
 
 def _int_param(value: Optional[str]) -> Optional[int]:
@@ -414,6 +446,66 @@ def _character_preview(char_id: Optional[str]):
     return f"{characters.short_name(name)} — Powerscale", desc, _preview_image(cid)
 
 
+def _names(people: List[str]) -> str:
+    return people[0] if len(people) == 1 else ", ".join(people[:-1]) + " & " + people[-1] if people else ""
+
+
+def _duel_preview(game: Optional[str]):
+    gid = _int_param(game)
+    if gid is None:
+        return None, None, None
+    try:
+        g = duels_api._one(gid, None)
+    except HTTPException:
+        return None, None, None
+    kind = f"{'Draft' if g.mode == 'draft' else 'Prediction'} duel · {g.format}"
+    sides = [_names([p.username for p in g.players if p.team == t]) for t in range(1, g.teams + 1)]
+    sides = [x for x in sides if x]
+    title = (" vs ".join(sides) if len(sides) > 1 else f"{g.creator}'s duel") + " — Powerscale"
+    pictured = next((p for p in g.players if p.username == g.creator), None)
+    if g.status == "open":
+        desc = (f"{kind} · {g.seats_left} seat{'s' if g.seats_left != 1 else ''} left"
+                + (" · invite only" if g.private else " · anyone can join")
+                + ". Five rounds, 20 seconds each.")
+    elif g.status == "active":
+        desc = f"{kind} · in progress."
+    elif g.status == "done":
+        winners = [p for p in g.players if p.outcome == "win"]
+        scores = "–".join(str(s) for s in sorted(g.team_scores, reverse=True))  # the winner's first
+        desc = f"{kind} · {_names([p.username for p in winners])} won, {scores}." if winners else f"{kind} · a draw, {scores}."
+        pictured = winners[0] if winners else pictured
+    else:
+        desc = f"{kind} · {g.status}."
+    return title, desc, pictured.avatar_url if pictured else None
+
+
+def _user_preview(username: Optional[str]):
+    profile = community.get_profile(username=username) if username else None
+    if profile is None:
+        return None, None, None
+    out = community_api._profile_out(profile, own=False)
+    rec = out.record
+    parts = [f"Member since {out.member_since:%b %Y}", f"{out.post_count} post{'s' if out.post_count != 1 else ''}"]
+    if rec.wins + rec.draws + rec.losses:
+        parts.append(f"duels {rec.wins}–{rec.draws}–{rec.losses}")
+    if out.favorite:
+        parts.append(f"favorite: {characters.short_name(out.favorite.name)}")
+    desc = " · ".join(parts) + "."
+    if out.bio:
+        desc = f"{out.bio[:160]}{'…' if len(out.bio) > 160 else ''} — {desc}"
+    image = out.avatar_url or (_preview_image(out.favorite.id) if out.favorite else None)
+    return f"{out.username}{' (admin)' if out.is_admin else ''} — Powerscale", desc, image
+
+
+def _tournament_preview(ids: Optional[str]):
+    wanted = [int(x) for x in (ids or "").split(",") if x.isdigit()]
+    names = [characters.short_name(n) for n in (characters.display_name_for_id(i) for i in wanted) if n]
+    if len(names) not in (8, 16) or len(names) != len(wanted):
+        return None, None, None
+    shown = ", ".join(names[:6]) + (f" and {len(names) - 6} more" if len(names) > 6 else "")
+    return f"{len(names)}-character tournament — Powerscale", f"Who takes it? {shown}.", _preview_image(wanted[0])
+
+
 # --- static frontend (mounted once frontend/ exists) -------------------
 # StaticFiles(html=True) serves index.html for a directory request, but
 # frontend/ has no index.html (browse.html is the real landing page) - so
@@ -426,12 +518,33 @@ if FRONTEND_DIR.exists():
         return RedirectResponse(url="/browse.html")
 
     @app.get("/compare.html", include_in_schema=False)
-    def _compare_page(a: Optional[str] = None, b: Optional[str] = None,
+    def _compare_page(request: Request, a: Optional[str] = None, b: Optional[str] = None,
                       fa: Optional[str] = None, fb: Optional[str] = None):
-        return _page_with_preview("compare.html", *_compare_preview(a, b, fa, fb))
+        return _page_with_preview(request, "compare.html", *_compare_preview(a, b, fa, fb))
 
     @app.get("/character.html", include_in_schema=False)
-    def _character_page(id: Optional[str] = None):
-        return _page_with_preview("character.html", *_character_preview(id))
+    def _character_page(request: Request, id: Optional[str] = None):
+        return _page_with_preview(request, "character.html", *_character_preview(id))
+
+    @app.get("/duels.html", include_in_schema=False)
+    def _duels_page(request: Request, game: Optional[str] = None):
+        return _page_with_preview(request, "duels.html", *_duel_preview(game))
+
+    @app.get("/user.html", include_in_schema=False)
+    def _user_page(request: Request, u: Optional[str] = None):
+        return _page_with_preview(request, "user.html", *_user_preview(u))
+
+    @app.get("/tournament.html", include_in_schema=False)
+    def _tournament_page(request: Request, ids: Optional[str] = None):
+        return _page_with_preview(request, "tournament.html", *_tournament_preview(ids))
+
+    # The rest: the site-wide card.
+    def _plain_page_route(filename: str):
+        def page(request: Request):
+            return _page_with_preview(request, filename, None, None)
+        return page
+
+    for _name in ("browse.html", "board.html", "login.html", "profile.html", "tickets.html"):
+        app.add_api_route(f"/{_name}", _plain_page_route(_name), methods=["GET"], include_in_schema=False)
 
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
