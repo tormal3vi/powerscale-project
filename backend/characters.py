@@ -66,8 +66,9 @@ def _title_is_better_known(name: str, title: str, bare: str) -> bool:
     title_words = _name_words(bare)
     if first.count("(") > first.count(")"):
         # The first alias split mid-note: "Mistral (Her codename, true name
-        # is unknown)", "Raiden (雷電?) (Birth name unknown, but ...".
-        return _name_words(re.sub(r"\(.*", "", first)) == title_words
+        # is unknown)", "Raiden (雷電?) (Birth name unknown, but ...",
+        # "The Weatherheads (Hail-O-Pods, ..." on a page titled "Weatherheads".
+        return _name_words(re.sub(r"\(.*", "", first)) - {"the"} == title_words - {"the"}
     if re.match(r"\s*(?:(?:real|true|birth) name\s+(?:is\s+)?)?unknown\b", name, re.I):
         # "Unknown, impersonated Captain Tennille", "Unknown. Aliases include
         # the Phantom Stranger", "Real name unknown. Referred as Prometheus"

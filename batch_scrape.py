@@ -57,6 +57,12 @@ SUBSERIES = {
         ("Wildstorm", ["Wildstorm Comics"]),
         ("Watchmen", ["Watchmen"]),
     ]),
+    # The 2005-2021 continuity (Classic, Alien Force, Ultimate Alien,
+    # Omniverse) and the 2016 Reboot rate the same aliens very differently.
+    "Ben 10": ("Classic", [
+        ("Reboot", ["Ben 10 (Reboot)", "Ben 10 Reboot Aliens"]),
+        ("Protector of Earth", ["Ben 10: Protector of Earth"]),
+    ]),
 }
 
 
