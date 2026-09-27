@@ -72,6 +72,7 @@ async function refreshComparison() {
     state.verdict = null;
     document.getElementById('verdict-card').innerHTML =
       `<div class="error-state">Couldn't compute a verdict: ${err.message}</div>`;
+    renderTicketBox();
     return;
   }
   renderHeroTiers();
@@ -124,6 +125,7 @@ function buildLayout() {
     </div>
     <div class="verdict-section">
       <div class="verdict-card" id="verdict-card"></div>
+      <div id="ticket-slot"></div>
     </div>
     <section class="mc-card" id="matchup-comments" aria-labelledby="mc-title"></section>
   `;
@@ -448,77 +450,101 @@ async function renderAdminPanel(card) {
 
 const TICKET_MAX = 1000;
 
-async function renderTicketBox(card) {
+// A small card under the verdict: a ticket to the admins for users who
+// disagree. Quiet (one line) until opened; one ticket per exact matchup.
+let ticketRun = 0;
+async function renderTicketBox() {
+  const slot = document.getElementById('ticket-slot');
   const v = state.verdict;
+  if (!slot) return;
+  const run = ++ticketRun;
+  slot.innerHTML = '';
   if (!v) return;
   const user = await currentUser();
-  if (user && user.is_admin) return; // admins overrule directly
+  if (run !== ticketRun || (user && user.is_admin)) return; // admins overrule directly
   const box = document.createElement('div');
   box.className = 'ticket-box';
-  card.appendChild(box);
+  const show = () => { if (run === ticketRun) slot.replaceChildren(box); };
   if (!user) {
     const next = encodeURIComponent(location.pathname.split('/').pop() + location.search);
-    box.innerHTML = `<span class="ticket-line">Disagree with this verdict? <a href="login.html?next=${next}">Log in</a> to send the admins a ticket.</span>`;
+    box.innerHTML = `<a href="login.html?next=${next}">Log in</a> to send a ticket if you disagree with this verdict.`;
+    show();
     return;
   }
   let mine;
   try {
     mine = await Api.myTicket(state.a.id, state.b.id, v.form_a, v.form_b);
-  } catch { box.remove(); return; }
-  if (state.verdict !== v) { box.remove(); return; } // forms changed while loading
+  } catch { return; }
+  if (state.verdict !== v) return; // forms changed while loading
   const nameOf = (id) => bareName(id === state.a.id ? v.character_a : v.character_b);
   if (mine.ticket) {
     const t = mine.ticket;
-    const said = `You said <b>${escapeHtml(nameOf(t.winner_id))}</b> wins.`;
-    const body = t.status === 'open'
-      ? `<span class="ticket-status open">Open</span> ${said} Waiting for an admin.`
-      : t.outcome === 'overruled'
-        ? `<span class="ticket-status overruled">Overruled</span> ${said} An admin agreed and overruled the verdict, crediting you.`
-        : `<span class="ticket-status kept">Answered</span> ${said} The verdict stands.`;
-    box.innerHTML = `<div class="ticket-head">Your ticket</div><div class="ticket-line">${body}</div>
-      ${t.response ? `<div class="ticket-reply"><b>${escapeHtml(t.admin || 'Admin')}:</b> <span></span></div>` : ''}`;
-    if (t.response) box.querySelector('.ticket-reply span').textContent = t.response;
+    const said = `you said ${escapeHtml(nameOf(t.winner_id))} wins`;
+    if (t.status === 'open') {
+      box.innerHTML = `<b>Open</b> — ${said}. An admin will look at it; the answer shows up here.`;
+    } else if (t.outcome === 'overruled') {
+      box.classList.add('overruled');
+      box.innerHTML = `<div><b>Overruled</b> — an admin agreed (${said}) and credited you.</div>
+        ${t.response ? '<div class="ticket-reply"></div>' : ''}<a href="board.html">See the Board post</a>`;
+    } else {
+      box.innerHTML = `<div><b>Kept</b> — the verdict stands (${said}).</div>${t.response ? '<div class="ticket-reply"></div>' : ''}`;
+    }
+    const reply = box.querySelector('.ticket-reply');
+    if (reply) reply.textContent = `“${t.response}” — ${t.admin || 'admin'}`;
+    show();
     return;
   }
   if (mine.banned) {
-    box.innerHTML = "<span class=\"ticket-line\">You can't send tickets right now: an admin has blocked you from it.</span>";
+    box.textContent = "You've been restricted from sending tickets.";
+    show();
     return;
   }
-  box.innerHTML = '<button type="button" class="ticket-open">Disagree with this verdict? Send the admins a ticket</button>';
-  box.querySelector('.ticket-open').addEventListener('click', () => {
+  const collapsed = () => {
+    box.className = 'ticket-box ticket-invite';
+    box.innerHTML = '<span>Think this verdict’s wrong?</span><button type="button" class="ticket-btn">Send a ticket</button>';
+    box.querySelector('button').addEventListener('click', openForm);
+  };
+  const openForm = () => {
+    box.className = 'ticket-box ticket-form';
     box.innerHTML = `
-      <div class="ticket-head">Send a ticket</div>
-      <div class="ticket-line">About these exact forms. One ticket per matchup, so make it count.</div>
+      <div class="ticket-q">Who should win? <span>These exact forms · one ticket per matchup</span></div>
       <div class="ticket-pick" role="radiogroup" aria-label="Who should win">
-        <label><input type="radio" name="tk-winner" value="${state.a.id}"> <span>${escapeHtml(nameOf(state.a.id))} wins</span></label>
-        <label><input type="radio" name="tk-winner" value="${state.b.id}"> <span>${escapeHtml(nameOf(state.b.id))} wins</span></label>
+        <button type="button" role="radio" aria-checked="false" data-w="${state.a.id}">${escapeHtml(nameOf(state.a.id))}</button>
+        <button type="button" role="radio" aria-checked="false" data-w="${state.b.id}">${escapeHtml(nameOf(state.b.id))}</button>
       </div>
-      <label class="ticket-reason"><span class="visually-hidden">Why</span>
-        <textarea rows="3" maxlength="${TICKET_MAX}" placeholder="Why is the verdict wrong? Feats, scans, wiki pages…"></textarea></label>
-      <div class="ticket-foot"><span class="ticket-count">0/${TICKET_MAX}</span><span class="form-error ticket-error"></span>
-        <button type="button" class="pill-button" data-act="cancel">Cancel</button>
-        <button type="button" class="btn-gold" data-act="send">Send ticket</button></div>`;
+      <label><span class="visually-hidden">Why</span>
+        <textarea rows="3" maxlength="${TICKET_MAX}" placeholder="Why? Feats, scans, wiki pages… (up to ${TICKET_MAX} characters)"></textarea></label>
+      <div class="ticket-foot"><span class="form-error ticket-error"></span><span class="ticket-count">0/${TICKET_MAX}</span></div>
+      <div class="ticket-actions">
+        <button type="button" class="ticket-btn" data-act="cancel">Cancel</button>
+        <button type="button" class="btn-gold" data-act="send">Send ticket</button>
+      </div>`;
+    let winner = null;
     const ta = box.querySelector('textarea');
     const err = box.querySelector('.ticket-error');
+    box.querySelectorAll('[data-w]').forEach((b) => b.addEventListener('click', () => {
+      winner = Number(b.dataset.w);
+      box.querySelectorAll('[data-w]').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+      err.textContent = '';
+    }));
     ta.addEventListener('input', () => { box.querySelector('.ticket-count').textContent = `${ta.value.length}/${TICKET_MAX}`; });
-    ta.focus();
-    box.querySelector('[data-act="cancel"]').addEventListener('click', () => { box.remove(); renderTicketBox(card); });
+    box.querySelector('[data-act="cancel"]').addEventListener('click', collapsed);
     box.querySelector('[data-act="send"]').addEventListener('click', async (e) => {
-      const picked = box.querySelector('input[name="tk-winner"]:checked');
-      if (!picked) { err.textContent = 'Pick who should win.'; return; }
+      if (!winner) { err.textContent = 'Pick who should win.'; return; }
       if (ta.value.trim().length < 10) { err.textContent = 'Say a bit more about why.'; return; }
       e.target.disabled = true;
       try {
         await Api.sendTicket({ char_a: state.a.id, char_b: state.b.id, form_a: v.form_a, form_b: v.form_b,
-          winner_id: Number(picked.value), reason: ta.value.trim() });
-        box.remove();
-        renderTicketBox(card);
+          winner_id: winner, reason: ta.value.trim() });
+        renderTicketBox();
       } catch (ex) {
         err.textContent = ex.message;
         e.target.disabled = false;
       }
     });
-  });
+  };
+  collapsed();
+  show();
 }
 
 function renderVerdict() {
@@ -541,7 +567,7 @@ function renderVerdict() {
       ${notesHtml(v)}
     `;
     renderAdminPanel(card);
-    renderTicketBox(card);
+    renderTicketBox();
     return;
   }
 
@@ -579,7 +605,7 @@ function renderVerdict() {
     ${notesHtml(v)}
   `;
   renderAdminPanel(card);
-  renderTicketBox(card);
+  renderTicketBox();
 }
 
 function abilityCalloutHtml(v) {

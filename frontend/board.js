@@ -214,18 +214,23 @@ function rulingHtml(post) {
   const r = post.ruling;
   const status = r && r.status !== 'current'
     ? `<span class="ruling-status">${r.status === 'lifted' ? 'Since lifted' : 'Since changed'}</span>` : '';
-  const credit = post.credit
-    ? `<span class="ruling-credit">suggested by <a href="user.html?u=${encodeURIComponent(post.credit)}">${escapeHtml(post.credit)}</a></span>` : '';
-  const strip = `<div class="ruling-strip">${SHIELD(13)}<span>Admin overrule</span>${credit}${status}</div>`;
-  if (!m || !r) return { strip, main: '' }; // a character was removed since
+  const creditLink = post.credit
+    ? `<a href="user.html?u=${encodeURIComponent(post.credit)}">${escapeHtml(post.credit)}</a>` : '';
+  if (!m || !r) { // a character was removed since
+    const credit = creditLink ? `<span class="ruling-credit">suggested by ${creditLink}</span>` : '';
+    return { strip: `<div class="ruling-strip">${SHIELD(13)}<span>Admin overrule</span>${credit}${status}</div>`, main: '' };
+  }
   return {
-    strip,
+    strip: `<div class="ruling-strip">${SHIELD(13)}<span>Admin overrule</span>${status}</div>`,
     main: `
       <div class="ruling-headline">${escapeHtml(r.winner)} wins</div>
-      <a class="ruling-matchup" href="${matchupHref(m)}">
-        <span class="ruling-vs">${matchupSideHtml(m.label_a, m.name_a, m.category_a)} vs ${matchupSideHtml(m.label_b, m.name_b, m.category_b)}</span>
-        <span class="ruling-calc">Calculator's estimate: ${escapeHtml(m.calc_verdict)}</span>
-      </a>`,
+      <div class="ruling-matchup">
+        <a class="ruling-matchup-link" href="${matchupHref(m)}">
+          <span class="ruling-vs">${matchupSideHtml(m.label_a, m.name_a, m.category_a)} vs ${matchupSideHtml(m.label_b, m.name_b, m.category_b)}</span>
+          <span class="ruling-calc">Calculator's estimate: ${escapeHtml(m.calc_verdict)}</span>
+        </a>
+        ${creditLink ? `<div class="ruling-credit-line">Suggested by ${creditLink} — their ticket led to this call.</div>` : ''}
+      </div>`,
   };
 }
 

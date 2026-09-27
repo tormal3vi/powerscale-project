@@ -17,14 +17,17 @@ function ago(iso) {
 // User-written text goes in with textContent after the page is built:
 // placeholders carry an index into this list.
 let texts = [];
-const textSlot = (text) => `<span class="up-body" data-t="${texts.push(text) - 1}"></span>`;
+const textSlot = (text, cls = 'up-body') => `<span class="${cls}" data-t="${texts.push(text) - 1}"></span>`;
+const SHIELD_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.2 14 3.8v3.6c0 3.7-2.5 6.1-6 7.4-3.5-1.3-6-3.7-6-7.4V3.8L8 1.2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
 
-function stat(value, label) {
-  return `<div class="up-stat"><div class="up-stat-value">${value}</div><div class="up-stat-label">${label}</div></div>`;
+function stat(value, label, cls = '') {
+  return `<div class="up-stat ${cls}"><div class="up-stat-value">${value}</div><div class="up-stat-label">${label}</div></div>`;
 }
 
-function section(title, inner, empty) {
-  return `<section class="up-section"><h2 class="duel-section-title">${title}</h2>${inner || `<div class="duel-note">${empty}</div>`}</section>`;
+// A list card: title, then rows separated by thin lines.
+function card(title, rows, empty) {
+  return `<section class="up-card"><h2 class="up-card-title">${title}</h2>
+    ${rows ? `<div class="up-list">${rows}</div>` : `<div class="up-empty-line">${empty}</div>`}</section>`;
 }
 
 function duelLine(g) {
@@ -32,36 +35,34 @@ function duelLine(g) {
   const me = g.players.find((p) => p.me);
   const rivals = g.players.filter((p) => !me || p.team !== me.team).map((p) => escapeHtml(p.username)).join(', ');
   const score = g.teams === 2 ? (g.my_team === 2 ? `${g.team_scores[1]}–${g.team_scores[0]}` : g.team_scores.join('–')) : g.team_scores.join(' · ');
-  return `<a class="up-row" href="duels.html?game=${g.id}">
-    <span class="duel-tag">${g.format}</span>
-    <span class="up-row-main"><span class="duel-outcome ${g.outcome || ''}">${word} ${score}</span> <span class="up-muted">vs ${rivals}</span></span>
+  return `<a class="up-item" href="duels.html?game=${g.id}">
+    <span class="up-item-main"><span class="up-tag">${g.mode === 'draft' ? 'Draft · ' : ''}${g.format}</span>vs ${rivals}</span>
+    <span class="up-result ${g.outcome || ''}">${word} ${score}</span>
   </a>`;
 }
 
 function postLine(p) {
   const m = p.matchup;
-  return `<a class="up-row up-post" href="board.html">
-    <span class="up-row-main">
-      ${textSlot(p.body)}
-      ${m ? `<span class="up-muted up-mu">${escapeHtml(m.label_a)} vs ${escapeHtml(m.label_b)}</span>` : ''}
-    </span>
-    <span class="up-when">${ago(p.created_at)} · ♥ ${p.like_count} · ${p.reply_count} repl${p.reply_count === 1 ? 'y' : 'ies'}</span>
+  return `<a class="up-item up-stack" href="board.html">
+    ${textSlot(p.body, 'up-text')}
+    <span class="up-meta">♥ ${p.like_count} · ${p.reply_count} repl${p.reply_count === 1 ? 'y' : 'ies'}${m ? ` · ${escapeHtml(m.label_a)} vs ${escapeHtml(m.label_b)}` : ''} · ${ago(p.created_at)}</span>
   </a>`;
 }
 
 function commentLine(c) {
-  return `<a class="up-row up-post" href="${escapeHtml(c.compare_url)}">
-    <span class="up-row-main"><span class="up-muted up-mu">${escapeHtml(c.label_a)} vs ${escapeHtml(c.label_b)}</span>${textSlot(c.body)}</span>
-    <span class="up-when">${ago(c.created_at)}</span>
+  return `<a class="up-item up-stack" href="${escapeHtml(c.compare_url)}">
+    <span class="up-meta">On ${escapeHtml(c.label_a)} vs ${escapeHtml(c.label_b)} · ${ago(c.created_at)}</span>
+    ${textSlot(`“${c.body}”`, 'up-text')}
   </a>`;
 }
 
 function creditLine(p) {
   const m = p.matchup;
   if (!m) return '';
-  return `<a class="up-row" href="compare.html?${new URLSearchParams({ a: m.char_a, b: m.char_b, fa: m.form_a, fb: m.form_b })}">
-    <span class="up-row-main"><b>${escapeHtml(m.overruled_winner || (p.ruling && p.ruling.winner) || '')}</b> <span class="up-muted">wins · ${escapeHtml(m.label_a)} vs ${escapeHtml(m.label_b)}</span></span>
-    <span class="up-when">${ago(p.created_at)}</span>
+  const winner = m.overruled_winner || (p.ruling && p.ruling.winner) || '';
+  return `<a class="up-item" href="compare.html?${new URLSearchParams({ a: m.char_a, b: m.char_b, fa: m.form_a, fb: m.form_b })}">
+    <span class="up-item-main">${escapeHtml(m.label_a)} vs ${escapeHtml(m.label_b)}</span>
+    ${winner ? `<span class="up-win-pill">${escapeHtml(winner)} wins</span>` : ''}
   </a>`;
 }
 
@@ -69,10 +70,10 @@ function ticketLine(t) {
   const m = t.matchup;
   const status = t.status === 'open' ? '<span class="ticket-status open">Open</span>'
     : t.outcome === 'overruled' ? '<span class="ticket-status overruled">Overruled</span>' : '<span class="ticket-status kept">Kept</span>';
-  return `<div class="up-row up-post">
-    <span class="up-row-main"><span>${status} <b>${escapeHtml(t.winner)}</b> <span class="up-muted">should win · ${m ? `${escapeHtml(m.label_a)} vs ${escapeHtml(m.label_b)}` : 'removed matchup'}</span></span>
-      ${textSlot(t.reason)}</span>
-    <span class="up-when">${ago(t.created_at)}</span>
+  return `<div class="up-item up-stack">
+    <span class="up-item-row"><span class="up-item-main">${m ? `${escapeHtml(m.label_a)} vs ${escapeHtml(m.label_b)}` : 'Removed matchup'}
+      <span class="up-meta">· says ${escapeHtml(t.winner)} wins · ${ago(t.created_at)}</span></span>${status}</span>
+    ${textSlot(t.reason, 'up-text up-muted')}
   </div>`;
 }
 
@@ -94,40 +95,45 @@ async function render() {
   const rec = p.record || { wins: 0, draws: 0, losses: 0 };
   const played = rec.wins + rec.draws + rec.losses;
   const fav = p.favorite;
+  const nothing = !d.duels.length && !d.posts.length && !d.comments.length && !d.credited.length;
   root.innerHTML = `
     <header class="up-head">
       ${userAvatarHtml(p.username, p.avatar_url, 'up-avatar', { admin: p.is_admin })}
       <div class="up-id">
         <div class="up-name-row"><h1 class="up-name"></h1>${p.is_admin ? adminBadgeHtml({ solid: true }) : ''}</div>
-        <div class="up-since">Member since ${monthYear(p.member_since)}</div>
         ${p.bio ? '<p class="up-bio"></p>' : ''}
-        ${fav ? `<a class="up-fav" href="character.html?id=${fav.id}">
-          <span class="up-fav-tile${fav.image_url ? ' has-pic' : ''}" style="background:${accentFor(fav.id)}">${characterTileInner(fav.name, fav.image_url, 64)}</span>
-          <span><span class="up-muted">Favorite</span> <b>${escapeHtml(fav.name)}</b></span></a>` : ''}
+        <div class="up-line">
+          ${fav ? `<a class="up-fav" href="character.html?id=${fav.id}">
+            <span class="up-fav-tile${fav.image_url ? ' has-pic' : ''}" style="background:${accentFor(fav.id)}">${characterTileInner(fav.name, fav.image_url, 48)}</span>
+            ${escapeHtml(fav.name)}</a>` : ''}
+          <span class="up-since">Member since ${monthYear(p.member_since)}${p.bio ? '' : ' · no bio yet'}</span>
+        </div>
       </div>
     </header>
     <div class="up-stats">
-      ${stat(p.post_count, `post${p.post_count === 1 ? '' : 's'}`)}
-      ${stat(d.likes_received, `like${d.likes_received === 1 ? '' : 's'} received`)}
-      ${stat(d.comment_count, `comment${d.comment_count === 1 ? '' : 's'}`)}
-      ${stat(played ? `${rec.wins}–${rec.draws}–${rec.losses}` : '—', `duels${d.duel_rank ? ` · #${d.duel_rank}` : ''}`)}
-      ${stat(d.overrules_suggested, `overrule${d.overrules_suggested === 1 ? '' : 's'} suggested`)}
+      ${stat(p.post_count, 'Posts')}
+      ${stat(d.likes_received, 'Likes received')}
+      ${stat(d.comment_count, 'Matchup comments')}
+      ${d.duel_rank ? stat(`#${d.duel_rank}`, `${rec.wins}–${rec.draws}–${rec.losses} duel record`, 'rank')
+        : stat(played ? `${rec.wins}–${rec.draws}–${rec.losses}` : '0–0–0', 'Duel record')}
+      ${stat(d.overrules_suggested, 'Overrules suggested')}
     </div>
+    ${nothing ? '<div class="up-card up-nothing">No duels, posts or comments yet.</div>' : `
     <div class="up-grid">
-      <div class="up-col">
-        ${section('Recent duels', d.duels.map(duelLine).join(''), 'No finished duels yet.')}
-        ${section('Overrules they suggested', d.credited.map(creditLine).join(''), 'None yet. A ticket that leads to an overrule shows up here.')}
+      ${card('Recent duels', d.duels.map(duelLine).join(''), 'No finished duels yet.')}
+      ${card('Recent Board posts', d.posts.map(postLine).join(''), 'No posts yet.')}
+      ${card('Recent matchup comments', d.comments.map(commentLine).join(''), 'No comments yet.')}
+      ${card('Overrules suggested', d.credited.map(creditLine).join(''), 'None yet. A ticket that leads to an overrule shows up here.')}
+    </div>`}
+    ${canBan ? `<section class="up-card up-admin">
+      <h2 class="up-card-title up-admin-title">${SHIELD_ICON} Admin-only · tickets sent by this user</h2>
+      ${d.tickets.length ? `<div class="up-list">${d.tickets.map(ticketLine).join('')}</div>` : '<div class="up-empty-line">No tickets.</div>'}
+      <div class="up-ban">
+        ${d.ticket_banned
+          ? `<button type="button" class="pill-button btn-sm" data-act="unban">Unban</button><span class="up-meta">Banned from tickets${d.ticket_ban_reason ? `: ${escapeHtml(d.ticket_ban_reason)}` : ''}</span>`
+          : '<button type="button" class="up-ban-btn" data-act="ban">Ban from tickets</button><span class="up-meta">No active ban</span>'}
       </div>
-      <div class="up-col">
-        ${section('Posts', d.posts.map(postLine).join(''), 'No posts yet.')}
-        ${section('Matchup comments', d.comments.map(commentLine).join(''), 'No comments yet.')}
-        ${canBan ? section('Tickets <span class="up-admin-only">admins only</span>',
-          `<div class="up-ban">${d.ticket_banned
-            ? `Banned from tickets${d.ticket_ban_reason ? `: ${escapeHtml(d.ticket_ban_reason)}` : ''} <button type="button" class="pill-button btn-sm" data-act="unban">Unban</button>`
-            : `Can send tickets <button type="button" class="pill-button btn-sm" data-act="ban">Ban from tickets</button>`}</div>
-           ${d.tickets.map(ticketLine).join('') || '<div class="duel-note">No tickets.</div>'}`, '') : ''}
-      </div>
-    </div>`;
+    </section>` : ''}`;
   root.querySelector('.up-name').textContent = p.username;
   const bio = root.querySelector('.up-bio');
   if (bio) bio.textContent = p.bio;

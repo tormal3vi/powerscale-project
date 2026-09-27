@@ -164,12 +164,13 @@ function renderNew() {
       <button type="button" class="duel-add" hidden>+ Add a matchup</button>
     </div>
     <div class="duel-field" id="series-field">
-      <span class="duel-lbl" id="series-lbl">Random rounds draw from</span>
-      <button type="button" class="duel-series-btn" aria-expanded="false" aria-controls="duel-series">
-        <span class="duel-series-summary">All series</span>
-        <svg class="chev" width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="m3 4.5 3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <div class="duel-series" id="duel-series" hidden></div>
+      <span class="duel-lbl" id="series-lbl">Leave these series out</span>
+      <div class="duel-out"></div>
+      <div class="duel-series" id="duel-series" hidden>
+        <input type="text" class="duel-input duel-series-filter" placeholder="Find a series…" maxlength="60" autocomplete="off"
+          spellcheck="false" aria-label="Find a series to leave out">
+        <div class="duel-series-list"></div>
+      </div>
       <p class="duel-hint" id="duel-mu-hint"></p>
     </div>
     <div class="duel-actions">
@@ -183,8 +184,10 @@ function renderNew() {
   const pickers = pickField.querySelector('.duel-pickers');
   const addBtn = pickField.querySelector('.duel-add');
   const seriesField = newBox.querySelector('#series-field');
-  const seriesBtn = seriesField.querySelector('.duel-series-btn');
+  const outBox = seriesField.querySelector('.duel-out');
   const seriesBox = seriesField.querySelector('.duel-series');
+  const seriesFilter = seriesBox.querySelector('.duel-series-filter');
+  const seriesList = seriesBox.querySelector('.duel-series-list');
   const hint = newBox.querySelector('#duel-mu-hint');
   const err = newBox.querySelector('#duel-error');
   const picked = new Map(); // picker element -> matchup or null
@@ -209,19 +212,21 @@ function renderNew() {
       <input type="text" class="duel-input" placeholder="Invite by username…" maxlength="20" autocomplete="off"
         spellcheck="false" aria-label="Invited player ${i + 1}" value="${escapeHtml(typed[i] || '')}">`).join('');
   };
+  // Left-out series as removable chips, then "+ Add series", which opens
+  // a filterable list of the rest.
   const drawSeries = () => {
-    seriesBox.innerHTML = series.map((s) => `
-      <button type="button" class="duel-series-chip${excluded.has(s) ? ' off' : ''}" data-series="${escapeHtml(s)}"
-        aria-pressed="${!excluded.has(s)}">${escapeHtml(s)}</button>`).join('');
-    const n = excluded.size;
-    seriesField.querySelector('.duel-series-summary').textContent = n
-      ? `All but ${n}: ${[...excluded].slice(0, 3).join(', ')}${n > 3 ? '…' : ''}` : 'All series';
+    outBox.innerHTML = [...excluded].map((s) => `
+      <span class="duel-out-chip">${escapeHtml(s)}<button type="button" data-keep="${escapeHtml(s)}" aria-label="Put ${escapeHtml(s)} back">×</button></span>`).join('')
+      + `<button type="button" class="duel-out-add" aria-expanded="${!seriesBox.hidden}" aria-controls="duel-series">${seriesBox.hidden ? '+ Add series' : 'Done'}</button>`;
+    const q = seriesFilter.value.trim().toLowerCase();
+    const rest = series.filter((s) => !excluded.has(s) && (!q || s.toLowerCase().includes(q)));
+    seriesList.innerHTML = rest.map((s) => `<button type="button" class="duel-series-chip" data-series="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('')
+      || '<span class="duel-hint">No series match.</span>';
   };
   const update = () => {
     const n = picked.size;
     const draft = gameMode === 'draft';
     newBox.querySelector('#mu-field').hidden = draft;
-    newBox.querySelector('#series-lbl').textContent = draft ? 'Hands are dealt from' : 'Random rounds draw from';
     pickField.hidden = draft || mode !== 'pick';
     addBtn.hidden = draft || mode !== 'pick' || n >= 5;
     seriesField.hidden = !draft && mode === 'pick' && n >= 5; // nothing random left to draw
@@ -230,7 +235,7 @@ function renderNew() {
       return;
     }
     hint.textContent = mode === 'random'
-      ? 'Five matchups between characters of similar tiers. Tap the list to leave series out.'
+      ? 'Five matchups between characters of similar tiers.'
       : `${n} picked${n < 5 ? `, ${5 - n} drawn at random` : ''}. Only clear wins count: "too close to call" matchups can't be used. You'll know the ones you pick; the others see each only when its 20 seconds start.`;
   };
   const addPicker = () => {
@@ -268,15 +273,21 @@ function renderNew() {
     update();
   }));
   addBtn.addEventListener('click', addPicker);
-  seriesBtn.addEventListener('click', () => {
-    seriesBox.hidden = !seriesBox.hidden;
-    seriesBtn.setAttribute('aria-expanded', String(!seriesBox.hidden));
+  outBox.addEventListener('click', (e) => {
+    const keep = e.target.closest('[data-keep]');
+    if (keep) excluded.delete(keep.dataset.keep);
+    else if (e.target.closest('.duel-out-add')) {
+      seriesBox.hidden = !seriesBox.hidden;
+      seriesFilter.value = '';
+    } else return;
+    drawSeries();
+    if (!seriesBox.hidden && !keep) seriesFilter.focus();
   });
-  seriesBox.addEventListener('click', (e) => {
+  seriesFilter.addEventListener('input', drawSeries);
+  seriesList.addEventListener('click', (e) => {
     const chip = e.target.closest('[data-series]');
     if (!chip) return;
-    const s = chip.dataset.series;
-    if (excluded.has(s)) excluded.delete(s); else excluded.add(s);
+    excluded.add(chip.dataset.series);
     drawSeries();
   });
   drawInvites();
@@ -628,17 +639,24 @@ function resultsHtml(g) {
       <div class="duel-pick-face">${avatar(player, 'duel-pick-avatar')}<span class="duel-pick-mark ${kind}">${MARKS[kind]}</span></div>
       <div class="duel-pick-name">${escapeHtml(player.me ? 'you' : p.username)}</div></div>`;
   };
-  const draftPick = (p) => {
-    const player = byName[p.username] || { username: p.username };
+  // A draft round: one row per player - their hand (gold ring: their
+  // pick, star: the hand's highest tier) and the points it won.
+  const rivalsOf = (p) => g.players.filter((x) => x.team !== p.team).length;
+  const STAR = '<svg class="dr-star" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1l1.8 3.6 4 .6-2.9 2.8.7 4-3.6-1.9-3.6 1.9.7-4L2.2 5.2l4-.6Z" fill="#D9A441"/></svg>';
+  const draftRow = (p) => {
+    const player = byName[p.username] || { username: p.username, team: 0 };
     const chosen = p.hand.find((s) => s.id === p.pick_id);
-    const hand = p.hand.map((s) => `<span class="dr-mini${s.id === p.pick_id ? ' picked' : ''}${s.id === p.best_id ? ' best' : ''}"
-      style="background:${accentFor(s.id)}" title="${escapeHtml(bareName(s.name))}${s.id === p.best_id ? ' (highest tier)' : ''}">${
-      characterTileInner(s.name, s.image_url, 48)}</span>`).join('');
-    return `<div class="dr-pick">
-      <div class="dr-pick-top">${avatar(player, 'duel-pick-avatar')}<span class="dr-pick-name">${escapeHtml(player.me ? 'you' : p.username)}</span>
-        <span class="dr-points${p.points ? ' won' : ''}">+${p.points}</span></div>
-      <div class="dr-pick-char">${chosen ? escapeHtml(bareName(chosen.name)) : '<span class="up-muted">no pick</span>'}</div>
-      <div class="dr-hand">${hand}</div></div>`;
+    const hand = p.hand.map((s) => `<span class="dr-mini-wrap${s.id === p.pick_id ? ' picked' : ''}" title="${escapeHtml(bareName(s.name))}${
+      s.id === p.pick_id ? ' (their pick)' : ''}${s.id === p.best_id ? ' (highest tier)' : ''}">
+      <span class="dr-mini" style="background:${accentFor(s.id)}">${characterTileInner(s.name, s.image_url, 80)}</span>${s.id === p.best_id ? STAR : ''}</span>`).join('');
+    const pts = p.points ? (p.points >= rivalsOf(player) ? 'max' : 'some') : '';
+    return `<div class="dr-row${chosen ? '' : ' missed'}">
+      <div class="dr-who">${avatar(player, `duel-pick-avatar${player.me ? ' me' : ''}`)}<div class="dr-who-text">
+        <div class="dr-who-name${player.me ? ' me' : ''}">${escapeHtml(player.me ? 'you' : p.username)}</div>
+        <div class="dr-who-pick">${chosen ? escapeHtml(bareName(chosen.name)) : 'no pick'}</div></div></div>
+      <div class="dr-hand">${hand}</div>
+      <span class="dr-points ${pts}">+${p.points}</span>
+    </div>`;
   };
   if (g.mode === 'draft') {
     return `
@@ -648,14 +666,12 @@ function resultsHtml(g) {
       <div class="duel-result-score">${score}</div>
       <div class="duel-result-people">${people}</div>
     </div>
-    <h2 class="duel-rounds-title">Round by round <span class="dr-legend">gold ring: their pick · star: the hand's highest tier</span></h2>
-    <ol class="duel-rounds">
-      ${g.rounds.map((r) => `
-        <li class="duel-round dr-round">
-          <span class="duel-round-no">R${r.round_no}</span>
-          <div class="dr-picks">${r.picks.map(draftPick).join('')}</div>
-        </li>`).join('')}
-    </ol>`;
+    ${g.rounds.map((r) => `
+      <section class="dr-round">
+        <h2 class="dr-round-title">Round ${r.round_no}</h2>
+        <div class="dr-round-card">${r.picks.map(draftRow).join('')}</div>
+      </section>`).join('')}
+    <p class="dr-legend">Gold ring: their pick. Star: the highest-tier character in their hand. Each pick earns a point for every opponent's pick it beats.</p>`;
   }
   return `
     <div class="duel-result-head ${outcome}">
@@ -758,11 +774,11 @@ async function play(gameId, game = null) {
 function showRound(r) {
   const dots = Array.from({ length: r.total }, (_, i) => `<span class="duel-dot${i + 1 < r.round_no ? ' done' : i + 1 === r.round_no ? ' now' : ''}"></span>`).join('');
   playFrame(`
-    <div class="duel-play-round" id="play-title">Round ${r.round_no} of ${r.total}</div>
+    <div class="duel-play-round" id="play-title">Round ${r.round_no} of ${r.total}${r.mode === 'draft' ? ' — pick your fighter' : ''}</div>
     <div class="duel-play-sub">${playTitle()}</div>
     <div class="duel-dots" aria-hidden="true">${dots}</div>
     <div class="duel-clock"><span class="duel-clock-num" aria-live="off"></span><div class="duel-clock-track"><div class="duel-clock-bar"></div></div></div>
-    ${r.mode === 'draft' ? `<div class="dr-prompt">Pick the strongest of your ${r.hand.length}</div>` : ''}
+    ${r.mode === 'draft' ? `<div class="dr-prompt">Your pick fights each opponent's: take the strongest of your ${r.hand.length}</div>` : ''}
     <div class="duel-choices${r.mode === 'draft' ? ' dr-hand-grid' : ''}">
       ${(r.mode === 'draft' ? r.hand : [r.a, r.b]).map((s) => `
         <button type="button" class="duel-choice" data-pick="${s.id}">
@@ -807,7 +823,8 @@ function showRound(r) {
     if (locked) return;
     lock();
     btn.classList.add('chosen');
-    status.textContent = r.round_no < r.total ? 'Locked in' : 'Locked in — that was the last one';
+    const who = r.mode === 'draft' ? `${btn.querySelector('.duel-choice-name').textContent} locked in` : 'Locked in';
+    status.textContent = r.round_no < r.total ? who : `${who} — that was the last one`;
     try {
       const res = await Api.pickRound(r.game_id, r.round_no, Number(btn.dataset.pick));
       if (!res.in_time) { status.className = 'duel-play-status bad'; status.textContent = 'Too late — this round counts as wrong'; }

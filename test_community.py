@@ -500,6 +500,9 @@ def test_draft_deals_hands_by_seat_and_scores_head_to_head():
     members = {m["user_id"]: m for m in duels.game(game_id)["members"][game_id]}
     assert {uid: members[uid]["score"] for uid in expected} == expected
     assert duels.game(game_id)["games"][0]["status"] == "done"
+    duels.delete_user_games(ann["id"])  # an account deletion takes the hands too
+    with community.engine.connect() as conn:
+        assert not conn.execute(select(duels.game_hands).where(duels.game_hands.c.game_id.in_([game_id, lobby]))).first()
 
 
 def test_games_from_before_teams_get_players_and_outcomes():

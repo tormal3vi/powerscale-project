@@ -876,7 +876,7 @@ def delete_user_games(user_id: int) -> None:
         ids |= {r[0] for r in conn.execute(select(games.c.id).where(or_(
             games.c.creator_id == user_id, games.c.opponent_id == user_id, games.c.invited_id == user_id)))}
         if ids:
-            for table in (game_picks, game_rounds, game_players, game_invites):
+            for table in (game_picks, game_hands, game_rounds, game_players, game_invites):
                 conn.execute(delete(table).where(table.c.game_id.in_(ids)))
             conn.execute(delete(games).where(games.c.id.in_(ids)))
     _changed()
