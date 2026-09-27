@@ -618,6 +618,16 @@ def overview(user_id: int) -> dict:
     return data
 
 
+def recent_finished(user_id: int, limit: int = 8) -> dict:
+    """A player's latest finished games, for their public profile."""
+    now = _now()
+    joined = select(game_players.c.game_id).where(game_players.c.user_id == user_id)
+    with community.reader.connect() as conn:
+        gs = [dict(g) for g in conn.execute(select(games).where(and_(games.c.id.in_(joined), games.c.status == "done"))
+                                            .order_by(games.c.id.desc()).limit(limit)).mappings()]
+        return _load(conn, gs, now, rounds_for_done=False)
+
+
 def game(game_id: int) -> dict:
     now = _now()
     with community.reader.connect() as conn:

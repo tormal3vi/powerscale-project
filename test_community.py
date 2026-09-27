@@ -14,6 +14,7 @@ os.environ["PREWARM_PICTURES"] = "0"  # duels would fetch pictures from the wiki
 
 from backend import community  # noqa: E402  (must import after DATABASE_URL is set)
 from backend import duels  # noqa: E402  (registers its tables before init creates them)
+from backend import tickets  # noqa: E402
 
 community.init()
 
@@ -503,6 +504,33 @@ def test_duel_picked_matchups_need_a_clear_winner():
     assert len(rounds) == duels.ROUNDS and sum(r["picked"] for r in rounds) == 1
     _raises(lambda: duels.create(gina["id"], "1v1", [], [{"char_a": close[0], "char_b": close[1]}]),
             text="no clear winner")
+
+
+def test_tickets_one_per_matchup_bans_and_answers():
+    def raises(fn, status):
+        try:
+            fn()
+        except tickets.TicketError as exc:
+            assert exc.status == status, exc.status
+            return
+        assert False, "expected a TicketError"
+    tia, admin = _users("tk_tia", "tk_boss")
+    tid = tickets.create(tia["id"], 12, 7, "Base", "Post-Crisis", 7, "Superman outclasses him")
+    assert tickets.mine(tia["id"], 7, 12, "Post-Crisis", "Base")["id"] == tid  # either order
+    raises(lambda: tickets.create(tia["id"], 7, 12, "Post-Crisis", "Base", 12, "again"), 409)  # one per matchup
+    other = tickets.create(tia["id"], 7, 12, "Pre-Crisis", "Base", 12, "a different form pair is its own matchup")
+    assert tickets.open_count() == 2 and [t["id"] for t in tickets.listing(status="open")] == [tid, other]
+    tickets.answer(tid, admin["id"], "The verdict stands.", "kept")
+    raises(lambda: tickets.answer(tid, admin["id"], "twice", "kept"), 409)
+    raises(lambda: tickets.create(tia["id"], 12, 7, "Base", "Post-Crisis", 7, "answered: settled"), 409)
+    t = tickets.one(tid)
+    assert t["status"] == "answered" and t["outcome"] == "kept" and t["admin"] == "tk_boss" and t["username"] == "tk_tia"
+    tickets.ban(tia["id"], admin["id"], "spam")
+    raises(lambda: tickets.create(tia["id"], 3, 4, "Base", "Base", 3, "banned"), 403)
+    assert tickets.one(other)["banned"] and [b["username"] for b in tickets.bans()] == ["tk_tia"]
+    assert tickets.unban(tia["id"]) and not tickets.ban_of(tia["id"])
+    tickets.delete_user(tia["id"])
+    assert tickets.listing(user_id=tia["id"]) == []
 
 
 def test_rate_limiter_blocks_after_the_limit_per_key():

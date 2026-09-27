@@ -269,6 +269,7 @@ class RulingOut(BaseModel):
 class PostOut(BaseModel):
     id: int
     parent_id: Optional[int] = None
+    credit: Optional[str] = None  # on an overrule made from a ticket: who sent it
     author: str
     author_is_admin: bool = False
     author_avatar: Optional[str] = None
@@ -449,5 +450,88 @@ class LeaderboardOut(BaseModel):
     rows: List[LeaderboardRowOut]
 
 
-# Names a model defined further down this file.
+
+# --- tickets ------------------------------------------------------------------------------
+
+class TicketIn(BaseModel):
+    char_a: int
+    char_b: int
+    form_a: Optional[str] = None
+    form_b: Optional[str] = None
+    winner_id: int
+    reason: str = Field(..., max_length=4000)
+
+
+class TicketAnswerIn(BaseModel):
+    response: str = Field("", max_length=4000)
+
+
+class TicketBanIn(BaseModel):
+    username: str = Field(..., max_length=40)
+    reason: str = Field("", max_length=600)
+
+
+class TicketOut(BaseModel):
+    id: int
+    matchup: Optional[MatchupOut] = None  # None if a character was removed since
+    winner_id: int
+    winner: str  # who the user says wins
+    reason: str
+    status: str  # open | answered
+    outcome: Optional[str] = None  # overruled | kept
+    response: Optional[str] = None
+    admin: Optional[str] = None
+    created_at: datetime
+    answered_at: Optional[datetime] = None
+    author: str
+    author_avatar: Optional[str] = None
+    author_banned: bool = False  # admins only
+
+
+class MyTicketOut(BaseModel):
+    ticket: Optional[TicketOut] = None
+    banned: bool = False
+    ban_reason: Optional[str] = None
+
+
+class TicketListOut(BaseModel):
+    tickets: List[TicketOut]
+    open_count: int
+
+
+class TicketBanOut(BaseModel):
+    username: str
+    admin: str
+    reason: str
+    created_at: datetime
+
+
+
+# --- public profile ---------------------------------------------------------------------
+
+class ProfileCommentOut(BaseModel):
+    id: int
+    body: str
+    created_at: datetime
+    label_a: str
+    label_b: str
+    compare_url: str
+
+
+class PublicProfileOut(BaseModel):
+    profile: ProfileOut
+    likes_received: int = 0
+    comment_count: int = 0
+    duel_rank: Optional[int] = None  # place on the duels leaderboard
+    overrules_suggested: int = 0  # tickets that became overrules
+    duels: List[DuelOut] = []  # latest finished, from their side
+    posts: List[PostOut] = []
+    credited: List[PostOut] = []  # overrule posts made from their tickets
+    comments: List[ProfileCommentOut] = []
+    tickets: List[TicketOut] = []  # only when an admin is looking
+    ticket_banned: bool = False  # only when an admin is looking
+    ticket_ban_reason: Optional[str] = None
+
+
+# Names models defined further down this file.
 ProfileOut.model_rebuild()

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
 import db
-from backend import avatars, characters, community, duels
+from backend import avatars, characters, community, duels, tickets
 from backend.schemas import (
     AuthIn, CommentIn, CommentListOut, CommentOut, DeleteAccountIn, FavoriteOut, LikeOut, MatchupOut, MeOut,
     OverrideIn, OverrideOut, PasswordIn, PostIn, PostListOut, PostOut, ProfileIn, ProfileOut, RecordOut, RulingOut,
@@ -224,6 +224,7 @@ def delete_account(payload: DeleteAccountIn, response: Response, user: dict = De
         raise HTTPException(status_code=403, detail="Admin accounts can't be deleted here - their overrules "
                                                     "and pictures are tied to them")
     duels.delete_user_games(user["id"])
+    tickets.delete_user(user["id"])
     community.delete_account(user["id"])
     response.delete_cookie(COOKIE, path="/")
     return {"ok": True}
@@ -427,8 +428,14 @@ def _ruling_out(row: dict, matchup: Optional[MatchupOut]) -> Optional[RulingOut]
 def _post_out(row: dict, viewer: Optional[dict], cache: dict) -> PostOut:
     can_delete = viewer is not None and (viewer["id"] == row["user_id"] or viewer["is_admin"])
     matchup = _matchup_out(row, cache)
+    credit = None
+    if row.get("credit_user_id") is not None:
+        names = cache.setdefault("credits", {})
+        if row["credit_user_id"] not in names:
+            names.update(tickets.usernames([row["credit_user_id"]]))
+        credit = names.get(row["credit_user_id"])
     return PostOut(
-        id=row["id"], parent_id=row["parent_id"], author=row["username"],
+        id=row["id"], parent_id=row["parent_id"], credit=credit, author=row["username"],
         author_is_admin=community.is_admin(row["username"]),
         author_avatar=avatar_url(row["username"], row.get("avatar_at")),
         author_favorite=_favorite_out(row.get("favorite_char_id"), cache.setdefault("favorites", {})),

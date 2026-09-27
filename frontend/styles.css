@@ -722,6 +722,29 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
 
 .verdict-section { padding: 8px 64px 24px; }
 
+/* A ticket about this verdict (Compare), for non-admins. */
+.ticket-box { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--divider); font-size: 13.5px; color: var(--text-tertiary); }
+.ticket-open { background: none; border: none; padding: 0; color: var(--text-tertiary); font: 600 13.5px var(--font-sans); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.ticket-open:hover { color: var(--accent-gold); }
+.ticket-line a { color: var(--accent-gold); font-weight: 600; }
+.ticket-line b { color: var(--text-primary); }
+.ticket-head { font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+.ticket-pick { display: flex; gap: 18px; flex-wrap: wrap; margin: 12px 0; color: var(--text-secondary); }
+.ticket-pick label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.ticket-reason textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 70px; background: var(--pill-bg);
+  border: 1px solid var(--control-border); border-radius: var(--radius-sm); padding: 10px 12px;
+  color: var(--text-primary); font: 14px/1.5 var(--font-sans); outline: none;
+}
+.ticket-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.ticket-foot .ticket-error { flex: 1; }
+.ticket-count { font: 500 11.5px var(--font-mono); color: var(--text-quaternary); }
+.ticket-status { font: 600 11px var(--font-mono); text-transform: uppercase; border-radius: 5px; padding: 2px 7px; margin-right: 6px; }
+.ticket-status.open { color: var(--accent-gold); background: rgba(217, 164, 65, 0.12); }
+.ticket-status.overruled { color: #8FBF6B; background: rgba(143, 191, 107, 0.14); }
+.ticket-status.kept { color: var(--text-secondary); background: var(--pill-bg); }
+.ticket-reply { margin-top: 8px; padding: 10px 12px; border-left: 2px solid var(--control-border); color: var(--text-secondary); white-space: pre-wrap; }
+
 /* Comments under one matchup (Compare), separate from the Board. */
 .mc-card {
   margin: 0 64px 64px; background: var(--card); border: 1px solid var(--card-border);
@@ -1997,3 +2020,90 @@ body.duel-playing { overflow: hidden; }
   .duel-choice-name { font-size: 14.5px; }
   .duel-toast { left: 16px; right: 16px; bottom: 16px; }
 }
+
+/* --- Tickets (admins) ----------------------------------------------------- */
+.tickets { max-width: 900px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+.tk-tabs { display: flex; gap: 8px; margin-bottom: 22px; }
+.tk-n { font-family: var(--font-mono); margin-left: 4px; }
+#tk-body { display: flex; flex-direction: column; gap: 14px; }
+.tk-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 20px 22px; }
+.tk-title { font: 700 17px var(--font-serif); color: var(--text-primary); }
+a.tk-title:hover { color: var(--accent-gold); }
+.tk-forms { font: 500 11.5px var(--font-mono); color: var(--text-quaternary); margin-left: 6px; }
+.tk-verdict { font-size: 12.5px; color: var(--text-tertiary); margin-top: 4px; }
+.tk-who { display: flex; align-items: center; gap: 10px; margin: 16px 0 10px; font-size: 13.5px; }
+.tk-author { font-weight: 700; color: var(--text-primary); }
+.tk-author:hover { color: var(--accent-gold); }
+.tk-when { font-size: 12px; color: var(--text-quaternary); margin-top: 1px; }
+.tk-when b { color: var(--text-secondary); }
+.tk-reason { font-size: 14.5px; color: var(--text-secondary); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 14px; }
+.tk-reply { width: 100%; box-sizing: border-box; resize: vertical; background: var(--pill-bg); border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm); padding: 10px 12px; color: var(--text-primary); font: 13.5px/1.5 var(--font-sans); outline: none; }
+.tk-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.tk-actions .tk-error { flex: 1; }
+.tk-ban-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.tk-ban-form .duel-input { width: auto; flex: 1; min-width: 160px; }
+.tk-bans { display: flex; flex-direction: column; gap: 8px; }
+.tk-ban { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--card);
+  border: 1px solid var(--card-border); border-radius: var(--radius-md); padding: 12px 16px; font-size: 14px; }
+@media (max-width: 640px) {
+  .tk-card { padding: 16px; }
+  .tk-actions > button { flex: 1 1 100%; }
+}
+.acct-count { margin-left: auto; font: 600 11px var(--font-mono); color: var(--accent-gold); }
+.acct-btn.has-dot { position: relative; }
+.acct-btn.has-dot::after { content: ""; position: absolute; top: 2px; left: 26px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent-gold); }
+.ruling-credit { font-weight: 500; color: var(--text-tertiary); text-transform: none; letter-spacing: 0; }
+.ruling-credit a { color: var(--text-secondary); font-weight: 600; }
+.ruling-credit a:hover { color: var(--accent-gold); }
+
+/* --- Public profile ----------------------------------------------------- */
+.up { max-width: 1080px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+.up-head { display: flex; gap: 22px; align-items: flex-start; margin-bottom: 26px; }
+.up-avatar { width: 96px; height: 96px; border-radius: 24px; font-size: 40px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-family: var(--font-serif); font-weight: 700; color: var(--bg); }
+.up-avatar.is-admin { box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--accent-gold); }
+.up-id { min-width: 0; }
+.up-name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.up-name { font: 700 30px var(--font-serif); margin: 0; overflow-wrap: anywhere; }
+.up-since { font-size: 13px; color: var(--text-quaternary); margin-top: 4px; }
+.up-bio { font-size: 15px; color: var(--text-secondary); line-height: 1.55; margin: 12px 0 0; max-width: 620px; overflow-wrap: anywhere; }
+.up-fav { display: inline-flex; align-items: center; gap: 10px; margin-top: 12px; padding: 6px 12px 6px 6px; border-radius: var(--radius-pill);
+  background: var(--card); border: 1px solid var(--card-border); font-size: 13px; color: var(--text-secondary); }
+.up-fav:hover { border-color: var(--control-border); }
+.up-fav b { color: var(--text-primary); }
+.up-fav-tile { position: relative; width: 30px; height: 30px; border-radius: 50%; overflow: hidden; display: flex; align-items: center;
+  justify-content: center; font: 700 13px var(--font-serif); color: var(--bg); flex-shrink: 0; }
+.up-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 28px; }
+.up-stat { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-md); padding: 16px 18px; }
+.up-stat-value { font: 700 22px var(--font-mono); }
+.up-stat-label { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
+.up-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+.up-col { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.up-section { display: flex; flex-direction: column; gap: 8px; }
+.up-row { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--card-border);
+  border-radius: 12px; padding: 11px 14px; color: var(--text-secondary); font-size: 13.5px; }
+a.up-row:hover { border-color: var(--control-border); }
+.up-row-main { flex: 1; min-width: 0; }
+.up-post { align-items: flex-start; }
+.up-post .up-row-main { display: flex; flex-direction: column; gap: 3px; }
+.up-body { color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.up-muted { color: var(--text-tertiary); }
+.up-mu { font-size: 12px; }
+.up-when { font-size: 11.5px; color: var(--text-quaternary); flex-shrink: 0; white-space: nowrap; }
+.up-admin-only { font: 600 10px var(--font-mono); color: var(--accent-gold); margin-left: 6px; }
+.up-ban { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
+@media (max-width: 900px) {
+  .up-grid { grid-template-columns: 1fr; }
+  .up-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .up-head { gap: 14px; }
+  .up-avatar { width: 68px; height: 68px; font-size: 28px; border-radius: 18px; }
+  .up-name { font-size: 24px; }
+  .up-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .up-post { flex-direction: column; gap: 4px; }
+}
+.user-pop-link { display: block; margin-top: 12px; font-size: 12.5px; font-weight: 600; color: var(--accent-gold); }
+a.mc-author:hover, a.lb-name:hover { color: var(--accent-gold); }
+a.lb-name { color: var(--text-primary); }

@@ -90,6 +90,16 @@ const Api = {
   nextRound: (id) => apiPost(`/api/games/${id}/next`, {}),
   pickRound: (id, roundNo, pickId) => apiPost(`/api/games/${id}/pick`, { round_no: roundNo, pick_id: pickId }),
   leaderboard: () => apiGet('/api/leaderboard'),
+
+  myTicket: (a, b, fa, fb) => apiGet(`/api/tickets/mine?${new URLSearchParams({ a, b, fa, fb })}`),
+  sendTicket: (t) => apiPost('/api/tickets', t),
+  adminTickets: (status) => apiGet(`/api/admin/tickets?status=${status}`),
+  adminTicketCount: () => apiGet('/api/admin/tickets/count'),
+  answerTicket: (id, response) => apiPost(`/api/admin/tickets/${id}/answer`, { response }),
+  overruleTicket: (id, response) => apiPost(`/api/admin/tickets/${id}/overrule`, { response }),
+  ticketBans: () => apiGet('/api/admin/ticket-bans'),
+  banFromTickets: (username, reason) => apiPost('/api/admin/ticket-bans', { username, reason }),
+  unbanFromTickets: (username) => apiDelete(`/api/admin/ticket-bans/${encodeURIComponent(username)}`),
   // XHR rather than fetch: only XHR reports upload progress (onProgress
   // gets 0-100).
   uploadAvatar: (blob, onProgress) => new Promise((resolve, reject) => {
@@ -109,6 +119,7 @@ const Api = {
   }),
   removeAvatar: () => apiDelete('/api/me/avatar'),
   myProfile: () => apiGet('/api/me/profile'),
+  userPage: (username) => apiGet(`/api/users/${encodeURIComponent(username)}/page`),
   userProfile: (username) => apiGet(`/api/users/${encodeURIComponent(username)}`),
   saveProfile: (profile) => apiSend('PUT', '/api/me/profile', profile),
   changePassword: (current, next) => apiPost('/api/me/password', { current_password: current, new_password: next }),

@@ -12,7 +12,7 @@ const NAV_LINKS = [
 const PAGE_TITLES = {
   'browse.html': 'Characters', 'compare.html': 'Compare', 'character.html': 'Character',
   'tournament.html': 'Tournament', 'board.html': 'Board', 'login.html': 'Log in',
-  'profile.html': 'Profile settings', 'duels.html': 'Duels',
+  'profile.html': 'Profile settings', 'duels.html': 'Duels', 'tickets.html': 'Tickets', 'user.html': 'Profile',
 };
 
 const MENU_ICON = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 6h14M3 10h14M3 14h14" stroke="#D8D0C0" stroke-width="1.4" stroke-linecap="round"/></svg>';
@@ -101,7 +101,9 @@ async function renderAccount(el) {
         <svg class="acct-chevron" width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="m3 4.5 3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="acct-menu" role="menu" hidden>
-        <a href="profile.html" role="menuitem" class="acct-item acct-item-primary">${PERSON_ICON}Profile settings</a>
+        <a href="user.html?u=${encodeURIComponent(user.username)}" role="menuitem" class="acct-item acct-item-primary">${PERSON_ICON}Your profile</a>
+        <a href="profile.html" role="menuitem" class="acct-item">${PERSON_ICON}Profile settings</a>
+        ${user.is_admin ? `<a href="tickets.html" role="menuitem" class="acct-item acct-tickets">${PERSON_ICON}Tickets <span class="acct-count"></span></a>` : ''}
         <div class="acct-sep"></div>
         <button role="menuitem" class="acct-item acct-logout">${LOGOUT_ICON}Log out</button>
       </div>
@@ -111,12 +113,20 @@ async function renderAccount(el) {
         ${avatar('acct-phone-avatar')}
         <div><div class="acct-phone-name"></div>${user.is_admin ? adminBadgeHtml({ solid: true }) : ''}</div>
       </div>
-      <a href="profile.html" class="acct-phone-item acct-item-primary">${PERSON_ICON}Profile settings</a>
+      <a href="user.html?u=${encodeURIComponent(user.username)}" class="acct-phone-item acct-item-primary">${PERSON_ICON}Your profile</a>
+      <a href="profile.html" class="acct-phone-item">${PERSON_ICON}Profile settings</a>
+      ${user.is_admin ? `<a href="tickets.html" class="acct-phone-item acct-tickets">${PERSON_ICON}Tickets <span class="acct-count"></span></a>` : ''}
       <button class="acct-phone-item acct-logout">${LOGOUT_ICON}Log out</button>
     </div>`;
   el.querySelector('.topbar-username').textContent = user.username;
   el.querySelector('.acct-phone-name').textContent = user.username;
   showDuelsDot();
+  if (user.is_admin) {
+    Api.adminTicketCount().then(({ open }) => {
+      el.querySelectorAll('.acct-count').forEach((c) => { c.textContent = open ? String(open) : ''; });
+      if (open) el.querySelector('.acct-btn')?.classList.add('has-dot');
+    }).catch(() => {});
+  }
 
   const btn = el.querySelector('.acct-btn');
   btn.addEventListener('click', (e) => {

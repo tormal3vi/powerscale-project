@@ -450,7 +450,7 @@ async function renderLeaderboard() {
       <li class="lb-row${me && r.username === me.username ? ' me' : ''}">
         <span class="lb-rank">${i + 1}</span>
         ${avatar(r, 'lb-avatar')}
-        <span class="lb-name">${escapeHtml(r.username)}${me && r.username === me.username ? ' (you)' : ''}</span>
+        <a class="lb-name" href="user.html?u=${encodeURIComponent(r.username)}">${escapeHtml(r.username)}${me && r.username === me.username ? ' (you)' : ''}</a>
         <span class="lb-rec" title="${r.wins} wins, ${r.draws} draws, ${r.losses} losses">${r.wins}–${r.draws}–${r.losses}</span>
       </li>`).join('')}</ol>
       <div class="duel-hint">Wins–draws–losses.</div>`;

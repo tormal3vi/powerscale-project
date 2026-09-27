@@ -442,6 +442,85 @@ async function renderAdminPanel(card) {
   card.appendChild(panel);
 }
 
+// --- tickets --------------------------------------------------------------
+// Anyone who disagrees with this exact verdict (these two forms) can ask
+// the admins to look at it: one ticket per matchup, ever.
+
+const TICKET_MAX = 1000;
+
+async function renderTicketBox(card) {
+  const v = state.verdict;
+  if (!v) return;
+  const user = await currentUser();
+  if (user && user.is_admin) return; // admins overrule directly
+  const box = document.createElement('div');
+  box.className = 'ticket-box';
+  card.appendChild(box);
+  if (!user) {
+    const next = encodeURIComponent(location.pathname.split('/').pop() + location.search);
+    box.innerHTML = `<span class="ticket-line">Disagree with this verdict? <a href="login.html?next=${next}">Log in</a> to send the admins a ticket.</span>`;
+    return;
+  }
+  let mine;
+  try {
+    mine = await Api.myTicket(state.a.id, state.b.id, v.form_a, v.form_b);
+  } catch { box.remove(); return; }
+  if (state.verdict !== v) { box.remove(); return; } // forms changed while loading
+  const nameOf = (id) => bareName(id === state.a.id ? v.character_a : v.character_b);
+  if (mine.ticket) {
+    const t = mine.ticket;
+    const said = `You said <b>${escapeHtml(nameOf(t.winner_id))}</b> wins.`;
+    const body = t.status === 'open'
+      ? `<span class="ticket-status open">Open</span> ${said} Waiting for an admin.`
+      : t.outcome === 'overruled'
+        ? `<span class="ticket-status overruled">Overruled</span> ${said} An admin agreed and overruled the verdict, crediting you.`
+        : `<span class="ticket-status kept">Answered</span> ${said} The verdict stands.`;
+    box.innerHTML = `<div class="ticket-head">Your ticket</div><div class="ticket-line">${body}</div>
+      ${t.response ? `<div class="ticket-reply"><b>${escapeHtml(t.admin || 'Admin')}:</b> <span></span></div>` : ''}`;
+    if (t.response) box.querySelector('.ticket-reply span').textContent = t.response;
+    return;
+  }
+  if (mine.banned) {
+    box.innerHTML = "<span class=\"ticket-line\">You can't send tickets right now: an admin has blocked you from it.</span>";
+    return;
+  }
+  box.innerHTML = '<button type="button" class="ticket-open">Disagree with this verdict? Send the admins a ticket</button>';
+  box.querySelector('.ticket-open').addEventListener('click', () => {
+    box.innerHTML = `
+      <div class="ticket-head">Send a ticket</div>
+      <div class="ticket-line">About these exact forms. One ticket per matchup, so make it count.</div>
+      <div class="ticket-pick" role="radiogroup" aria-label="Who should win">
+        <label><input type="radio" name="tk-winner" value="${state.a.id}"> <span>${escapeHtml(nameOf(state.a.id))} wins</span></label>
+        <label><input type="radio" name="tk-winner" value="${state.b.id}"> <span>${escapeHtml(nameOf(state.b.id))} wins</span></label>
+      </div>
+      <label class="ticket-reason"><span class="visually-hidden">Why</span>
+        <textarea rows="3" maxlength="${TICKET_MAX}" placeholder="Why is the verdict wrong? Feats, scans, wiki pages…"></textarea></label>
+      <div class="ticket-foot"><span class="ticket-count">0/${TICKET_MAX}</span><span class="form-error ticket-error"></span>
+        <button type="button" class="pill-button" data-act="cancel">Cancel</button>
+        <button type="button" class="btn-gold" data-act="send">Send ticket</button></div>`;
+    const ta = box.querySelector('textarea');
+    const err = box.querySelector('.ticket-error');
+    ta.addEventListener('input', () => { box.querySelector('.ticket-count').textContent = `${ta.value.length}/${TICKET_MAX}`; });
+    ta.focus();
+    box.querySelector('[data-act="cancel"]').addEventListener('click', () => { box.remove(); renderTicketBox(card); });
+    box.querySelector('[data-act="send"]').addEventListener('click', async (e) => {
+      const picked = box.querySelector('input[name="tk-winner"]:checked');
+      if (!picked) { err.textContent = 'Pick who should win.'; return; }
+      if (ta.value.trim().length < 10) { err.textContent = 'Say a bit more about why.'; return; }
+      e.target.disabled = true;
+      try {
+        await Api.sendTicket({ char_a: state.a.id, char_b: state.b.id, form_a: v.form_a, form_b: v.form_b,
+          winner_id: Number(picked.value), reason: ta.value.trim() });
+        box.remove();
+        renderTicketBox(card);
+      } catch (ex) {
+        err.textContent = ex.message;
+        e.target.disabled = false;
+      }
+    });
+  });
+}
+
 function renderVerdict() {
   const v = state.verdict;
   const card = document.getElementById('verdict-card');
@@ -462,6 +541,7 @@ function renderVerdict() {
       ${notesHtml(v)}
     `;
     renderAdminPanel(card);
+    renderTicketBox(card);
     return;
   }
 
@@ -499,6 +579,7 @@ function renderVerdict() {
     ${notesHtml(v)}
   `;
   renderAdminPanel(card);
+  renderTicketBox(card);
 }
 
 function abilityCalloutHtml(v) {
@@ -561,7 +642,7 @@ async function renderComments() {
       el.innerHTML = `
         ${userAvatarHtml(c.author, c.author_avatar, 'mc-avatar', { admin: c.author_is_admin })}
         <div class="mc-main">
-          <div class="mc-meta"><span class="mc-author">${escapeHtml(c.author)}</span>${c.author_is_admin ? adminBadgeHtml() : ''}
+          <div class="mc-meta"><a class="mc-author" href="user.html?u=${encodeURIComponent(c.author)}">${escapeHtml(c.author)}</a>${c.author_is_admin ? adminBadgeHtml() : ''}
             <span class="mc-time" title="${escapeHtml(new Date(c.created_at).toLocaleString())}">· ${timeAgo(c.created_at)}</span>
             ${c.can_delete ? '<button type="button" class="mc-delete">Delete</button>' : ''}</div>
           <div class="mc-body"></div>

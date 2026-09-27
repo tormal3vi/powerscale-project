@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Powerscale — Tickets</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page">
+  <div id="topbar"></div>
+  <main class="page-content tickets">
+    <header class="duels-head">
+      <h1 class="page-title">Tickets</h1>
+      <p class="page-subtitle">Users who disagree with a verdict. Reply to close a ticket, or overrule in their favor: the Board post credits them.</p>
+    </header>
+    <div class="tk-tabs" role="tablist">
+      <button type="button" class="duel-fmt active" data-tab="open" role="tab" aria-selected="true">Open <span class="tk-n" id="tk-open-n"></span></button>
+      <button type="button" class="duel-fmt" data-tab="answered" role="tab" aria-selected="false">Answered</button>
+      <button type="button" class="duel-fmt" data-tab="bans" role="tab" aria-selected="false">Bans</button>
+    </div>
+    <div id="tk-body"><div class="duel-note">Loading…</div></div>
+  </main>
+</div>
+
+<script src="api.js"></script>
+<script src="nav.js"></script>
+<script src="tickets.js"></script>
+</body>
+</html>

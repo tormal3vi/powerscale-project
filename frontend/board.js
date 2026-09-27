@@ -191,7 +191,8 @@ async function showProfilePopover(trigger) {
         </div>
       </div>
       ${p.bio ? `<div class="user-pop-bio">${escapeHtml(p.bio)}</div>` : ''}
-      ${favoriteChipHtml(p.favorite, 'fav-pop', 44)}`;
+      ${favoriteChipHtml(p.favorite, 'fav-pop', 44)}
+      <a class="user-pop-link" href="user.html?u=${encodeURIComponent(p.username)}">View full profile →</a>`;
   } catch (err) {
     profileCache.delete(username);
     if (openPopover === pop) pop.innerHTML = `<div class="user-pop-loading">${escapeHtml(err.message)}</div>`;
@@ -213,7 +214,9 @@ function rulingHtml(post) {
   const r = post.ruling;
   const status = r && r.status !== 'current'
     ? `<span class="ruling-status">${r.status === 'lifted' ? 'Since lifted' : 'Since changed'}</span>` : '';
-  const strip = `<div class="ruling-strip">${SHIELD(13)}<span>Admin overrule</span>${status}</div>`;
+  const credit = post.credit
+    ? `<span class="ruling-credit">suggested by <a href="user.html?u=${encodeURIComponent(post.credit)}">${escapeHtml(post.credit)}</a></span>` : '';
+  const strip = `<div class="ruling-strip">${SHIELD(13)}<span>Admin overrule</span>${credit}${status}</div>`;
   if (!m || !r) return { strip, main: '' }; // a character was removed since
   return {
     strip,

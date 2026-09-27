@@ -127,6 +127,8 @@ posts = Table(
     # The winner that ruling named, kept on the post itself: the overrule can
     # later be changed or lifted, and the post should still say what it said.
     Column("ruling_winner", Integer, nullable=True),
+    # An overrule made from a user's ticket credits them on its post.
+    Column("credit_user_id", Integer, nullable=True),
 )
 # Profile pictures, already re-encoded by backend/avatars.py (~10-20 KB
 # each). Kept in the database rather than on disk: Render's free tier
@@ -171,7 +173,7 @@ matchup_comments = Table(
 # tables, never missing columns, so an existing database (the live Neon one)
 # gets them here. Nullable, so adding them touches no existing row.
 _ADDED_COLUMNS = {
-    "posts": [("kind", "VARCHAR(16)"), ("ruling_winner", "INTEGER")],
+    "posts": [("kind", "VARCHAR(16)"), ("ruling_winner", "INTEGER"), ("credit_user_id", "INTEGER")],
     "users": [("bio", "VARCHAR(200)"), ("favorite_char_id", "INTEGER")],
 }
 
@@ -398,6 +400,7 @@ def delete_account(user_id: int) -> None:
             conn.execute(delete(posts).where(and_(posts.c.id.in_(doomed), posts.c.parent_id.isnot(None))))
             conn.execute(delete(posts).where(posts.c.id.in_(doomed)))
         conn.execute(delete(likes).where(likes.c.user_id == user_id))
+        conn.execute(update(posts).where(posts.c.credit_user_id == user_id).values(credit_user_id=None))
         conn.execute(delete(matchup_comments).where(matchup_comments.c.user_id == user_id))
         conn.execute(delete(avatars).where(avatars.c.user_id == user_id))
         conn.execute(delete(sessions).where(sessions.c.user_id == user_id))
@@ -593,7 +596,8 @@ def delete_override(a: int, b: int, form_a: str, form_b: str) -> bool:
 
 def create_post(user_id: int, body: str, parent_id: Optional[int] = None, char_a: Optional[int] = None,
                 char_b: Optional[int] = None, form_a: Optional[str] = None, form_b: Optional[str] = None,
-                kind: Optional[str] = None, ruling_winner: Optional[int] = None) -> int:
+                kind: Optional[str] = None, ruling_winner: Optional[int] = None,
+                credit_user_id: Optional[int] = None) -> int:
     with engine.begin() as conn:
         if parent_id is not None:
             parent = conn.execute(select(posts.c.id, posts.c.parent_id).where(posts.c.id == parent_id)).first()
@@ -604,6 +608,7 @@ def create_post(user_id: int, body: str, parent_id: Optional[int] = None, char_a
         post_id = conn.execute(insert(posts).values(
             user_id=user_id, parent_id=parent_id, body=body, char_a=char_a, char_b=char_b,
             form_a=form_a, form_b=form_b, created_at=_now(), kind=kind, ruling_winner=ruling_winner,
+            credit_user_id=credit_user_id,
         )).inserted_primary_key[0]
     _board_changed()
     return post_id
@@ -636,6 +641,24 @@ def _post_rows(conn, where, viewer_id: Optional[int], order, limit: Optional[int
         r["reply_count"] = r["reply_count"] or 0
         r["liked_by_me"] = bool(r["liked_by_me"])
     return rows
+
+
+def user_activity(user_id: int, viewer_id: Optional[int], limit: int = 8) -> dict:
+    """For a public profile: their latest posts, overrules posted from
+    their tickets, latest matchup comments and comment count - one
+    connection, four queries."""
+    with reader.connect() as conn:
+        own = _post_rows(conn, and_(posts.c.user_id == user_id, posts.c.parent_id.is_(None)), viewer_id,
+                         posts.c.id.desc(), limit)
+        credited = _post_rows(conn, posts.c.credit_user_id == user_id, viewer_id, posts.c.id.desc(), limit)
+        comments = [dict(r) for r in conn.execute(
+            select(matchup_comments).where(matchup_comments.c.user_id == user_id)
+            .order_by(matchup_comments.c.id.desc()).limit(limit)).mappings()]
+        n_comments = conn.execute(select(func.count()).select_from(matchup_comments)
+                                  .where(matchup_comments.c.user_id == user_id)).scalar()
+    for c in comments:
+        c["created_at"] = _aware(c["created_at"])
+    return {"posts": own, "credited": credited, "comments": comments, "comment_count": n_comments}
 
 
 def list_posts(viewer_id: Optional[int], before_id: Optional[int] = None, limit: int = 20) -> List[dict]:
