@@ -524,6 +524,45 @@ def test_draft_dead_even_picks_go_to_the_faster_one():
         duels._stronger = real
 
 
+def test_discord_app_checks_signatures_and_answers_commands():
+    from nacl.signing import SigningKey
+    from backend import discord_bot
+    key = SigningKey.generate()
+    public = key.verify_key.encode().hex()
+    body, ts = b'{"type": 1}', "1700000000"
+    signed = key.sign(ts.encode() + body).signature.hex()
+    assert discord_bot.verify(public, signed, ts, body)
+    assert not discord_bot.verify(public, signed, ts, b'{"type": 2}')  # tampered
+    assert not discord_bot.verify(public, "zz", ts, body)  # not even hex
+    assert discord_bot.handle({"type": 1}) == {"type": 1}
+
+    # Suggestions while typing: the character first, then its forms.
+    choices = discord_bot.handle({"type": 4, "data": {"name": "compare", "options": [
+        {"name": "a", "type": 3, "value": "kratos", "focused": True}]}})["data"]["choices"]
+    assert choices and all(len(c["name"]) <= 100 for c in choices) and "Kratos" in choices[0]["name"]
+    kratos = int(choices[0]["value"])
+    forms = discord_bot.handle({"type": 4, "data": {"name": "compare", "options": [
+        {"name": "a", "type": 3, "value": str(kratos)}, {"name": "form_a", "type": 3, "value": "", "focused": True}]}})
+    assert forms["data"]["choices"][0]["value"] == "0"
+
+    def run(command, **opts):
+        return discord_bot.handle({"type": 2, "data": {"name": command, "options": [
+            {"name": k, "type": 3, "value": v} for k, v in opts.items()]}})["data"]
+    other = discord_bot.search("superman")[0]["id"]
+    reply = run("compare", a=str(kratos), b=str(other))
+    embed = reply["embeds"][0]
+    assert " vs " in embed["title"] and embed["url"].startswith("https://powerscale.online/compare.html?a=")
+    assert len(embed["fields"]) == 2 and "Tier" in embed["fields"][0]["value"]
+    assert reply["allowed_mentions"] == {"parse": []} and reply["components"][0]["components"][0]["style"] == 5
+    assert run("compare", a="kratos", b="superman")["embeds"]  # typed names work too
+    assert run("compare", a=str(kratos), b=str(kratos))["flags"] == discord_bot.EPHEMERAL
+    assert run("compare", a="zzqqxx", b="superman")["flags"] == discord_bot.EPHEMERAL
+    assert run("compare", a=str(kratos), b=str(other), form_a="no such form")["flags"] == discord_bot.EPHEMERAL
+    assert "Attack Potency" in run("character", name=str(kratos))["embeds"][0]["description"]
+    assert " vs " in run("random")["embeds"][0]["title"]
+    assert run("leaderboard")["embeds"][0]["title"] == "Duel leaderboard"
+
+
 def test_games_from_before_teams_get_players_and_outcomes():
     from sqlalchemy import insert
     old_a, old_b = _users("old_a", "old_b")

@@ -16,3 +16,16 @@ services:
       # any post, e.g. "levente,friend2".
       - key: ADMIN_USERNAMES
         sync: false
+      # Discord (optional; see backend/discord_webhooks.py and
+      # backend/discord_bot.py). Channel webhooks for announcements:
+      - key: DISCORD_WEBHOOK_OVERRULES
+        sync: false
+      - key: DISCORD_WEBHOOK_DUELS
+        sync: false
+      # The Discord app's slash commands (discord.com/developers):
+      - key: DISCORD_PUBLIC_KEY
+        sync: false
+      - key: DISCORD_APPLICATION_ID
+        sync: false
+      - key: DISCORD_BOT_TOKEN
+        sync: false

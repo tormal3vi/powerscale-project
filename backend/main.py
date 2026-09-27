@@ -25,7 +25,7 @@ import db
 import normalizer
 import parser as parser_module
 import scraper
-from backend import characters, community, community_api, duels, duels_api, profiles_api, tickets_api
+from backend import characters, community, community_api, discord_bot, duels, duels_api, profiles_api, tickets_api
 from backend.schemas import (
     AbilityFlagOut,
     AxisComparisonOut,
@@ -48,8 +48,10 @@ app.include_router(community_api.router)
 app.include_router(duels_api.router)
 app.include_router(tickets_api.router)
 app.include_router(profiles_api.router)
+app.include_router(discord_bot.router)
 db.init_db()  # adds columns newer code expects to an older powerscale.db
 community.init()
+discord_bot.start()  # registers the Discord commands, if Discord is set up
 
 
 @app.middleware("http")
