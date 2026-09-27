@@ -22,6 +22,14 @@ services:
         sync: false
       - key: DISCORD_WEBHOOK_DUELS
         sync: false
+      - key: DISCORD_WEBHOOK_LEADERBOARD
+        sync: false
+      - key: DISCORD_WEBHOOK_UPDATES
+        sync: false
+      # The server's invite link for the "Join our Discord" button,
+      # e.g. https://discord.gg/abc123
+      - key: DISCORD_INVITE_URL
+        sync: false
       # The Discord app's slash commands (discord.com/developers):
       - key: DISCORD_PUBLIC_KEY
         sync: false

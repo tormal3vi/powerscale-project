@@ -22,6 +22,16 @@ const LOGOUT_ICON = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"
 
 // `back`: on phones, a back arrow replaces the logo and menu (Profile
 // settings is a place you step into and out of).
+// The Discord logo (Simple Icons, CC0).
+const DISCORD_ICON = '<svg class="discord-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .078-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03ZM8.02 15.331c-1.182 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418Z"/></svg>';
+
+// The server's invite link, when the site has one (the server writes it
+// into the page: DISCORD_INVITE_URL).
+function discordInvite() {
+  const url = document.querySelector('meta[name="discord-invite"]')?.content || '';
+  return /^https:\/\/(discord\.gg|discord\.com\/invite)\/[A-Za-z0-9-]+$/.test(url) ? url : '';
+}
+
 function renderTopbar(actions = [], { minimal = false, back = false } = {}) {
   const bar = document.getElementById('topbar');
   const current = location.pathname.split('/').pop() || 'browse.html';
@@ -40,6 +50,8 @@ function renderTopbar(actions = [], { minimal = false, back = false } = {}) {
     <button class="topbar-menu-btn" aria-label="Menu" aria-expanded="false">${MENU_ICON}</button>
     ${back ? '<span class="topbar-back-spacer"></span>' : ''}
     <div class="topbar-right">
+      ${discordInvite() ? `<a class="topbar-discord" href="${escapeHtml(discordInvite())}" target="_blank" rel="noopener"
+        aria-label="Join our Discord" title="Join our Discord">${DISCORD_ICON}<span class="topbar-discord-label">Join our Discord</span></a>` : ''}
       <div class="topbar-actions" id="topbar-actions"></div>
       <div class="topbar-account" id="topbar-account"></div>
     </div>`}

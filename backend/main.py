@@ -10,6 +10,7 @@ hand, or http://localhost:8000/ once frontend/ exists.
 """
 
 import json
+import os
 import re
 import unicodedata
 from html import escape as html_escape
@@ -401,7 +402,16 @@ def _page_with_preview(request: Request, filename: str, title: Optional[str], de
         f'<meta name="theme-color" content="#D9A441">\n'
         f'<meta name="description" content="{d}">\n'
     )
+    invite = _discord_invite()
+    if invite:  # nav.js turns it into the "Join our Discord" button
+        tags += f'<meta name="discord-invite" content="{html_escape(invite)}">\n'
     return HTMLResponse(html.replace("</head>", tags + "</head>", 1))
+
+
+def _discord_invite() -> Optional[str]:
+    """The server's invite link (DISCORD_INVITE_URL), if it's one."""
+    url = os.environ.get("DISCORD_INVITE_URL", "").strip()
+    return url if re.fullmatch(r"https://(discord\.gg|discord\.com/invite)/[A-Za-z0-9-]+", url) else None
 
 
 def _int_param(value: Optional[str]) -> Optional[int]:
