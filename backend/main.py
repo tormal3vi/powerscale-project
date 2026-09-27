@@ -534,8 +534,8 @@ def _robots(request: Request) -> Response:
     return Response(text, media_type="text/plain")
 
 
-app.add_api_route("/sitemap.xml", _sitemap, methods=["GET"], include_in_schema=False)
-app.add_api_route("/robots.txt", _robots, methods=["GET"], include_in_schema=False)
+app.add_api_route("/sitemap.xml", _sitemap, methods=["GET", "HEAD"], include_in_schema=False)
+app.add_api_route("/robots.txt", _robots, methods=["GET", "HEAD"], include_in_schema=False)
 
 
 # --- static frontend (mounted once frontend/ exists) -------------------
@@ -545,28 +545,28 @@ app.add_api_route("/robots.txt", _robots, methods=["GET"], include_in_schema=Fal
 # the mount so this exact-path route wins over the mount's catch-all.
 
 if FRONTEND_DIR.exists():
-    @app.get("/", include_in_schema=False)
+    @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
     def _root():
         return RedirectResponse(url="/browse.html")
 
-    @app.get("/compare.html", include_in_schema=False)
+    @app.api_route("/compare.html", methods=["GET", "HEAD"], include_in_schema=False)
     def _compare_page(request: Request, a: Optional[str] = None, b: Optional[str] = None,
                       fa: Optional[str] = None, fb: Optional[str] = None):
         return _page_with_preview(request, "compare.html", *_compare_preview(a, b, fa, fb))
 
-    @app.get("/character.html", include_in_schema=False)
+    @app.api_route("/character.html", methods=["GET", "HEAD"], include_in_schema=False)
     def _character_page(request: Request, id: Optional[str] = None):
         return _page_with_preview(request, "character.html", *_character_preview(id))
 
-    @app.get("/duels.html", include_in_schema=False)
+    @app.api_route("/duels.html", methods=["GET", "HEAD"], include_in_schema=False)
     def _duels_page(request: Request, game: Optional[str] = None):
         return _page_with_preview(request, "duels.html", *_duel_preview(game))
 
-    @app.get("/user.html", include_in_schema=False)
+    @app.api_route("/user.html", methods=["GET", "HEAD"], include_in_schema=False)
     def _user_page(request: Request, u: Optional[str] = None):
         return _page_with_preview(request, "user.html", *_user_preview(u))
 
-    @app.get("/tournament.html", include_in_schema=False)
+    @app.api_route("/tournament.html", methods=["GET", "HEAD"], include_in_schema=False)
     def _tournament_page(request: Request, ids: Optional[str] = None):
         return _page_with_preview(request, "tournament.html", *_tournament_preview(ids))
 
@@ -577,6 +577,6 @@ if FRONTEND_DIR.exists():
         return page
 
     for _name in ("browse.html", "board.html", "login.html", "profile.html", "tickets.html"):
-        app.add_api_route(f"/{_name}", _plain_page_route(_name), methods=["GET"], include_in_schema=False)
+        app.add_api_route(f"/{_name}", _plain_page_route(_name), methods=["GET", "HEAD"], include_in_schema=False)
 
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
