@@ -506,6 +506,38 @@ def _tournament_preview(ids: Optional[str]):
     return f"{len(names)}-character tournament — Powerscale", f"Who takes it? {shown}.", _preview_image(wanted[0])
 
 
+# --- for search engines ----------------------------------------------------------
+# robots.txt points crawlers at the sitemap: the main pages and every
+# character page (matchups are endless, so only characters are listed -
+# a crawler still finds matchups through their links).
+
+def _sitemap(request: Request) -> Response:
+    base = _base_url(request)
+    urls = [(f"{base}/{page}", None) for page in ("browse.html", "duels.html", "board.html", "tournament.html")]
+    with db.connect() as conn:
+        for row in conn.execute("SELECT id, last_scraped_at FROM characters ORDER BY id"):
+            urls.append((f"{base}/character.html?id={row[0]}", (row[1] or "")[:10] or None))
+    body = "".join(f"<url><loc>{html_escape(loc)}</loc>{f'<lastmod>{day}</lastmod>' if day else ''}</url>"
+                   for loc, day in urls)
+    xml = f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{body}</urlset>'
+    return Response(xml, media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})
+
+
+def _robots(request: Request) -> Response:
+    text = ("User-agent: *\n"
+            "Allow: /api/avatars/\n"
+            "Disallow: /api/\n"
+            "Disallow: /login.html\n"
+            "Disallow: /profile.html\n"
+            "Disallow: /tickets.html\n"
+            f"Sitemap: {_base_url(request)}/sitemap.xml\n")
+    return Response(text, media_type="text/plain")
+
+
+app.add_api_route("/sitemap.xml", _sitemap, methods=["GET"], include_in_schema=False)
+app.add_api_route("/robots.txt", _robots, methods=["GET"], include_in_schema=False)
+
+
 # --- static frontend (mounted once frontend/ exists) -------------------
 # StaticFiles(html=True) serves index.html for a directory request, but
 # frontend/ has no index.html (browse.html is the real landing page) - so
