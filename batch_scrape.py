@@ -75,6 +75,9 @@ SUBSERIES = {
     "Devil May Cry": ("Games", [("Netflix series", ["Devil May Cry (Netflix)"])]),
     "Invincible": ("Comics", []),
     "Puella Magi Verse": ("Madoka Magica", []),
+    # Garth Ennis's comics and the Amazon shows rate the same Supes very
+    # differently; the pages say which in their titles.
+    "The Boys": ("TV Series", []),
 }
 
 # Parts only the page titles tell apart: "Omni-Man (TV Series)", "Goku
@@ -86,6 +89,7 @@ SUBSERIES_BY_QUALIFIER = {
     "Devil May Cry": {"Netflix DMC": "Netflix series"},
     "Invincible": {"TV Series": "TV Series", "Comics": "Comics", "Invincible Comics": "Comics"},
     "Puella Magi Verse": {"Magia Record": "Magia Record"},
+    "The Boys": {"Dynamite Entertainment": "Comics", "Gen V": "Gen V"},
 }
 
 
@@ -110,8 +114,10 @@ EXCLUDED_TITLES = {
         "007", "Dexter's Laboratory", "Dungeons and Dragons", "God of War", "InFAMOUS",
         "Masters of the Universe", "Ratchet & Clank", "Sly Cooper (Universe)", "Star Trek",
         "Street Fighter", "The Boys", "The Powerpuff Girls",
+        "Mirror's Edge (Original Continuity)", "Resident Evil", "WildStorm",
         "DC Comics Cosmology",  # an overview of DC's universe, not a character
     },
+    "The Boys": {"Compound V (The Boys)"},  # the drug, not a character
 }
 
 
