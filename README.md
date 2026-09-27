@@ -24,8 +24,15 @@ reasoning shown.
 - **Prediction duels:** five matchups, 20 seconds each - call who the
   site's verdict favors. 1v1, free-for-alls (1v1v1, 1v1v1v1) or teams (2v2,
   2v2v2, 3v3), open to anyone or invite-only. Rounds are random or picked
-  by the challenger; answers stay hidden until everyone has played. The
-  page updates live, and wins go on your profile and a leaderboard.
+  by the challenger; answers stay hidden until everyone has played. Or
+  **draft**: everyone is dealt 4 characters a round, picks the strongest,
+  and picks go head to head. The page updates live, and wins go on your
+  profile and a leaderboard.
+- **Tickets:** disagree with a verdict? Send the admins one ticket per
+  matchup. They reply, or overrule in your favor - and the Board post
+  credits you.
+- **Profiles:** every user has a public page with their posts, comments,
+  duels, record and the overrules they suggested.
 - **The Board:** a small message board. Post takes, attach a matchup (with
   a live verdict preview), like, and reply.
 - **Accounts:** profile picture, bio and favorite character, which show next

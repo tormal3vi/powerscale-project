@@ -2107,3 +2107,33 @@ a.up-row:hover { border-color: var(--control-border); }
 .user-pop-link { display: block; margin-top: 12px; font-size: 12.5px; font-weight: 600; color: var(--accent-gold); }
 a.mc-author:hover, a.lb-name:hover { color: var(--accent-gold); }
 a.lb-name { color: var(--text-primary); }
+
+/* --- Draft duels --------------------------------------------------------- */
+.dr-prompt { font: 600 13px var(--font-sans); color: var(--accent-gold); margin: -18px 0 18px; }
+.dr-hand-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; max-width: 880px; }
+.dr-hand-grid .duel-choice { width: auto; padding: 18px 12px; gap: 10px; }
+.dr-hand-grid .duel-tile { width: 112px; height: 112px; font-size: 42px; border-radius: 16px; }
+.dr-hand-grid .duel-choice-name { font-size: 15px; }
+.duel-play-inner:has(.dr-hand-grid) { max-width: 900px; }
+.dr-legend { color: var(--text-quaternary); text-transform: none; letter-spacing: 0; font-weight: 500; margin-left: 6px; }
+.dr-round { align-items: flex-start; }
+.dr-picks { flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.dr-pick { min-width: 0; }
+.dr-pick-top { display: flex; align-items: center; gap: 7px; }
+.dr-pick-top .duel-pick-avatar { width: 22px; height: 22px; border-radius: 6px; font-size: 10px; }
+.dr-pick-name { flex: 1; min-width: 0; font-size: 12px; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-points { font: 700 12px var(--font-mono); color: var(--text-quaternary); }
+.dr-points.won { color: #8FBF6B; }
+.dr-pick-char { font-size: 13px; font-weight: 600; margin: 5px 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-hand { display: flex; gap: 4px; }
+.dr-mini { position: relative; width: 26px; height: 26px; border-radius: 6px; overflow: hidden; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font: 700 11px var(--font-serif); color: var(--bg); opacity: 0.55; }
+.dr-mini.picked { opacity: 1; box-shadow: 0 0 0 2px var(--accent-gold); }
+.dr-mini.best::after { content: "★"; position: absolute; right: 0; bottom: -1px; font-size: 10px; color: #F3EEE4; text-shadow: 0 0 3px #000; }
+@media (max-width: 640px) {
+  .dr-hand-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .dr-hand-grid .duel-tile { width: 76px; height: 76px; font-size: 30px; border-radius: 14px; }
+  .dr-hand-grid .duel-choice { padding: 12px 8px; }
+  .dr-hand-grid .duel-choice-name { font-size: 13.5px; }
+  .dr-picks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -466,6 +466,42 @@ def test_scores_pending_count_and_leaderboard():
     assert private in [g["id"] for g in listed["mine"]]
 
 
+def test_draft_deals_hands_by_seat_and_scores_head_to_head():
+    from sqlalchemy import select
+    ann, ben, cal = _users("dr_ann", "dr_ben", "dr_cal")
+    game_id = duels.create(ann["id"], "1v1", [], [], [], "draft")
+    with community.engine.connect() as conn:
+        hands = conn.execute(select(duels.game_hands).where(duels.game_hands.c.game_id == game_id)).mappings().all()
+    assert len(hands) == duels.ROUNDS * 2 * duels.HAND_SIZE
+    assert len({h["char_id"] for h in hands}) == len(hands)  # nobody sees a character twice
+    lobby = duels.create(ann["id"], "1v1v1", [], [], [], "draft")
+    duels.join(lobby, cal["id"])
+    duels.leave(lobby, cal["id"])  # before playing
+    duels.join(lobby, ben["id"])  # gets the freed seat
+    assert {m["user_id"]: m["seat"] for m in duels.game(lobby)["members"][lobby]} == {ann["id"]: 0, ben["id"]: 1}
+    duels.join(game_id, ben["id"])
+    r = duels.next_round(game_id, ann["id"])
+    assert len(r["hand"]) == duels.HAND_SIZE and r["hand"] == [h["char_id"] for h in sorted(
+        (h for h in hands if h["round_no"] == r["round_no"] and h["seat"] == 0), key=lambda h: h["slot"])]
+    other_seat = [h["char_id"] for h in hands if h["round_no"] == r["round_no"] and h["seat"] == 1]
+    _raises(lambda: duels.pick(game_id, ann["id"], r["round_no"], other_seat[0]), text="in your hand")
+    chosen = {}
+    for u, idx in ((ann, 0), (ben, -1)):
+        r = duels.next_round(game_id, u["id"])
+        while r:
+            chosen[(r["round_no"], u["id"])] = r["hand"][idx]
+            _, r = duels.pick(game_id, u["id"], r["round_no"], r["hand"][idx])
+    expected = {ann["id"]: 0, ben["id"]: 0}
+    for n in range(1, duels.ROUNDS + 1):
+        a, b = chosen[(n, ann["id"])], chosen[(n, ben["id"])]
+        w = duels._stronger(a, b)
+        if w is not None:
+            expected[ann["id"] if w == a else ben["id"]] += 1
+    members = {m["user_id"]: m for m in duels.game(game_id)["members"][game_id]}
+    assert {uid: members[uid]["score"] for uid in expected} == expected
+    assert duels.game(game_id)["games"][0]["status"] == "done"
+
+
 def test_games_from_before_teams_get_players_and_outcomes():
     from sqlalchemy import insert
     old_a, old_b = _users("old_a", "old_b")

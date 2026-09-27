@@ -341,6 +341,7 @@ class DuelCreateIn(BaseModel):
     invite: List[str] = Field([], max_length=5)  # usernames for a private game; empty: open to anyone
     matchups: List[DuelMatchupIn] = Field([], max_length=5)  # picked ones; the rest are random
     exclude: List[str] = Field([], max_length=100)  # series left out of the random rounds
+    mode: str = "predict"  # predict | draft
 
 
 class DuelJoinIn(BaseModel):
@@ -367,13 +368,16 @@ class DuelSideOut(BaseModel):
 
 
 class DuelRoundOut(BaseModel):
-    """A round being played: the two sides, and the time left to pick."""
+    """A round being played: the two sides (or, in a draft, your hand), and
+    the time left to pick."""
     game_id: int
     round_no: int
     total: int
     seconds_left: float
-    a: DuelSideOut
-    b: DuelSideOut
+    mode: str = "predict"
+    a: Optional[DuelSideOut] = None
+    b: Optional[DuelSideOut] = None
+    hand: List[DuelSideOut] = []
 
 
 class DuelPickIn(BaseModel):
@@ -391,12 +395,17 @@ class DuelRoundPickOut(BaseModel):
     team: int
     pick_id: Optional[int] = None
     correct: bool = False
+    # Draft: the hand they were dealt, the head-to-head wins their pick
+    # earned, and the hand's highest-tier character.
+    hand: List[DuelSideOut] = []
+    points: int = 0
+    best_id: Optional[int] = None
 
 
 class DuelResultRoundOut(BaseModel):
     round_no: int
-    a: DuelSideOut
-    b: DuelSideOut
+    a: Optional[DuelSideOut] = None  # predict rounds only
+    b: Optional[DuelSideOut] = None
     answer_id: int
     verdict: str  # what decided it: "Superman favored — Clear favorite" or an overrule
     picked: bool  # chosen by the challenger rather than drawn at random
@@ -409,6 +418,7 @@ class DuelOut(BaseModel):
     status: str  # open | active | done | expired | declined | cancelled
     created_at: datetime
     format: str  # "1v1", "2v2", "1v1v1"...
+    mode: str = "predict"  # predict | draft
     teams: int
     team_size: int
     creator: str

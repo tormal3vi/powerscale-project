@@ -15,6 +15,13 @@ answer: the admin overrule if there is one, else the calculator's favorite
 starts on the server when the round is shown, so reloading doesn't reset
 it. Nobody sees answers or anyone else's picks until the game is over.
 
+Draft mode instead deals each player a hand of HAND_SIZE characters per
+round - every hand in a round drawn from around the same tier, so they're
+comparable - and each picks the one they think is strongest, against the
+clock. Picks then fight every opponent's pick of that round (the site's
+verdict, or its lean when too close to call; no pick loses to any pick):
+a player's score is their head-to-head wins.
+
 Stored in the community database (Neon), next to accounts and posts."""
 
 import random
@@ -39,6 +46,8 @@ GRACE_SECONDS = 3  # network lag between the clock running out and the pick arri
 OPEN_DAYS = 7  # a game that never fills expires after this
 FORFEIT_HOURS = 72  # once a game is full and someone's done, the rest have this long
 RANDOM_TIER_SPREAD = 3.0  # random rounds pair characters within this Tier distance (~one tier)
+HAND_SIZE = 4  # draft: characters dealt to each player per round (a 2x2 grid on phones)
+MODES = ("predict", "draft")
 
 # (teams, players per team)
 FORMATS = {"1v1": (2, 1), "1v1v1": (3, 1), "1v1v1v1": (4, 1), "2v2": (2, 2), "2v2v2": (3, 2), "3v3": (2, 3)}
@@ -62,6 +71,7 @@ games = Table(
     Column("winning_team", Integer, nullable=True),  # NULL once done: a draw at the top
     Column("picked", Integer, nullable=True),  # how many rounds the creator chose (NULL on old rows)
     Column("excluded", String(1000), nullable=True),  # series left out of the random rounds, "|"-joined
+    Column("mode", String(12), nullable=True),  # predict (NULL on old rows) | draft
 )
 game_players = Table(
     "game_players", metadata,
@@ -70,7 +80,17 @@ game_players = Table(
     Column("team", Integer, nullable=False),  # 1-based
     Column("joined_at", DateTime(timezone=True), nullable=False),
     Column("outcome", String(8), nullable=True),  # win | draw | loss, once done
-    Column("score", Integer, nullable=True),  # right answers, once done (lists show it without the rounds)
+    Column("score", Integer, nullable=True),  # right answers (draft: head-to-head wins), once done
+    Column("seat", Integer, nullable=True),  # draft: which dealt hands are yours (0-based; NULL otherwise)
+)
+# Draft games: each seat's hand for each round, dealt when the game is made.
+game_hands = Table(
+    "game_hands", metadata,
+    Column("game_id", Integer, ForeignKey("games.id"), primary_key=True),
+    Column("round_no", Integer, primary_key=True),
+    Column("seat", Integer, primary_key=True),
+    Column("slot", Integer, primary_key=True),
+    Column("char_id", Integer, nullable=False),
 )
 # Private games: who may take the seats.
 game_invites = Table(
@@ -109,7 +129,8 @@ def _migrate() -> None:
         community.add_missing_columns(conn, "games", [
             ("teams", "INTEGER"), ("team_size", "INTEGER"), ("winning_team", "INTEGER"),
             ("picked", "INTEGER"), ("excluded", "VARCHAR(1000)")])
-        community.add_missing_columns(conn, "game_players", [("score", "INTEGER")])
+        community.add_missing_columns(conn, "games", [("mode", "VARCHAR(12)")])
+        community.add_missing_columns(conn, "game_players", [("score", "INTEGER"), ("seat", "INTEGER")])
         has_players = select(game_players.c.game_id).where(game_players.c.game_id == games.c.id).exists()
         old = conn.execute(select(games).where(~has_players)).mappings().all()
         for g in old:
@@ -206,6 +227,66 @@ def _random_rounds(n: int, taken: set, excluded: frozenset = frozenset()) -> Lis
     return rounds
 
 
+def _deal(seats: int, excluded: frozenset) -> List[dict]:
+    """Every seat's hand for every round (game_hands rows). A round's
+    hands come from around one randomly chosen tier, widening the band if
+    it's too thin; no character is dealt twice in a game."""
+    pool = [(cid, tier) for cid, tier, series in characters.scorable_pool() if series not in excluded]
+    need = seats * HAND_SIZE
+    if len(pool) < need * ROUNDS:
+        raise DuelError("Too few characters left to deal from - exclude fewer series")
+    used: set = set()
+    rows = []
+    for round_no in range(1, ROUNDS + 1):
+        center = random.choice(pool)[1]
+        for spread in (RANDOM_TIER_SPREAD, RANDOM_TIER_SPREAD * 2, RANDOM_TIER_SPREAD * 4, 1e9):
+            band = [cid for cid, t in pool if abs(t - center) <= spread and cid not in used]
+            if len(band) >= need:
+                break
+        dealt = random.sample(band, need)
+        used.update(dealt)
+        for i, cid in enumerate(dealt):
+            rows.append({"round_no": round_no, "seat": i // HAND_SIZE, "slot": i % HAND_SIZE, "char_id": cid})
+    return rows
+
+
+def _stronger(a: Optional[int], b: Optional[int]) -> Optional[int]:
+    """Draft: which of two picks wins - an admin overrule, else the
+    calculator (its lean when it's too close to call). No pick loses to any
+    pick; None when neither picked, or it's dead even."""
+    if a is None or b is None:
+        return a if b is None else b
+    try:
+        v = characters.run_compare(a, b, None, None)
+    except ValueError:
+        return None
+    ov = community.get_override(a, b, v.form_a, v.form_b)
+    if ov is not None:
+        return ov["winner_id"]
+    if v.composite:
+        return a if v.composite > 0 else b
+    return None
+
+
+def draft_points(members: List[dict], picked: Dict[Tuple[int, int], Optional[int]]) -> Dict[Tuple[int, int], int]:
+    """{(round, user id): head-to-head wins} - each player's pick against
+    every opponent's (other teams only) pick that round. `picked` maps
+    (round, user id) to the character they picked in time (or None)."""
+    out: Dict[Tuple[int, int], int] = {}
+    for n in range(1, ROUNDS + 1):
+        for i, x in enumerate(members):
+            out.setdefault((n, x["user_id"]), 0)
+            for y in members[i + 1:]:
+                if x["team"] == y["team"]:
+                    continue
+                cx, cy = picked.get((n, x["user_id"])), picked.get((n, y["user_id"]))
+                w = _stronger(cx, cy)
+                if w is not None and cx != cy:
+                    winner = x if w == cx else y
+                    out[(n, winner["user_id"])] = out.get((n, winner["user_id"]), 0) + 1
+    return out
+
+
 # --- creating, joining, leaving ---------------------------------------------------------
 
 def shape(g: dict) -> Tuple[int, int]:
@@ -218,11 +299,14 @@ def format_name(g: dict) -> str:
     return "v".join([str(size)] * teams)
 
 
-def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exclude: List[str] = ()) -> int:
-    """`exclude`: series whose characters the random rounds leave out
-    (picked matchups are the creator's own choice either way)."""
+def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exclude: List[str] = (),
+           mode: str = "predict") -> int:
+    """`exclude`: series whose characters the random rounds (or draft
+    hands) leave out - picked matchups are the creator's own choice."""
     if fmt not in FORMATS:
         raise DuelError("Unknown format")
+    if mode not in MODES:
+        raise DuelError("Unknown mode")
     excluded = frozenset(s.strip() for s in exclude if s and s.strip())
     teams, size = FORMATS[fmt]
     seats = teams * size - 1
@@ -246,6 +330,10 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exc
                 raise DuelError(f"{n} is invited twice")
             invitees.append(uid)
     rounds, taken = [], set()
+    hands: List[dict] = []
+    if mode == "draft":
+        picked = []  # hands are dealt, never chosen
+        hands = _deal(teams * size, excluded)
     for i, m in enumerate(picked[:ROUNDS], start=1):
         if m["char_a"] == m["char_b"]:
             raise DuelError(f"Matchup {i} needs two different characters")
@@ -257,21 +345,36 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exc
         taken.add(frozenset((r["char_a"], r["char_b"])))
         rounds.append({**r, "picked": True})
     n_picked = len(rounds)
-    rounds += _random_rounds(ROUNDS - len(rounds), taken, excluded)
-    random.shuffle(rounds)
+    if mode == "draft":
+        # Placeholder rounds: the clock and picks hang off them, the hands
+        # live in game_hands.
+        rounds = [{"char_a": 0, "char_b": 0, "form_a": "", "form_b": "", "answer_id": 0, "verdict": "", "picked": False}
+                  for _ in range(ROUNDS)]
+    else:
+        rounds += _random_rounds(ROUNDS - len(rounds), taken, excluded)
+        random.shuffle(rounds)
     now = _now()
     with engine.begin() as conn:
         game_id = conn.execute(insert(games).values(
             creator_id=creator_id, status="open", created_at=now, teams=teams, team_size=size,
-            picked=n_picked, excluded="|".join(sorted(excluded)) or None,
+            picked=n_picked, excluded="|".join(sorted(excluded)) or None, mode=mode,
         )).inserted_primary_key[0]
-        conn.execute(insert(game_players).values(game_id=game_id, user_id=creator_id, team=1, joined_at=now))
+        conn.execute(insert(game_players).values(game_id=game_id, user_id=creator_id, team=1, joined_at=now,
+                                                 seat=0 if mode == "draft" else None))
+        if hands:
+            conn.execute(insert(game_hands), [{"game_id": game_id, **h} for h in hands])
         if invitees:
             conn.execute(insert(game_invites), [{"game_id": game_id, "user_id": u} for u in invitees])
         conn.execute(insert(game_rounds), [{"game_id": game_id, "round_no": i, **r}
                                            for i, r in enumerate(rounds, start=1)])
     _changed()
-    prewarm.round_pictures([(r["char_a"], r["char_b"]) for r in rounds])
+    if hands:
+        by_round: Dict[int, List[int]] = {}
+        for h in sorted(hands, key=lambda h: (h["round_no"], h["seat"], h["slot"])):
+            by_round.setdefault(h["round_no"], []).append(h["char_id"])
+        prewarm.round_pictures([tuple(ids) for _, ids in sorted(by_round.items())])
+    else:
+        prewarm.round_pictures([(r["char_a"], r["char_b"]) for r in rounds])
     return game_id
 
 
@@ -339,7 +442,11 @@ def join(game_id: int, user_id: int, team: Optional[int] = None) -> None:
         elif team not in free:
             raise DuelError("That team is full - pick another", 409)
         now = _now()
-        conn.execute(insert(game_players).values(game_id=game_id, user_id=user_id, team=team, joined_at=now))
+        seat = None
+        if g.get("mode") == "draft":  # the lowest free seat: a leaver's seat is reused
+            taken = {m["seat"] for m in members}
+            seat = next(s for s in range(len(members) + 1) if s not in taken)
+        conn.execute(insert(game_players).values(game_id=game_id, user_id=user_id, team=team, joined_at=now, seat=seat))
         teams, size = shape(g)
         if len(members) + 1 == teams * size:
             conn.execute(update(games).where(games.c.id == game_id).values(status="active", accepted_at=now))
@@ -395,9 +502,13 @@ def _settled(pick: dict, now: datetime) -> bool:
     return pick["answered_at"] is not None or now > _deadline(pick["started_at"]) + timedelta(seconds=GRACE_SECONDS)
 
 
-def _correct(pick: Optional[dict], answer_id: int) -> bool:
-    return bool(pick and pick["pick_id"] == answer_id and pick["answered_at"] is not None
+def _in_time(pick: Optional[dict]) -> bool:
+    return bool(pick and pick["answered_at"] is not None
                 and _aware(pick["answered_at"]) <= _deadline(pick["started_at"]) + timedelta(seconds=GRACE_SECONDS))
+
+
+def _correct(pick: Optional[dict], answer_id: int) -> bool:
+    return _in_time(pick) and pick["pick_id"] == answer_id
 
 
 def can_play(g: dict, user_id: Optional[int], members: List[dict]) -> bool:
@@ -411,9 +522,11 @@ def _state(conn, game_id: int, user_id: int) -> List[dict]:
     pick on each (if started), the game's status and whether they're in it."""
     member = select(game_players.c.user_id).where(and_(
         game_players.c.game_id == game_id, game_players.c.user_id == user_id)).exists()
+    seat = select(game_players.c.seat).where(and_(
+        game_players.c.game_id == game_id, game_players.c.user_id == user_id)).scalar_subquery()
     rows = conn.execute(
-        select(games.c.status, game_rounds, game_picks.c.started_at, game_picks.c.pick_id,
-               game_picks.c.answered_at, member.label("member"))
+        select(games.c.status, games.c.mode, game_rounds, game_picks.c.started_at, game_picks.c.pick_id,
+               game_picks.c.answered_at, member.label("member"), seat.label("seat"))
         .select_from(games.join(game_rounds, game_rounds.c.game_id == games.c.id).outerjoin(
             game_picks, and_(game_picks.c.game_id == game_rounds.c.game_id,
                              game_picks.c.round_no == game_rounds.c.round_no, game_picks.c.user_id == user_id)))
@@ -448,6 +561,21 @@ def _next(conn, state: List[dict], user_id: int, now: datetime) -> Optional[dict
     return None
 
 
+def _hand(conn, game_id: int, round_no: int, seat: Optional[int]) -> List[int]:
+    """A draft player's hand for one round, in dealt order."""
+    if seat is None:
+        return []
+    return [r[0] for r in conn.execute(select(game_hands.c.char_id).where(and_(
+        game_hands.c.game_id == game_id, game_hands.c.round_no == round_no, game_hands.c.seat == seat))
+        .order_by(game_hands.c.slot))]
+
+
+def _with_hand(conn, r: Optional[dict]) -> Optional[dict]:
+    if r is not None and r.get("mode") == "draft":
+        r["hand"] = _hand(conn, r["game_id"], r["round_no"], r["seat"])
+    return r
+
+
 def _finish_if_done(conn, game_id: int, now: datetime) -> None:
     """After a player's last round: maybe they were the last one."""
     _settle(conn, [_game(conn, game_id)], now)
@@ -470,7 +598,7 @@ def next_round(game_id: int, user_id: int) -> Optional[dict]:
         r = _next(conn, state, user_id, now)
         if r is None:
             _finish_if_done(conn, game_id, now)
-        return r
+        return _with_hand(conn, r)
 
 
 def pick(game_id: int, user_id: int, round_no: int, pick_id: int) -> Tuple[bool, Optional[dict]]:
@@ -483,7 +611,10 @@ def pick(game_id: int, user_id: int, round_no: int, pick_id: int) -> Tuple[bool,
         r = next((x for x in state if x["round_no"] == round_no), None)
         if r is None or r["started_at"] is None:
             raise DuelError("That round hasn't started", 409)
-        if pick_id not in (r["char_a"], r["char_b"]):
+        if r["mode"] == "draft":
+            if pick_id not in _hand(conn, game_id, round_no, r["seat"]):
+                raise DuelError("Pick one of the characters in your hand")
+        elif pick_id not in (r["char_a"], r["char_b"]):
             raise DuelError("Pick one of the two characters")
         if r["answered_at"] is not None:
             raise DuelError("You already answered this round", 409)
@@ -499,6 +630,7 @@ def pick(game_id: int, user_id: int, round_no: int, pick_id: int) -> Tuple[bool,
         nxt = _next(conn, state, user_id, now) if state[0]["status"] in ("open", "active") else None
         if nxt is None:
             _finish_if_done(conn, game_id, now)
+        nxt = _with_hand(conn, nxt)
     return in_time, nxt
 
 
@@ -545,7 +677,12 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
         .where(game_rounds.c.game_id.in_([g["id"] for g in ready]))).mappings()}
     for g in ready:
         team_score: Dict[int, int] = {}
-        for m in members[g["id"]]:
+        if g.get("mode") == "draft":
+            points = draft_points(members[g["id"]], picks_in_time(g["id"], picks, members[g["id"]]))
+            for m in members[g["id"]]:
+                m["score"] = sum(points.get((n, m["user_id"]), 0) for n in range(1, ROUNDS + 1))
+                team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
+        for m in members[g["id"]] if g.get("mode") != "draft" else []:
             m["score"] = sum(_correct(next((p for p in by_player.get((g["id"], m["user_id"]), []) if p["round_no"] == n), None),
                                       answers[(g["id"], n)]) for n in range(1, ROUNDS + 1))
             team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
@@ -594,8 +731,14 @@ def _load(conn, gs: List[dict], now: datetime, rounds_for_done: bool) -> dict:
                               .order_by(game_rounds.c.round_no)).mappings():
             rounds.setdefault(r["game_id"], []).append(dict(r))
     invites = _invites(conn, [g["id"] for g in gs if g["status"] == "open"], people)
+    hands: Dict[int, Dict[Tuple[int, int], List[int]]] = {}
+    draft_done = [gid for gid in want_rounds if next(g for g in gs if g["id"] == gid).get("mode") == "draft"]
+    if draft_done:
+        for h in conn.execute(select(game_hands).where(game_hands.c.game_id.in_(draft_done))
+                              .order_by(game_hands.c.slot)).mappings():
+            hands.setdefault(h["game_id"], {}).setdefault((h["round_no"], h["seat"]), []).append(h["char_id"])
     return {"games": gs, "members": members, "invites": invites, "picks": picks, "rounds": rounds,
-            "people": people, "now": now}
+            "hands": hands, "people": people, "now": now}
 
 
 def overview(user_id: int) -> dict:
@@ -648,6 +791,16 @@ def players(ids) -> Dict[int, dict]:
                             .where(users.c.id.in_(ids))).mappings()
         return {r["id"]: {"username": r["username"], "avatar_at": _aware(r["avatar_at"]) if r["avatar_at"] else None}
                 for r in rows}
+
+
+def picks_in_time(game_id: int, picks: List[dict], members: List[dict]) -> Dict[Tuple[int, int], Optional[int]]:
+    """Draft: {(round, user id): the character picked in time, or None}."""
+    member_ids = {m["user_id"] for m in members}
+    out: Dict[Tuple[int, int], Optional[int]] = {}
+    for p in picks:
+        if p["game_id"] == game_id and p["user_id"] in member_ids:
+            out[(p["round_no"], p["user_id"])] = p["pick_id"] if _in_time(p) else None
+    return out
 
 
 def played(picks: List[dict], game_id: int, user_id: Optional[int], now: datetime) -> int:

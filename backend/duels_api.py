@@ -47,8 +47,17 @@ def _side(char_id: int, form: str, cache: dict) -> DuelSideOut:
 
 def _round_out(game_id: int, r: dict) -> DuelRoundOut:
     cache: dict = {}
-    return DuelRoundOut(game_id=game_id, round_no=r["round_no"], total=duels.ROUNDS, seconds_left=r["seconds_left"],
-                        a=_side(r["char_a"], r["form_a"], cache), b=_side(r["char_b"], r["form_b"], cache))
+    out = DuelRoundOut(game_id=game_id, round_no=r["round_no"], total=duels.ROUNDS, seconds_left=r["seconds_left"])
+    if r.get("mode") == "draft":
+        out.mode = "draft"
+        out.hand = [_side(cid, None, cache) for cid in r.get("hand", [])]
+    else:
+        out.a, out.b = _side(r["char_a"], r["form_a"], cache), _side(r["char_b"], r["form_b"], cache)
+    return out
+
+
+def _tier_of() -> Dict[int, float]:
+    return {cid: tier for cid, tier, _ in characters.scorable_pool()}
 
 
 def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], cache: dict) -> DuelOut:
@@ -86,6 +95,7 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
                 and (not invited or me in invited))
     out = DuelOut(
         id=g["id"], status=g["status"], created_at=g["created_at"], format=duels.format_name(g),
+        mode=g.get("mode") or "predict",
         teams=teams, team_size=size, creator=person(g["creator_id"])[0], players=out_players,
         invited=[person(u)[0] for u in invited if u not in member_ids], private=bool(invited),
         seats_left=teams * size - len(members) if g["status"] == "open" else 0,
@@ -102,12 +112,31 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
     if done:
         out.outcome = mine["outcome"] if mine else None
         out.team_scores = [sum(score[m["user_id"]] for m in members if m["team"] == t) for t in range(1, teams + 1)]
+        draft = g.get("mode") == "draft"
+        if draft and rounds:
+            picked = duels.picks_in_time(g["id"], picks, members)
+            points = duels.draft_points(members, picked)
+            hands = data.get("hands", {}).get(g["id"], {})
+            tier = _tier_of()
         for r in rounds:
             round_picks = []
             for m in sorted(members, key=lambda m: (m["team"], m["joined_at"])):
+                if draft:
+                    hand = hands.get((r["round_no"], m["seat"]), [])
+                    round_picks.append(DuelRoundPickOut(
+                        username=person(m["user_id"])[0], team=m["team"], pick_id=picked.get((r["round_no"], m["user_id"])),
+                        points=points.get((r["round_no"], m["user_id"]), 0),
+                        hand=[_side(cid, None, cache) for cid in hand],
+                        best_id=max(hand, key=lambda cid: tier.get(cid, -1)) if hand else None,
+                    ))
+                    continue
                 pick_id, ok = duels.pick_of(picks, g["id"], m["user_id"], r["round_no"], r["answer_id"])
                 round_picks.append(DuelRoundPickOut(username=person(m["user_id"])[0], team=m["team"],
                                                     pick_id=pick_id, correct=ok))
+            if draft:
+                out.rounds.append(DuelResultRoundOut(round_no=r["round_no"], answer_id=0, verdict="", picked=False,
+                                                     picks=round_picks, compare_url=""))
+                continue
             out.rounds.append(DuelResultRoundOut(
                 round_no=r["round_no"], a=_side(r["char_a"], r["form_a"], cache),
                 b=_side(r["char_b"], r["form_b"], cache), answer_id=r["answer_id"], verdict=r["verdict"],
@@ -158,7 +187,7 @@ def create_game(payload: DuelCreateIn, user: dict = Depends(require_user)):
             if db.get_character_by_id(cid) is None:
                 raise HTTPException(status_code=404, detail=f"No character with id {cid}")
     game_id = _run(duels.create, user["id"], payload.format, payload.invite, [m.model_dump() for m in payload.matchups],
-                   payload.exclude)
+                   payload.exclude, payload.mode)
     return _one(game_id, user["id"])
 
 

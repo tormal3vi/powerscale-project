@@ -31,6 +31,7 @@ const isTeamGame = (g) => g.team_size > 1;
 const isFreeForAll = (g) => g.team_size === 1 && g.teams > 2;
 const teamLabel = (g, t) => (isTeamGame(g) ? `Team ${t}` : `Player ${t}`);
 const names = (list) => list.map((p) => `<b>${escapeHtml(p.username)}</b>`).join(', ');
+const tagText = (g) => `${g.mode === 'draft' ? 'Draft · ' : ''}${g.format}`;
 const findGame = (id) => [...games.mine, ...games.open].find((g) => g.id === id) || null;
 
 // "vs duel_bob" / "with alice · vs bob, carl" from where you sit;
@@ -125,6 +126,13 @@ function renderNew() {
   newBox.innerHTML = `
     <h2 class="duel-card-title" id="new-title">New game</h2>
     <div class="duel-field">
+      <span class="duel-lbl" id="gm-lbl">Game</span>
+      <div class="duel-toggle duel-modes" role="radiogroup" aria-labelledby="gm-lbl">
+        <button type="button" class="active" data-gm="predict" role="radio" aria-checked="true">Call the winner</button>
+        <button type="button" data-gm="draft" role="radio" aria-checked="false">Draft</button>
+      </div>
+    </div>
+    <div class="duel-field">
       <span class="duel-lbl" id="fmt-lbl">Format</span>
       <div class="duel-formats" role="radiogroup" aria-labelledby="fmt-lbl">
         ${FORMATS.map((f, i) => `<button type="button" class="duel-fmt${i ? '' : ' active'}" data-fmt="${f}" role="radio" aria-checked="${!i}">${f}</button>`).join('')}
@@ -138,7 +146,7 @@ function renderNew() {
           <button type="button" data-who="invite" role="radio" aria-checked="false">Invite players</button>
         </div>
       </div>
-      <div class="duel-field">
+      <div class="duel-field" id="mu-field">
         <span class="duel-lbl" id="mu-lbl">Matchups</span>
         <div class="duel-toggle" role="radiogroup" aria-labelledby="mu-lbl">
           <button type="button" class="active" data-mu="random" role="radio" aria-checked="true">Random</button>
@@ -156,7 +164,7 @@ function renderNew() {
       <button type="button" class="duel-add" hidden>+ Add a matchup</button>
     </div>
     <div class="duel-field" id="series-field">
-      <span class="duel-lbl">Random rounds draw from</span>
+      <span class="duel-lbl" id="series-lbl">Random rounds draw from</span>
       <button type="button" class="duel-series-btn" aria-expanded="false" aria-controls="duel-series">
         <span class="duel-series-summary">All series</span>
         <svg class="chev" width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="m3 4.5 3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -184,6 +192,7 @@ function renderNew() {
   let format = '1v1';
   let inviting = false;
   let mode = 'random';
+  let gameMode = 'predict';
 
   const setRadio = (attr, value) => newBox.querySelectorAll(`[data-${attr}]`).forEach((b) => {
     const on = b.dataset[attr] === value;
@@ -210,9 +219,16 @@ function renderNew() {
   };
   const update = () => {
     const n = picked.size;
-    pickField.hidden = mode !== 'pick';
-    addBtn.hidden = mode !== 'pick' || n >= 5;
-    seriesField.hidden = mode === 'pick' && n >= 5; // nothing random left to draw
+    const draft = gameMode === 'draft';
+    newBox.querySelector('#mu-field').hidden = draft;
+    newBox.querySelector('#series-lbl').textContent = draft ? 'Hands are dealt from' : 'Random rounds draw from';
+    pickField.hidden = draft || mode !== 'pick';
+    addBtn.hidden = draft || mode !== 'pick' || n >= 5;
+    seriesField.hidden = !draft && mode === 'pick' && n >= 5; // nothing random left to draw
+    if (draft) {
+      hint.textContent = 'Each round everyone is dealt 4 characters of similar tiers and picks the one they think is strongest. Picks then go head to head: each win is a point.';
+      return;
+    }
     hint.textContent = mode === 'random'
       ? 'Five matchups between characters of similar tiers. Tap the list to leave series out.'
       : `${n} picked${n < 5 ? `, ${5 - n} drawn at random` : ''}. Only clear wins count: "too close to call" matchups can't be used. You'll know the ones you pick; the others see each only when its 20 seconds start.`;
@@ -229,6 +245,11 @@ function renderNew() {
     el.focusFirst();
   };
 
+  newBox.querySelectorAll('[data-gm]').forEach((b) => b.addEventListener('click', () => {
+    gameMode = b.dataset.gm;
+    setRadio('gm', gameMode);
+    update();
+  }));
   newBox.querySelectorAll('[data-fmt]').forEach((b) => b.addEventListener('click', () => {
     format = b.dataset.fmt;
     setRadio('fmt', format);
@@ -267,12 +288,12 @@ function renderNew() {
     err.textContent = '';
     const invite = inviting ? [...invitesBox.querySelectorAll('input')].map((i) => i.value.trim()) : [];
     if (invite.some((n) => !n)) { err.textContent = `Fill in all ${seats()} players, or open it to anyone.`; return; }
-    const matchups = mode === 'pick' ? [...picked.values()] : [];
+    const matchups = gameMode === 'predict' && mode === 'pick' ? [...picked.values()] : [];
     if (matchups.some((m) => !m)) { err.textContent = 'Finish each matchup, or remove it.'; return; }
     createBtn.disabled = true;
     createBtn.textContent = 'Creating…';
     try {
-      const g = await Api.createGame(format, invite, matchups, [...excluded]);
+      const g = await Api.createGame(format, invite, matchups, [...excluded], gameMode);
       renderNew(); // a fresh form
       showCreated(g);
       refresh(); // in the background: "Play now" needn't wait for the lists
@@ -292,7 +313,7 @@ function showCreated(g) {
   const who = g.private ? `${g.invited.map((n) => `<b>${escapeHtml(n)}</b>`).join(', ')} will see it on their Duels page.`
     : 'Anyone can join it from the open games.';
   box.innerHTML = `
-    <div class="duel-created-title">${g.format} created</div>
+    <div class="duel-created-title">${tagText(g)} created</div>
     <div class="duel-note">${who} Play your five rounds whenever you're ready.</div>
     <div class="duel-created-row">
       <button type="button" class="btn-gold" data-act="play">Play now</button>
@@ -337,7 +358,7 @@ function duelRow(g) {
   el.className = 'duel-row' + (g.can_decline ? ' invite' : '');
   el.dataset.id = g.id;
   el.innerHTML = `
-    <span class="duel-tag">${g.format}</span>
+    <span class="duel-tag">${tagText(g)}</span>
     ${seatsHtml(g)}
     <div class="duel-row-text">${statusText(g)}</div>
     <div class="duel-row-buttons">${actionButtons(g)}</div>`;
@@ -535,6 +556,13 @@ function seatingHtml(g) {
 }
 
 function infoHtml(g) {
+  if (g.mode === 'draft') {
+    return `<div class="duel-info">
+      <div class="duel-info-row"><span class="duel-lbl" style="margin:0">Draft</span><span class="duel-info-pill">4 characters each · 5 rounds</span>
+        <span>Each hand appears only when its round's 20 seconds start.</span></div>
+      ${g.excluded.length ? `<div class="duel-info-row">Hands leave out: ${g.excluded.map(escapeHtml).join(', ')}</div>` : ''}
+    </div>`;
+  }
   const random = g.picked == null ? '' : g.picked === 0 ? 'R1–5 · Random' : g.picked === g.total ? 'All 5 picked by the creator' : `${g.picked} picked · ${g.total - g.picked} random`;
   return `<div class="duel-info">
     <div class="duel-info-row"><span class="duel-lbl" style="margin:0">Matchups</span>${random ? `<span class="duel-info-pill">${random}</span>` : ''}
@@ -560,7 +588,7 @@ function renderGame(g) {
     const stillPlaying = g.players.filter((p) => !p.me && p.played < g.total);
     gameView.innerHTML = `${back}
       <div class="duel-game-head">
-        <span class="duel-tag">${g.format}</span>
+        <span class="duel-tag">${tagText(g)}</span>
         <h1 class="duel-game-title">${gameHeading(g)}</h1>
         <div class="duel-game-actions">${actionButtons(g, { page: true })}</div>
       </div>
@@ -600,9 +628,38 @@ function resultsHtml(g) {
       <div class="duel-pick-face">${avatar(player, 'duel-pick-avatar')}<span class="duel-pick-mark ${kind}">${MARKS[kind]}</span></div>
       <div class="duel-pick-name">${escapeHtml(player.me ? 'you' : p.username)}</div></div>`;
   };
+  const draftPick = (p) => {
+    const player = byName[p.username] || { username: p.username };
+    const chosen = p.hand.find((s) => s.id === p.pick_id);
+    const hand = p.hand.map((s) => `<span class="dr-mini${s.id === p.pick_id ? ' picked' : ''}${s.id === p.best_id ? ' best' : ''}"
+      style="background:${accentFor(s.id)}" title="${escapeHtml(bareName(s.name))}${s.id === p.best_id ? ' (highest tier)' : ''}">${
+      characterTileInner(s.name, s.image_url, 48)}</span>`).join('');
+    return `<div class="dr-pick">
+      <div class="dr-pick-top">${avatar(player, 'duel-pick-avatar')}<span class="dr-pick-name">${escapeHtml(player.me ? 'you' : p.username)}</span>
+        <span class="dr-points${p.points ? ' won' : ''}">+${p.points}</span></div>
+      <div class="dr-pick-char">${chosen ? escapeHtml(bareName(chosen.name)) : '<span class="up-muted">no pick</span>'}</div>
+      <div class="dr-hand">${hand}</div></div>`;
+  };
+  if (g.mode === 'draft') {
+    return `
+    <div class="duel-result-head ${outcome}">
+      <div class="duel-result-kicker">${tagText(g)} · Finished</div>
+      <div class="duel-result-title">${title}</div>
+      <div class="duel-result-score">${score}</div>
+      <div class="duel-result-people">${people}</div>
+    </div>
+    <h2 class="duel-rounds-title">Round by round <span class="dr-legend">gold ring: their pick · star: the hand's highest tier</span></h2>
+    <ol class="duel-rounds">
+      ${g.rounds.map((r) => `
+        <li class="duel-round dr-round">
+          <span class="duel-round-no">R${r.round_no}</span>
+          <div class="dr-picks">${r.picks.map(draftPick).join('')}</div>
+        </li>`).join('')}
+    </ol>`;
+  }
   return `
     <div class="duel-result-head ${outcome}">
-      <div class="duel-result-kicker">${g.format} · Finished</div>
+      <div class="duel-result-kicker">${tagText(g)} · Finished</div>
       <div class="duel-result-title">${title}</div>
       <div class="duel-result-score">${score}</div>
       <div class="duel-result-people">${people}</div>
@@ -705,14 +762,15 @@ function showRound(r) {
     <div class="duel-play-sub">${playTitle()}</div>
     <div class="duel-dots" aria-hidden="true">${dots}</div>
     <div class="duel-clock"><span class="duel-clock-num" aria-live="off"></span><div class="duel-clock-track"><div class="duel-clock-bar"></div></div></div>
-    <div class="duel-choices">
-      ${[r.a, r.b].map((s) => `
+    ${r.mode === 'draft' ? `<div class="dr-prompt">Pick the strongest of your ${r.hand.length}</div>` : ''}
+    <div class="duel-choices${r.mode === 'draft' ? ' dr-hand-grid' : ''}">
+      ${(r.mode === 'draft' ? r.hand : [r.a, r.b]).map((s) => `
         <button type="button" class="duel-choice" data-pick="${s.id}">
           <span class="duel-choice-check">${CHECK(18)}</span>
           ${sideTileHtml(s, 320)}
           <span class="duel-choice-name">${escapeHtml(bareName(s.name))}</span>
           <span class="duel-choice-series">${escapeHtml(s.series)}${s.form ? ` · ${escapeHtml(s.form)}` : ''}</span>
-        </button>`).join('<span class="duel-choice-vs">vs</span>')}
+        </button>`).join(r.mode === 'draft' ? '' : '<span class="duel-choice-vs">vs</span>')}
     </div>
     <div class="duel-play-status" aria-live="polite"></div>`);
   playBox.querySelectorAll('.duel-choice-check').forEach((c) => { c.style.color = 'var(--accent-gold)'; });
