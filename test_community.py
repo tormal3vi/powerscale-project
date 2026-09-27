@@ -446,6 +446,25 @@ def test_random_rounds_leave_out_excluded_series():
     _raises(lambda: duels.create(hana["id"], "1v1", [], [], everything), text="exclude fewer")
 
 
+def test_scores_pending_count_and_leaderboard():
+    ivy, jon, kai = _users("sc_ivy", "sc_jon", "sc_kai")
+    game_id = duels.create(ivy["id"], "1v1", [], [])
+    private = duels.create(ivy["id"], "1v1", ["sc_kai"], [])
+    assert duels.pending_count(kai["id"]) == 1  # the invite
+    assert duels.pending_count(ivy["id"]) == 2  # two games to play
+    duels.join(game_id, jon["id"])
+    _play(game_id, ivy["id"], right=True)
+    assert duels.pending_count(ivy["id"]) == 1  # only the private one left
+    _play(game_id, jon["id"], right=False)
+    members = {m["user_id"]: m for m in duels.game(game_id)["members"][game_id]}
+    assert members[ivy["id"]]["score"] == 5 and members[jon["id"]]["score"] == 0  # stored when it finished
+    rows = {r["username"]: r for r in duels.leaderboard(100)}
+    assert rows["sc_ivy"]["wins"] == 1 and rows["sc_jon"]["losses"] == 1
+    listed = duels.overview(ivy["id"])  # a list doesn't load finished games' rounds
+    assert game_id in [g["id"] for g in listed["mine"]] and game_id not in listed["rounds"]
+    assert private in [g["id"] for g in listed["mine"]]
+
+
 def test_games_from_before_teams_get_players_and_outcomes():
     from sqlalchemy import insert
     old_a, old_b = _users("old_a", "old_b")

@@ -146,10 +146,13 @@ async function renderAccount(el) {
 
 // A gold dot on Duels (and, on phones, the menu button) while a challenge
 // is waiting for you or you have rounds to play. Fetched after the bar is
-// drawn, so it never holds the page up.
-async function showDuelsDot() {
-  let count = 0;
-  try { count = (await Api.pendingGames()).count; } catch { return; }
+// drawn, so it never holds the page up. The Duels page passes the count
+// from the games it already loaded instead.
+async function showDuelsDot(count) {
+  if (count === undefined) {
+    if (location.pathname.endsWith('duels.html')) return; // duels.js sets it
+    try { count = (await Api.pendingGames()).count; } catch { return; }
+  }
   const link = document.querySelector('.topbar-nav a[href="duels.html"]');
   if (!link) return;
   link.classList.toggle('has-dot', count > 0);

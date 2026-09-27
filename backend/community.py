@@ -20,9 +20,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from sqlalchemy import exc as exc_mod
 from sqlalchemy import (
     Column, DateTime, ForeignKey, Index, Integer, LargeBinary, MetaData, String, Table, Text,
-    UniqueConstraint, and_, create_engine, delete, exists, func, insert, inspect, literal, select, text,
+    UniqueConstraint, and_, create_engine, delete, event, exists, func, insert, inspect, literal, select, text,
     update,
 )
 
@@ -39,8 +40,43 @@ def _database_url() -> str:
     return url
 
 
-engine = create_engine(_database_url(), pool_pre_ping=True)
+engine = create_engine(_database_url())
 metadata = MetaData()
+
+# Every round trip to Neon costs ~0.1-0.2s from Render, and simple reads
+# were paying four: pool_pre_ping's liveness check, BEGIN, the query, and
+# the ROLLBACK when the connection went back to the pool. The leaderboard's
+# two queries took 1.2-1.8s.
+#
+# Liveness: only a connection that sat idle long enough to have been
+# dropped is checked (Neon closes idle connections - its compute suspends
+# after 5 minutes without queries); one in steady use isn't.
+_IDLE_PING_SECONDS = 60
+
+
+@event.listens_for(engine, "checkin")
+def _mark_idle(dbapi_conn, record) -> None:
+    record.info["idle_since"] = time.monotonic()
+
+
+@event.listens_for(engine, "checkout")
+def _ping_if_idle(dbapi_conn, record, proxy) -> None:
+    since = record.info.get("idle_since")
+    if since is None or time.monotonic() - since < _IDLE_PING_SECONDS:
+        return
+    try:
+        cur = dbapi_conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        if not getattr(dbapi_conn, "autocommit", False):
+            dbapi_conn.rollback()  # the ping opened a transaction; don't hand it on
+    except Exception as exc:  # noqa: BLE001 - any failure means a dead connection
+        raise exc_mod.DisconnectionError() from exc  # the pool retries with a fresh one
+
+
+# Reads: autocommit, so no BEGIN before the query and nothing to roll back
+# after. Same pool; writes keep using engine.begin() transactions.
+reader = engine.execution_options(isolation_level="AUTOCOMMIT")
 
 users = Table(
     "users", metadata,
@@ -238,7 +274,7 @@ def create_user(username: str, password: str) -> dict:
 
 
 def authenticate(username: str, password: str) -> Optional[dict]:
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         row = conn.execute(select(users).where(users.c.username_lower == username.lower())).mappings().first()
     if row is None:
         verify_password(password, _DUMMY_HASH)
@@ -267,7 +303,7 @@ def create_session(user_id: int) -> str:
 def user_for_token(token: Optional[str]) -> Optional[dict]:
     if not token:
         return None
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         row = conn.execute(
             select(users.c.id, users.c.username, sessions.c.expires_at)
             .join(sessions, sessions.c.user_id == users.c.id)
@@ -283,7 +319,7 @@ def user_for_token(token: Optional[str]) -> Optional[dict]:
 def get_profile(user_id: Optional[int] = None, username: Optional[str] = None) -> Optional[dict]:
     """A user's profile plus counts, by id or (case-insensitive) username."""
     where = users.c.id == user_id if user_id is not None else users.c.username_lower == (username or "").lower()
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         row = conn.execute(select(users.c.id, users.c.username, users.c.bio, users.c.favorite_char_id,
                                   users.c.created_at).where(where)).mappings().first()
         if row is None:
@@ -297,7 +333,7 @@ def get_profile(user_id: Optional[int] = None, username: Optional[str] = None) -
 
 
 def username_taken(username: str, except_user_id: Optional[int] = None) -> bool:
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         where = users.c.username_lower == username.lower()
         if except_user_id is not None:
             where = and_(where, users.c.id != except_user_id)
@@ -327,7 +363,7 @@ def change_password(user_id: int, current: str, new: str) -> bool:
 
 
 def check_password(user_id: int, password: str) -> bool:
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         stored = conn.execute(select(users.c.password_hash).where(users.c.id == user_id)).scalar()
     return stored is not None and verify_password(password, stored)
 
@@ -342,7 +378,7 @@ def delete_other_sessions(user_id: int, keep_token: Optional[str]) -> int:
 def has_admin_records(user_id: int) -> bool:
     """Overrules or replaced pictures made by this account - they point at it
     by id, so it can't be deleted while they exist."""
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         return bool(conn.execute(select(overrides.c.id).where(overrides.c.admin_id == user_id)).first()
                     or conn.execute(select(character_images.c.char_id)
                                     .where(character_images.c.admin_id == user_id)).first())
@@ -414,13 +450,13 @@ def delete_avatar(user_id: int) -> None:
 
 
 def avatar_updated_at(user_id: int) -> Optional[datetime]:
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         at = conn.execute(select(avatars.c.updated_at).where(avatars.c.user_id == user_id)).scalar()
     return _aware(at) if at else None
 
 
 def get_avatar(username: str) -> Optional[bytes]:
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         return conn.execute(
             select(avatars.c.image).join(users, users.c.id == avatars.c.user_id)
             .where(users.c.username_lower == username.lower())
@@ -492,7 +528,7 @@ def delete_character_image(char_id: int) -> bool:
 
 
 def get_character_image(char_id: int) -> Optional[bytes]:
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         return conn.execute(select(character_images.c.image).where(character_images.c.char_id == char_id)).scalar()
 
 
@@ -500,7 +536,7 @@ def character_image_versions() -> Dict[int, datetime]:
     """{char_id: upload time} for every replaced picture - one query for
     the whole character list."""
     def load():
-        with engine.connect() as conn:
+        with reader.connect() as conn:
             rows = conn.execute(select(character_images.c.char_id, character_images.c.updated_at)).all()
         return {cid: _aware(at) for cid, at in rows}
     return dict(_remembered("image_versions", load))
@@ -520,7 +556,7 @@ def _where(key: dict):
 
 def _all_overrides() -> Dict[tuple, dict]:
     def load():
-        with engine.connect() as conn:
+        with reader.connect() as conn:
             rows = conn.execute(select(overrides, users.c.username.label("admin"))
                                 .join(users, users.c.id == overrides.c.admin_id)).mappings().all()
         return {(r["char_low"], r["char_high"], r["form_low"], r["form_high"]):
@@ -606,12 +642,12 @@ def list_posts(viewer_id: Optional[int], before_id: Optional[int] = None, limit:
     where = posts.c.parent_id.is_(None)
     if before_id is not None:
         where = and_(where, posts.c.id < before_id)
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         return _post_rows(conn, where, viewer_id, posts.c.id.desc(), limit)
 
 
 def get_thread(post_id: int, viewer_id: Optional[int]) -> Optional[dict]:
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         top = _post_rows(conn, and_(posts.c.id == post_id, posts.c.parent_id.is_(None)), viewer_id, posts.c.id)
         if not top:
             return None
@@ -621,13 +657,13 @@ def get_thread(post_id: int, viewer_id: Optional[int]) -> Optional[dict]:
 
 def get_post_view(post_id: int, viewer_id: Optional[int]) -> Optional[dict]:
     """One post (top-level or reply) with author, counts and liked-by-me."""
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         rows = _post_rows(conn, posts.c.id == post_id, viewer_id, posts.c.id)
     return rows[0] if rows else None
 
 
 def get_post(post_id: int) -> Optional[dict]:
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         row = conn.execute(select(posts).where(posts.c.id == post_id)).mappings().first()
     return dict(row) if row else None
 
@@ -665,7 +701,7 @@ def _pair(a: int, b: int):
 
 def list_matchup_comments(a: int, b: int) -> List[dict]:
     """Oldest first, with each author's name, picture and favorite."""
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         rows = conn.execute(
             select(matchup_comments, users.c.username, users.c.favorite_char_id,
                    avatars.c.updated_at.label("avatar_at"))
@@ -684,7 +720,7 @@ def add_matchup_comment(user_id: int, a: int, b: int, body: str) -> int:
 
 
 def get_matchup_comment(comment_id: int) -> Optional[dict]:
-    with engine.connect() as conn:
+    with reader.connect() as conn:
         row = conn.execute(select(matchup_comments).where(matchup_comments.c.id == comment_id)).mappings().first()
     return dict(row) if row else None
 

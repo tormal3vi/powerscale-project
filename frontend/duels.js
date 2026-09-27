@@ -274,8 +274,8 @@ function renderNew() {
     try {
       const g = await Api.createGame(format, invite, matchups, [...excluded]);
       renderNew(); // a fresh form
-      await refresh();
       showCreated(g);
+      refresh(); // in the background: "Play now" needn't wait for the lists
     } catch (e) {
       err.textContent = e.message;
     } finally {
@@ -298,7 +298,7 @@ function showCreated(g) {
       <button type="button" class="btn-gold" data-act="play">Play now</button>
       <button type="button" class="pill-button" data-act="copy">Copy link</button>
     </div>`;
-  box.querySelector('[data-act="play"]').addEventListener('click', () => play(g.id));
+  box.querySelector('[data-act="play"]').addEventListener('click', () => play(g.id, g));
   const copy = box.querySelector('[data-act="copy"]');
   copy.addEventListener('click', () => copyLink(g.id, copy));
   newBox.prepend(box);
@@ -351,13 +351,19 @@ function duelRow(g) {
 
 async function onAction(g, act, btn) {
   try {
-    if (act === 'play') return play(g.id);
+    if (act === 'play') return play(g.id, g);
     if (act === 'open') return openGame(g.id);
     if (act === 'copy') return copyLink(g.id, btn);
     const ask = { decline: 'Decline this invite?', cancel: 'Cancel this game?', leave: 'Leave this game?' }[act];
     if (ask && !confirm(ask)) return;
     btn.disabled = true;
-    if (act === 'join') { await Api.joinGame(g.id, Number(btn.dataset.team) || null); await refresh(); return play(g.id); }
+    if (act === 'join') {
+      // Straight into round 1; the lists catch up in the background.
+      const joined = await Api.joinGame(g.id, Number(btn.dataset.team) || null);
+      play(g.id, joined);
+      refresh();
+      return;
+    }
     if (act === 'decline') await Api.declineGame(g.id);
     if (act === 'cancel') await Api.cancelGame(g.id);
     if (act === 'leave') await Api.leaveGame(g.id);
@@ -418,8 +424,9 @@ async function refresh() {
   if (finishedIds) doneNow.filter((g) => !finishedIds.has(g.id) && g.id !== openGameId).forEach(toastFinished);
   finishedIds = new Set(doneNow.map((g) => g.id));
   renderLists();
+  showDuelsDot(games.mine.filter((g) => (g.status === 'open' && g.can_decline)
+    || (g.can_play && g.my_played < g.total)).length);
   if (openGameId) renderGame(await Api.getGame(openGameId).catch(() => findGame(openGameId)));
-  showDuelsDot();
 }
 
 function toastFinished(g) {
@@ -579,7 +586,8 @@ function resultsHtml(g) {
   const teamsSorted = Array.from({ length: g.teams }, (_, i) => i + 1);
   const score = g.teams === 2 && isTeamGame(g)
     ? `Team 1 ${g.team_scores[0]} — ${g.team_scores[1]} Team 2`
-    : g.teams === 2 ? `${g.team_scores[0]} — ${g.team_scores[1]}` : g.team_scores.map((s, i) => `${teamLabel(g, i + 1)}: ${s}`).join(' · ');
+    : g.teams === 2 ? scoreLine(g).replace('–', ' — ') // yours first
+      : g.team_scores.map((s, i) => `${teamLabel(g, i + 1)}: ${s}`).join(' · ');
   const person = (p) => `<div class="duel-person">${avatar(p, `duel-person-avatar${p.me ? ' me' : ''}`)}
     <div class="duel-person-name">${escapeHtml(p.me ? 'you' : p.username)} · ${p.score}</div></div>`;
   const people = teamsSorted.map((t) => `<div class="duel-result-team">${g.players.filter((p) => p.team === t).map(person).join('')}</div>`).join('');
@@ -678,8 +686,8 @@ function loadingFrame(text) {
   playFrame(`<div class="duel-loading"><span class="duel-spinner"></span>${text}</div>`);
 }
 
-async function play(gameId) {
-  playing = findGame(gameId);
+async function play(gameId, game = null) {
+  playing = game || findGame(gameId);
   loadingFrame('Loading the round…');
   try {
     const { round } = await Api.nextRound(gameId);

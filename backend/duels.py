@@ -24,9 +24,11 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, ForeignKey, Integer, String, Table, and_, delete, func, insert, or_, select,
-    update,
+    Boolean, Column, DateTime, ForeignKey, Integer, String, Table, and_, case, delete, func, insert, or_,
+    select, update,
 )
+
+from sqlalchemy.exc import IntegrityError
 
 from backend import characters, community, prewarm
 from backend.community import _aware, _now, avatars, engine, metadata, users
@@ -68,6 +70,7 @@ game_players = Table(
     Column("team", Integer, nullable=False),  # 1-based
     Column("joined_at", DateTime(timezone=True), nullable=False),
     Column("outcome", String(8), nullable=True),  # win | draw | loss, once done
+    Column("score", Integer, nullable=True),  # right answers, once done (lists show it without the rounds)
 )
 # Private games: who may take the seats.
 game_invites = Table(
@@ -106,6 +109,7 @@ def _migrate() -> None:
         community.add_missing_columns(conn, "games", [
             ("teams", "INTEGER"), ("team_size", "INTEGER"), ("winning_team", "INTEGER"),
             ("picked", "INTEGER"), ("excluded", "VARCHAR(1000)")])
+        community.add_missing_columns(conn, "game_players", [("score", "INTEGER")])
         has_players = select(game_players.c.game_id).where(game_players.c.game_id == games.c.id).exists()
         old = conn.execute(select(games).where(~has_players)).mappings().all()
         for g in old:
@@ -228,7 +232,7 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exc
         if len(names) != seats:
             raise DuelError(f"A private {fmt} needs {seats} invited player{'s' if seats > 1 else ''} - "
                             f"or open it to anyone")
-        with engine.connect() as conn:
+        with community.reader.connect() as conn:
             found = {r["username_lower"]: r["id"] for r in conn.execute(
                 select(users.c.id, users.c.username_lower)
                 .where(users.c.username_lower.in_([n.lower() for n in names]))).mappings()}
@@ -281,19 +285,32 @@ def _game(conn, game_id: int, lock: bool = False) -> dict:
     return dict(row)
 
 
-def _members(conn, game_ids: List[int]) -> Dict[int, List[dict]]:
+def _members(conn, game_ids: List[int], people: Optional[Dict[int, dict]] = None) -> Dict[int, List[dict]]:
+    """Each game's players, in joining order. With `people`, also records
+    each one's name and picture there - same query, no extra round trip."""
     out: Dict[int, List[dict]] = {}
     if game_ids:
-        for p in conn.execute(select(game_players).where(game_players.c.game_id.in_(game_ids))
-                              .order_by(game_players.c.joined_at)).mappings():
-            out.setdefault(p["game_id"], []).append(dict(p))
+        q = (select(game_players, users.c.username, avatars.c.updated_at.label("avatar_at"))
+             .join(users, users.c.id == game_players.c.user_id)
+             .outerjoin(avatars, avatars.c.user_id == game_players.c.user_id)
+             .where(game_players.c.game_id.in_(game_ids)).order_by(game_players.c.joined_at))
+        for p in conn.execute(q).mappings():
+            p = dict(p)
+            if people is not None:
+                people[p["user_id"]] = {"username": p["username"],
+                                        "avatar_at": _aware(p["avatar_at"]) if p["avatar_at"] else None}
+            out.setdefault(p["game_id"], []).append(p)
     return out
 
 
-def _invites(conn, game_ids: List[int]) -> Dict[int, List[int]]:
+def _invites(conn, game_ids: List[int], people: Optional[Dict[int, dict]] = None) -> Dict[int, List[int]]:
     out: Dict[int, List[int]] = {}
     if game_ids:
-        for r in conn.execute(select(game_invites).where(game_invites.c.game_id.in_(game_ids))).mappings():
+        q = (select(game_invites, users.c.username).join(users, users.c.id == game_invites.c.user_id)
+             .where(game_invites.c.game_id.in_(game_ids)))
+        for r in conn.execute(q).mappings():
+            if people is not None:
+                people.setdefault(r["user_id"], {"username": r["username"], "avatar_at": None})
             out.setdefault(r["game_id"], []).append(r["user_id"])
     return out
 
@@ -413,10 +430,19 @@ def _next(conn, state: List[dict], user_id: int, now: datetime) -> Optional[dict
         if r["started_at"] is not None and _settled(r, now):
             continue
         if r["started_at"] is None:
-            r["started_at"] = now
-            conn.execute(insert(game_picks).values(game_id=r["game_id"], round_no=r["round_no"],
-                                                   user_id=user_id, started_at=now))
-            _changed()
+            try:
+                conn.execute(insert(game_picks).values(game_id=r["game_id"], round_no=r["round_no"],
+                                                       user_id=user_id, started_at=now))
+            except IntegrityError:
+                # Started a moment ago by this player's other request (a
+                # double tap, two tabs): the clock that counts is that one.
+                started = conn.execute(select(game_picks.c.started_at).where(and_(
+                    game_picks.c.game_id == r["game_id"], game_picks.c.round_no == r["round_no"],
+                    game_picks.c.user_id == user_id))).scalar()
+                r["started_at"] = started
+            else:
+                r["started_at"] = now
+                _changed()
         left = (_deadline(r["started_at"]) - now).total_seconds()
         return {**r, "seconds_left": max(0.0, left)}
     return None
@@ -427,9 +453,15 @@ def _finish_if_done(conn, game_id: int, now: datetime) -> None:
     _settle(conn, [_game(conn, game_id)], now)
 
 
+# Playing runs in autocommit too (community.reader), without a transaction:
+# BEGIN and COMMIT were two of the four round trips behind the Play
+# button. Each write guards itself instead - a round starts with a single
+# insert (the primary key stops a second), and an answer is only written
+# over no answer.
+
 def next_round(game_id: int, user_id: int) -> Optional[dict]:
     now = _now()
-    with engine.begin() as conn:
+    with community.reader.connect() as conn:
         state = _state(conn, game_id, user_id)
         if not state[0]["member"]:
             raise DuelError("Join the game first", 403)
@@ -446,7 +478,7 @@ def pick(game_id: int, user_id: int, round_no: int, pick_id: int) -> Tuple[bool,
     Returns (in time, next round or None). A late pick counts as wrong.
     Three statements in all: read, update, start the next round."""
     now = _now()
-    with engine.begin() as conn:
+    with community.reader.connect() as conn:
         state = _state(conn, game_id, user_id)
         r = next((x for x in state if x["round_no"] == round_no), None)
         if r is None or r["started_at"] is None:
@@ -455,9 +487,12 @@ def pick(game_id: int, user_id: int, round_no: int, pick_id: int) -> Tuple[bool,
             raise DuelError("Pick one of the two characters")
         if r["answered_at"] is not None:
             raise DuelError("You already answered this round", 409)
-        conn.execute(update(game_picks).where(and_(
+        answered = conn.execute(update(game_picks).where(and_(
             game_picks.c.game_id == game_id, game_picks.c.round_no == round_no, game_picks.c.user_id == user_id,
-        )).values(pick_id=pick_id, answered_at=now))
+            game_picks.c.answered_at.is_(None),
+        )).values(pick_id=pick_id, answered_at=now)).rowcount
+        if not answered:
+            raise DuelError("You already answered this round", 409)
         _changed()
         r.update(pick_id=pick_id, answered_at=now)
         in_time = now <= _deadline(r["started_at"]) + timedelta(seconds=GRACE_SECONDS)
@@ -511,74 +546,85 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
     for g in ready:
         team_score: Dict[int, int] = {}
         for m in members[g["id"]]:
-            got = sum(_correct(next((p for p in by_player.get((g["id"], m["user_id"]), []) if p["round_no"] == n), None),
-                               answers[(g["id"], n)]) for n in range(1, ROUNDS + 1))
-            team_score[m["team"]] = team_score.get(m["team"], 0) + got
+            m["score"] = sum(_correct(next((p for p in by_player.get((g["id"], m["user_id"]), []) if p["round_no"] == n), None),
+                                      answers[(g["id"], n)]) for n in range(1, ROUNDS + 1))
+            team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
         top = max(team_score.values())
         leaders = [t for t, s in team_score.items() if s == top]
         winning = leaders[0] if len(leaders) == 1 else None
+        # Players first, the game's status last: reads may run outside a
+        # transaction, and a settle cut off halfway is then just redone.
+        for m in members[g["id"]]:
+            m["outcome"] = ("win" if len(leaders) == 1 else "draw") if m["team"] in leaders else "loss"
+            conn.execute(update(game_players).where(and_(game_players.c.game_id == g["id"],
+                                                         game_players.c.user_id == m["user_id"]))
+                         .values(outcome=m["outcome"], score=m["score"]))
         g.update(status="done", finished_at=now, winning_team=winning)
         conn.execute(update(games).where(games.c.id == g["id"]).values(status="done", finished_at=now,
                                                                         winning_team=winning))
-        for m in members[g["id"]]:
-            outcome = ("win" if len(leaders) == 1 else "draw") if m["team"] in leaders else "loss"
-            m["outcome"] = outcome
-            conn.execute(update(game_players).where(and_(game_players.c.game_id == g["id"],
-                                                         game_players.c.user_id == m["user_id"]))
-                         .values(outcome=outcome))
         _changed()
 
 
 # --- reading ---------------------------------------------------------------------------------
+# Reads run in autocommit (community.reader): no BEGIN/ROLLBACK round trips.
+# A settle they trigger writes each row on its own, players before the
+# game's status (see _settle).
 
-def _load(conn, game_ids: List[int], now: datetime) -> dict:
-    """Games with their players, invites, picks - and the rounds of the
-    finished ones (answers only leave the server once a game is over)."""
-    out = {"games": [], "members": {}, "invites": {}, "picks": [], "rounds": {}, "now": now}
-    if not game_ids:
-        return out
-    gs = [dict(g) for g in conn.execute(select(games).where(games.c.id.in_(game_ids))
-                                        .order_by(games.c.id.desc())).mappings()]
-    members = _members(conn, game_ids)
-    picks = [dict(p) for p in conn.execute(select(game_picks).where(game_picks.c.game_id.in_(game_ids))).mappings()]
-    _settle(conn, gs, now, picks, members)
-    rounds: Dict[int, List[dict]] = {}
+def _load(conn, gs: List[dict], now: datetime, rounds_for_done: bool) -> dict:
+    """The rest of what `gs` needs: players (with names and pictures),
+    invites, picks, and - with rounds_for_done - the rounds of finished
+    games (answers only leave the server once a game is over). Lists skip
+    those: a finished game's scores are stored with its players."""
+    people: Dict[int, dict] = {}
+    ids = [g["id"] for g in gs]
+    members = _members(conn, ids, people)
+    live = [g["id"] for g in gs if g["status"] in ("open", "active")]
     done = [g["id"] for g in gs if g["status"] == "done"]
-    if done:
-        for r in conn.execute(select(game_rounds).where(game_rounds.c.game_id.in_(done))
+    # Finished before scores were stored: they still need their rounds.
+    unscored = [gid for gid in done if any(m["score"] is None for m in members.get(gid, []))]
+    need_picks = ids if rounds_for_done else live + unscored
+    picks = [dict(p) for p in conn.execute(select(game_picks).where(
+        game_picks.c.game_id.in_(need_picks))).mappings()] if need_picks else []
+    _settle(conn, gs, now, [p for p in picks if p["game_id"] in live], members)
+    done = [g["id"] for g in gs if g["status"] == "done"]  # settling may have finished some
+    want_rounds = done if rounds_for_done else [gid for gid in done if any(m["score"] is None for m in members.get(gid, []))]
+    rounds: Dict[int, List[dict]] = {}
+    if want_rounds:
+        for r in conn.execute(select(game_rounds).where(game_rounds.c.game_id.in_(want_rounds))
                               .order_by(game_rounds.c.round_no)).mappings():
             rounds.setdefault(r["game_id"], []).append(dict(r))
-    out.update(games=gs, members=members, picks=picks, rounds=rounds,
-               invites=_invites(conn, [g["id"] for g in gs if g["status"] == "open"]))
-    return out
+    invites = _invites(conn, [g["id"] for g in gs if g["status"] == "open"], people)
+    return {"games": gs, "members": members, "invites": invites, "picks": picks, "rounds": rounds,
+            "people": people, "now": now}
 
 
 def overview(user_id: int) -> dict:
     """The player's own games (joined or invited to), newest first, then
-    other people's open games with a free seat."""
+    other people's open games with a free seat. Four queries in all."""
     now = _now()
-    with engine.begin() as conn:
-        joined = select(game_players.c.game_id.label("gid")).where(game_players.c.user_id == user_id)
-        invited = select(game_invites.c.game_id.label("gid")).where(game_invites.c.user_id == user_id)
-        mine = sorted({r[0] for r in conn.execute(joined.union(invited))}, reverse=True)[:60]
-        private = select(game_invites.c.game_id).where(game_invites.c.game_id == games.c.id).exists()
-        others = [r[0] for r in conn.execute(
-            select(games.c.id).where(and_(games.c.status == "open", ~private, games.c.id.not_in(mine or [0])))
-            .order_by(games.c.id.desc()).limit(20))]
-        data = _load(conn, mine + others, now)
-    mine_set = set(mine)
-    data["mine"] = [g for g in data["games"] if g["id"] in mine_set]
-    data["open"] = [g for g in data["games"] if g["id"] not in mine_set and g["status"] == "open"]
+    joined = select(game_players.c.game_id).where(game_players.c.user_id == user_id)
+    invited = select(game_invites.c.game_id).where(game_invites.c.user_id == user_id)
+    private = select(game_invites.c.game_id).where(game_invites.c.game_id == games.c.id).exists()
+    mine_q = or_(games.c.id.in_(joined), games.c.id.in_(invited))
+    open_q = and_(games.c.status == "open", ~private, games.c.creator_id != user_id)
+    with community.reader.connect() as conn:
+        gs = [dict(g) for g in conn.execute(select(games, mine_q.label("is_mine")).where(or_(mine_q, open_q))
+                                            .order_by(games.c.id.desc()).limit(80)).mappings()]
+        mine = [g for g in gs if g["is_mine"]][:60]
+        others = [g for g in gs if not g["is_mine"]][:20]
+        data = _load(conn, mine + others, now, rounds_for_done=False)
+    data["mine"] = mine
+    data["open"] = [g for g in others if g["status"] == "open"]
     return data
 
 
 def game(game_id: int) -> dict:
     now = _now()
-    with engine.begin() as conn:
-        data = _load(conn, [game_id], now)
-    if not data["games"]:
-        raise DuelError("No such game", 404)
-    return data
+    with community.reader.connect() as conn:
+        gs = [dict(g) for g in conn.execute(select(games).where(games.c.id == game_id)).mappings()]
+        if not gs:
+            raise DuelError("No such game", 404)
+        return _load(conn, gs, now, rounds_for_done=True)
 
 
 def players(ids) -> Dict[int, dict]:
@@ -586,7 +632,7 @@ def players(ids) -> Dict[int, dict]:
     ids = [i for i in set(ids) if i is not None]
     if not ids:
         return {}
-    with engine.connect() as conn:
+    with community.reader.connect() as conn:
         rows = conn.execute(select(users.c.id, users.c.username, avatars.c.updated_at.label("avatar_at"))
                             .outerjoin(avatars, avatars.c.user_id == users.c.id)
                             .where(users.c.id.in_(ids))).mappings()
@@ -606,17 +652,20 @@ def pick_of(picks: List[dict], game_id: int, user_id: int, round_no: int, answer
 
 def pending_count(user_id: int) -> int:
     """Invites waiting on this player, plus games with rounds they haven't
-    played - for the dot on the Duels link."""
-    data = overview(user_id)
-    n = 0
-    for g in data["mine"]:
-        members = data["members"].get(g["id"], [])
-        if g["status"] == "open" and user_id in data["invites"].get(g["id"], []) \
-                and not any(m["user_id"] == user_id for m in members):
-            n += 1
-        elif can_play(g, user_id, members) and played(data["picks"], g["id"], user_id, data["now"]) < ROUNDS:
-            n += 1
-    return n
+    played - for the dot on the Duels link, on every page. One query."""
+    live = games.c.status.in_(["open", "active"])
+    member = select(game_players.c.game_id).where(and_(
+        game_players.c.game_id == games.c.id, game_players.c.user_id == user_id)).exists()
+    cutoff = _now() - timedelta(seconds=ROUND_SECONDS + GRACE_SECONDS)
+    my_done = (select(func.count()).select_from(game_picks).where(and_(
+        game_picks.c.game_id == games.c.id, game_picks.c.user_id == user_id,
+        or_(game_picks.c.answered_at.isnot(None), game_picks.c.started_at < cutoff))).scalar_subquery())
+    invites = (select(func.count()).select_from(game_invites.join(games, games.c.id == game_invites.c.game_id))
+               .where(and_(game_invites.c.user_id == user_id, games.c.status == "open", ~member)).scalar_subquery())
+    to_play = (select(func.count()).select_from(games).where(and_(live, member, my_done < ROUNDS)).scalar_subquery())
+    with community.reader.connect() as conn:
+        a, b = conn.execute(select(invites, to_play)).one()
+    return a + b
 
 
 # --- records ---------------------------------------------------------------------------------
@@ -629,10 +678,29 @@ def records(user_ids: Optional[List[int]] = None) -> Dict[int, dict]:
         q = q.where(game_players.c.user_id.in_(user_ids or [0]))
     key = {"win": "wins", "draw": "draws", "loss": "losses"}
     out: Dict[int, dict] = {}
-    with engine.connect() as conn:
+    with community.reader.connect() as conn:
         for uid, outcome, n in conn.execute(q):
             out.setdefault(uid, {"wins": 0, "draws": 0, "losses": 0})[key[outcome]] += n
     return out
+
+
+def leaderboard(limit: int = 25) -> List[dict]:
+    """Top players by wins (then fewest losses, most draws), with their
+    names and pictures - one query."""
+    wins = func.sum(case((game_players.c.outcome == "win", 1), else_=0))
+    draws = func.sum(case((game_players.c.outcome == "draw", 1), else_=0))
+    losses = func.sum(case((game_players.c.outcome == "loss", 1), else_=0))
+    q = (select(users.c.username, avatars.c.updated_at.label("avatar_at"),
+                wins.label("wins"), draws.label("draws"), losses.label("losses"))
+         .select_from(game_players.join(users, users.c.id == game_players.c.user_id)
+                      .outerjoin(avatars, avatars.c.user_id == game_players.c.user_id))
+         .where(game_players.c.outcome.isnot(None))
+         .group_by(users.c.id, users.c.username, avatars.c.updated_at)
+         .order_by(wins.desc(), losses.asc(), draws.desc(), users.c.username).limit(limit))
+    with community.reader.connect() as conn:
+        return [{**r, "avatar_at": _aware(r["avatar_at"]) if r["avatar_at"] else None,
+                 "wins": int(r["wins"]), "draws": int(r["draws"]), "losses": int(r["losses"])}
+                for r in conn.execute(q).mappings()]
 
 
 def delete_user_games(user_id: int) -> None:

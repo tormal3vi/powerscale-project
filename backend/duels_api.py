@@ -58,8 +58,14 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
     teams, size = duels.shape(g)
     done = g["status"] == "done"
     rounds = data["rounds"].get(g["id"], []) if done else []
-    score = {m["user_id"]: sum(duels.pick_of(picks, g["id"], m["user_id"], r["round_no"], r["answer_id"])[1]
-                               for r in rounds) for m in members}
+    # Stored when the game finished; games from before that are scored from
+    # their rounds (loaded for exactly those).
+    score = {m["user_id"]: m["score"] if m.get("score") is not None else
+             sum(duels.pick_of(picks, g["id"], m["user_id"], r["round_no"], r["answer_id"])[1] for r in rounds)
+             for m in members}
+    # Lists don't load a finished game's picks: everyone has played it out.
+    have_picks = not done or any(p["game_id"] == g["id"] for p in picks)
+    played = lambda uid: duels.played(picks, g["id"], uid, now) if have_picks else duels.ROUNDS  # noqa: E731
     member_ids = {m["user_id"] for m in members}
     mine = next((m for m in members if m["user_id"] == me), None)
     free = duels.open_teams(g, members)
@@ -73,7 +79,7 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
         name, avatar = person(m["user_id"])
         out_players.append(DuelPlayerOut(
             username=name, is_admin=community.is_admin(name), avatar_url=avatar, team=m["team"],
-            played=duels.played(picks, g["id"], m["user_id"], now), me=m["user_id"] == me,
+            played=played(m["user_id"]), me=m["user_id"] == me,
             score=score[m["user_id"]] if done else None, outcome=m["outcome"] if done else None,
         ))
     can_join = (me is not None and g["status"] == "open" and me not in member_ids and bool(free)
@@ -85,7 +91,7 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
         seats_left=teams * size - len(members) if g["status"] == "open" else 0,
         picked=g.get("picked"), excluded=[s for s in (g.get("excluded") or "").split("|") if s],
         my_team=mine["team"] if mine else None,
-        my_played=duels.played(picks, g["id"], me, now) if mine else 0, total=duels.ROUNDS,
+        my_played=played(me) if mine else 0, total=duels.ROUNDS,
         can_play=me is not None and duels.can_play(g, me, members),
         can_join=can_join, join_teams=free if can_join else [],
         can_leave=bool(mine) and g["status"] == "open" and me != g["creator_id"]
@@ -110,23 +116,16 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
     return out
 
 
-def _people(data: dict) -> Dict[int, dict]:
-    ids = {g["creator_id"] for g in data["games"]}
-    ids |= {m["user_id"] for ms in data["members"].values() for m in ms}
-    ids |= {u for us in data["invites"].values() for u in us}
-    return duels.players(ids)
-
-
 def _one(game_id: int, me: Optional[int]) -> DuelOut:
     data = _run(duels.game, game_id)
-    return _duel_out(data["games"][0], me, data, _people(data), {})
+    return _duel_out(data["games"][0], me, data, data["people"], {})
 
 
 @router.get("/api/games", response_model=DuelListOut)
 def list_games(response: Response, user: dict = Depends(require_user)):
     response.headers["Cache-Control"] = "no-store"
     data = duels.overview(user["id"])
-    people, cache = _people(data), {}
+    people, cache = data["people"], {}
     return DuelListOut(mine=[_duel_out(g, user["id"], data, people, cache) for g in data["mine"]],
                        open=[_duel_out(g, user["id"], data, people, cache) for g in data["open"]])
 
@@ -206,11 +205,9 @@ def pick(game_id: int, payload: DuelPickIn, user: dict = Depends(require_user)):
 @router.get("/api/leaderboard", response_model=LeaderboardOut)
 def leaderboard(response: Response):
     response.headers["Cache-Control"] = "no-store"
-    recs = duels.records()
-    top = sorted(recs.items(), key=lambda kv: (-kv[1]["wins"], kv[1]["losses"], -kv[1]["draws"]))[:25]
-    people = duels.players([uid for uid, _ in top])
     return LeaderboardOut(rows=[
-        LeaderboardRowOut(username=people[uid]["username"], is_admin=community.is_admin(people[uid]["username"]),
-                          avatar_url=avatar_url(people[uid]["username"], people[uid]["avatar_at"]), **rec)
-        for uid, rec in top if uid in people
+        LeaderboardRowOut(username=r["username"], is_admin=community.is_admin(r["username"]),
+                          avatar_url=avatar_url(r["username"], r["avatar_at"]),
+                          wins=r["wins"], draws=r["draws"], losses=r["losses"])
+        for r in duels.leaderboard()
     ])
