@@ -55,6 +55,7 @@ db.init_db()  # adds columns newer code expects to an older powerscale.db
 community.init()
 discord_bot.start()  # registers the Discord commands, if Discord is set up
 discord_webhooks.start_weekly()  # the Monday leaderboard post, if a channel is set up
+discord_webhooks.start_updates()  # this version's update notes, if not announced yet
 
 
 @app.middleware("http")

@@ -611,6 +611,34 @@ def test_weekly_leaderboard_posts_once_a_week():
     assert hooks.leaderboard_embed(until, until + timedelta(days=7)) is None  # a quiet week: no post
 
 
+def test_update_notes_are_announced_once():
+    import json
+    from pathlib import Path
+    from backend import discord_webhooks as hooks
+    notes = [{"id": "2026-01-02.1", "date": "2026-01-02", "title": "Second", "changes": ["b"]},
+             {"id": "2026-01-01.1", "date": "2026-01-01", "title": "First", "changes": ["a"]}]
+    path = Path(tempfile.mkdtemp()) / "updates.json"
+    path.write_text(json.dumps(notes))
+    sent = []
+    real_send, real_file = hooks._send, hooks.UPDATES_FILE
+    hooks._send, hooks.UPDATES_FILE = (lambda url, embed: sent.append(embed["title"])), path
+    try:
+        assert hooks.announce_updates() == 0  # no update channel set
+        os.environ["DISCORD_WEBHOOK_UPDATES"] = "https://example.invalid/hook"
+        assert hooks.announce_updates() == 1 and sent == ["🆕 Second"]  # first run: only the newest
+        assert hooks.announce_updates() == 0  # a restart: nothing new
+        notes[:0] = [{"id": "2026-01-03.1", "date": "2026-01-03", "title": "Third", "changes": ["c"]},
+                     {"id": "2026-01-02.2", "date": "2026-01-02", "title": "Also second", "changes": ["d"]}]
+        path.write_text(json.dumps(notes))
+        assert hooks.announce_updates() == 2 and sent[1:] == ["🆕 Also second", "🆕 Third"]  # oldest first
+    finally:
+        hooks._send, hooks.UPDATES_FILE = real_send, real_file
+        os.environ.pop("DISCORD_WEBHOOK_UPDATES", None)
+    real = json.loads(real_file.read_text(encoding="utf-8"))  # the site's own notes are well-formed
+    assert real and all({"id", "date", "title", "changes"} <= set(n) for n in real)
+    assert len({n["id"] for n in real}) == len(real) and hooks.update_embed(real[0])["description"]
+
+
 def test_games_from_before_teams_get_players_and_outcomes():
     from sqlalchemy import insert
     old_a, old_b = _users("old_a", "old_b")

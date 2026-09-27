@@ -213,6 +213,11 @@ def init() -> None:
         hook()
 
 
+def get_mark(key: str) -> Optional[str]:
+    with reader.connect() as conn:
+        return conn.execute(select(site_marks.c.value).where(site_marks.c.key == key)).scalar()
+
+
 def claim_mark(key: str, value: str) -> bool:
     """Moves `key` up to `value` (compared as text) if it's still below it.
     True for exactly one caller per value - even with two copies of the

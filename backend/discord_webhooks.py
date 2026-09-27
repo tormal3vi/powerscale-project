@@ -4,7 +4,8 @@ A webhook is a channel's secret posting URL (Discord: channel settings ->
 Integrations -> Webhooks). Set them as environment variables, never in
 code: DISCORD_WEBHOOK_OVERRULES gets admin overrules, DISCORD_WEBHOOK_DUELS
 finished duels, DISCORD_WEBHOOK_LEADERBOARD the weekly leaderboard (else
-the duels channel); DISCORD_WEBHOOK_URL is used for whichever isn't set.
+the duels channel), DISCORD_WEBHOOK_UPDATES the site's update notes;
+DISCORD_WEBHOOK_URL is used for whichever isn't set.
 With none set (local runs, tests) nothing is sent.
 
 Posting happens on a background thread, a moment after the event, so a
@@ -21,6 +22,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from datetime import time as clock
+from pathlib import Path
 from typing import Optional, Tuple
 
 import db
@@ -223,3 +225,54 @@ def start_weekly() -> None:
                 pass
             time.sleep(600)
     threading.Thread(target=loop, name="discord-weekly", daemon=True).start()
+
+
+# --- update notes --------------------------------------------------------------------------------
+# frontend/updates.json holds a plain-language note for each update
+# (newest first): {"id": "2026-09-28.1", "date": "2026-09-28", "title":
+# "...", "changes": ["...", ...]}. Ids sort by date, then a counter. When a
+# new version of the site starts, the notes it hasn't announced yet go to
+# the update channel - so a post appears once the changes are live. The
+# very first run announces only the newest note, not the whole history.
+
+UPDATES_FILE = Path(__file__).parent.parent / "frontend" / "updates.json"
+MAX_NOTES_AT_ONCE = 5
+
+
+def update_embed(note: dict) -> dict:
+    changes = "\n".join(f"• {c}" for c in note.get("changes") or [])
+    day = datetime.strptime(note["date"], "%Y-%m-%d")
+    return {"title": _clip(f"🆕 {note['title']}", 256), "url": _site(), "color": GOLD,
+            "description": _clip(changes, 4000), "footer": {"text": f"powerscale.online · {day:%b} {day.day}, {day.year}"}}
+
+
+def announce_updates() -> int:
+    """Posts the update notes not announced yet; how many it posted."""
+    url = _webhook("UPDATES")
+    if not url or not UPDATES_FILE.exists():
+        return 0
+    from backend import community
+    notes = sorted(json.loads(UPDATES_FILE.read_text(encoding="utf-8")), key=lambda n: n["id"])
+    if not notes:
+        return 0
+    before = community.get_mark("discord_updates")
+    if not community.claim_mark("discord_updates", notes[-1]["id"]):
+        return 0  # nothing new, or another copy of the site got there first
+    fresh = [n for n in notes if before is None or n["id"] > before]
+    fresh = fresh[-1:] if before is None else fresh[-MAX_NOTES_AT_ONCE:]
+    for note in fresh:
+        _send(url, update_embed(note))
+    return len(fresh)
+
+
+def start_updates() -> None:
+    if not _webhook("UPDATES"):
+        return
+
+    def run():
+        time.sleep(5)  # let the site finish starting
+        try:
+            announce_updates()
+        except Exception:  # noqa: BLE001 - tried again on the next start
+            pass
+    threading.Thread(target=run, name="discord-updates", daemon=True).start()
