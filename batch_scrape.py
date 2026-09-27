@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import re
 import sys
 from typing import List, Optional
 
@@ -63,6 +64,28 @@ SUBSERIES = {
         ("Reboot", ["Ben 10 (Reboot)", "Ben 10 Reboot Aliens"]),
         ("Protector of Earth", ["Ben 10: Protector of Earth"]),
     ]),
+    "Dragon Ball": ("Manga", [
+        ("Anime", ["Dragon Ball (Toei)"]),
+        ("GT", ["Dragon Ball GT"]),
+        ("Movies", ["Dragon Ball Movies"]),
+        ("Games", ["Dragon Ball Games"]),
+        ("Daima", ["Dragon Ball Daima"]),
+    ]),
+    "Naruto": ("Naruto", [("Boruto", ["Boruto"])]),
+    "Devil May Cry": ("Games", [("Netflix series", ["Devil May Cry (Netflix)"])]),
+    "Invincible": ("Comics", []),
+    "Puella Magi Verse": ("Madoka Magica", []),
+}
+
+# Parts only the page titles tell apart: "Omni-Man (TV Series)", "Goku
+# (DBS Anime)", "Iroha Tamaki (Magia Record)". Checked after the parts'
+# categories, before the default.
+SUBSERIES_BY_QUALIFIER = {
+    "Dragon Ball": {"Anime": "Anime", "DBS Anime": "Anime", "Toei": "Anime"},
+    "Naruto": {"Boruto": "Boruto", "Naruto Next Generations": "Boruto", "Two Blue Vortex": "Boruto"},
+    "Devil May Cry": {"Netflix DMC": "Netflix series"},
+    "Invincible": {"TV Series": "TV Series", "Comics": "Comics", "Invincible Comics": "Comics"},
+    "Puella Magi Verse": {"Magia Record": "Magia Record"},
 }
 
 
@@ -101,7 +124,14 @@ def subseries_lookup(series: str):
         for category in categories:
             for title in fetch_category_members(category):
                 owner.setdefault(title, label)
-    return lambda title: owner.get(title, default)
+    by_qualifier = SUBSERIES_BY_QUALIFIER.get(series, {})
+
+    def subseries_of(title: str) -> str:
+        if title in owner:
+            return owner[title]
+        m = re.search(r"\(([^)]*)\)$", title)
+        return by_qualifier.get(m.group(1), default) if m else default
+    return subseries_of
 
 
 def _looks_like_a_character(stats: parser_module.CharacterStats) -> bool:

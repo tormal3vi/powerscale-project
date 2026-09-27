@@ -204,7 +204,7 @@ function duelRecordText(r) {
 
 // "DC · Arkham" for a part of a big franchise, else just the series.
 function seriesLabel(c) {
-  return c.subseries ? `${c.category} · ${c.subseries}` : c.category;
+  return c.subseries && c.subseries !== c.category ? `${c.category} · ${c.subseries}` : c.category;
 }
 
 // "Dante (Devil May Cry)" -> "Dante": for tight spots like "Dante wins".
