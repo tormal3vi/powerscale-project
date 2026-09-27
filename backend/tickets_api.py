@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from backend import characters, community, tickets
+from backend import characters, community, discord_webhooks, tickets
 from backend.community_api import (
     _matchup_out, avatar_url, post_limit, require_admin, require_user, same_origin,
 )
@@ -121,6 +121,9 @@ def overrule_from_ticket(ticket_id: int, payload: TicketAnswerIn, admin: dict = 
     community.create_post(admin["id"], note, None, a, b, fa, fb, kind="overrule", ruling_winner=t["winner_id"],
                           credit_user_id=t["user_id"])
     _run(tickets.answer, ticket_id, admin["id"], payload.response.strip(), "overruled")
+    writer = community.get_profile(user_id=t["user_id"])
+    discord_webhooks.overrule(a, b, fa, fb, t["winner_id"], note, admin["username"],
+                              credit=writer["username"] if writer else None)
     return _one(ticket_id, admin_view=True)
 
 

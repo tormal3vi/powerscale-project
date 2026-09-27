@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
 import db
-from backend import avatars, characters, community, duels, tickets
+from backend import avatars, characters, community, discord_webhooks, duels, tickets
 from backend.schemas import (
     AuthIn, CommentIn, CommentListOut, CommentOut, DeleteAccountIn, FavoriteOut, LikeOut, MatchupOut, MeOut,
     OverrideIn, OverrideOut, PasswordIn, PostIn, PostListOut, PostOut, ProfileIn, ProfileOut, RecordOut, RulingOut,
@@ -349,6 +349,8 @@ def set_override(payload: OverrideIn, admin: dict = Depends(require_admin)):
     if before is None or before["winner_id"] != payload.winner_id or before["note"] != note:
         community.create_post(admin["id"], note, None, payload.char_a, payload.char_b,
                               payload.form_a, payload.form_b, kind="overrule", ruling_winner=payload.winner_id)
+        discord_webhooks.overrule(payload.char_a, payload.char_b, payload.form_a, payload.form_b,
+                                  payload.winner_id, note, admin["username"])
     return override_out(payload.char_a, payload.char_b, payload.form_a, payload.form_b)
 
 
