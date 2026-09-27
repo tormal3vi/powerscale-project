@@ -141,10 +141,11 @@ def duel_finished(game_id: int) -> None:
 
 # --- the weekly leaderboard ----------------------------------------------------------------------
 # Every Monday at 18:00 Budapest time: the week's best duel players and
-# the all-time top 10. A background loop checks every 10 minutes (the site
-# is kept awake); the database remembers which week went out, so restarts
-# and deploys never post it twice. A week missed while the site was down
-# is posted when it's back, the same day or later.
+# the all-time top 10 - skipped in a week with no finished duels. A
+# background loop checks every 10 minutes (the site is kept awake); the
+# database remembers which week went out, so restarts and deploys never
+# post it twice. A week missed while the site was down is posted when it's
+# back, the same day or later.
 
 WEEKLY_DAY, WEEKLY_HOUR = 0, 18  # Monday, 18:00
 
@@ -172,11 +173,11 @@ def week_slot(now: datetime) -> Tuple[str, datetime, datetime]:
 
 def leaderboard_embed(since: datetime, until: datetime) -> Optional[dict]:
     from backend import duels
-    everyone = duels.leaderboard(limit=10)
-    if not everyone:
-        return None  # nobody has finished a duel yet: nothing to show
-    week = duels.leaderboard(limit=5, since=since, until=until)
     played = duels.finished_count(since, until)
+    if not played:
+        return None  # a quiet week: no post
+    everyone = duels.leaderboard(limit=10)
+    week = duels.leaderboard(limit=5, since=since, until=until)
     medal = {0: "🥇", 1: "🥈", 2: "🥉"}
 
     def lines(rows):
@@ -187,10 +188,8 @@ def leaderboard_embed(since: datetime, until: datetime) -> Optional[dict]:
     span = f"{first:%b} {first.day} – {last:%b} {last.day}"
     embed = {
         "title": "🏆 Weekly duel leaderboard", "url": f"{_site()}/duels.html", "color": GOLD,
-        "description": (f"**{played}** duel{'s' if played != 1 else ''} finished this week ({span})."
-                        if played else f"No duels finished this week ({span}). Start one on the site!"),
-        "fields": ([{"name": "This week", "value": lines(week)}] if week else [])
-                  + [{"name": "All time", "value": lines(everyone)}],
+        "description": f"**{played}** duel{'s' if played != 1 else ''} finished this week ({span}).",
+        "fields": [{"name": "This week", "value": lines(week)}, {"name": "All time", "value": lines(everyone)}],
         "footer": {"text": "Wins–draws–losses · powerscale.online"},
     }
     return embed

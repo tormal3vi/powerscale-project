@@ -575,7 +575,9 @@ def test_weekly_leaderboard_posts_once_a_week():
     assert hooks.week_slot(datetime(2026, 10, 4, 12, 0, tzinfo=utc))[0] == "2026-W40"  # Sunday: still this one
     assert hooks.week_slot(datetime(2026, 11, 2, 17, 0, tzinfo=utc))[2] == datetime(2026, 11, 2, 17, 0, tzinfo=utc)
 
-    # Two finished games: one in the week, one the week before.
+    # Two finished games: one in the week, one the week before. (A week in
+    # 2020, which no other test's games can land in.)
+    key, since, until = hooks.week_slot(datetime(2020, 9, 28, 16, 0, tzinfo=utc))
     win, lose = _users("wk_win", "wk_lose")
     with community.engine.begin() as conn:
         for finished in (since + timedelta(hours=1), since - timedelta(days=1)):
@@ -598,14 +600,15 @@ def test_weekly_leaderboard_posts_once_a_week():
     hooks._send = lambda url, embed: sent.append(embed)
     os.environ["DISCORD_WEBHOOK_DUELS"] = "https://example.invalid/hook"
     try:
-        now = datetime(2026, 9, 28, 16, 30, tzinfo=utc)
+        now = datetime(2020, 9, 28, 16, 30, tzinfo=utc)
         assert hooks.weekly_leaderboard(now) and not hooks.weekly_leaderboard(now)  # once per week
         assert not hooks.weekly_leaderboard(now - timedelta(days=7))  # an older week never goes out after
-        assert hooks.weekly_leaderboard(now + timedelta(days=7)) and len(sent) == 2
+        assert not hooks.weekly_leaderboard(now + timedelta(days=7)) and len(sent) == 1  # no duels that week
     finally:
         hooks._send = real_send
         del os.environ["DISCORD_WEBHOOK_DUELS"]
     assert not hooks.weekly_leaderboard(now + timedelta(days=14))  # no channel set: nothing
+    assert hooks.leaderboard_embed(until, until + timedelta(days=7)) is None  # a quiet week: no post
 
 
 def test_games_from_before_teams_get_players_and_outcomes():
