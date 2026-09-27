@@ -169,6 +169,15 @@ matchup_comments = Table(
 )
 
 
+# Small markers the site keeps for itself, e.g. the last week whose
+# leaderboard went to Discord.
+site_marks = Table(
+    "site_marks", metadata,
+    Column("key", String(64), primary_key=True),
+    Column("value", String(64), nullable=False),
+)
+
+
 # Columns added after the first deploy. create_all() only creates missing
 # tables, never missing columns, so an existing database (the live Neon one)
 # gets them here. Nullable, so adding them touches no existing row.
@@ -202,6 +211,21 @@ def init() -> None:
             add_missing_columns(conn, table, columns)
     for hook in _init_hooks:
         hook()
+
+
+def claim_mark(key: str, value: str) -> bool:
+    """Moves `key` up to `value` (compared as text) if it's still below it.
+    True for exactly one caller per value - even with two copies of the
+    site running for a moment during a deploy."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(insert(site_marks).values(key=key, value=value))
+        return True
+    except exc_mod.IntegrityError:
+        pass  # already there: move it forward, if nobody else has
+    with engine.begin() as conn:
+        return conn.execute(update(site_marks).where(and_(site_marks.c.key == key, site_marks.c.value < value))
+                            .values(value=value)).rowcount == 1
 
 
 def _now() -> datetime:

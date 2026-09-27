@@ -563,6 +563,51 @@ def test_discord_app_checks_signatures_and_answers_commands():
     assert run("leaderboard")["embeds"][0]["title"] == "Duel leaderboard"
 
 
+def test_weekly_leaderboard_posts_once_a_week():
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import insert
+    from backend import discord_webhooks as hooks
+    utc = timezone.utc
+    # Mondays 18:00 Budapest: 16:00 UTC in summer time, 17:00 UTC in winter.
+    key, since, until = hooks.week_slot(datetime(2026, 9, 28, 16, 0, tzinfo=utc))
+    assert key == "2026-W40" and until == datetime(2026, 9, 28, 16, 0, tzinfo=utc) and until - since == timedelta(days=7)
+    assert hooks.week_slot(datetime(2026, 9, 28, 15, 59, tzinfo=utc))[0] == "2026-W39"  # a minute early: last week's
+    assert hooks.week_slot(datetime(2026, 10, 4, 12, 0, tzinfo=utc))[0] == "2026-W40"  # Sunday: still this one
+    assert hooks.week_slot(datetime(2026, 11, 2, 17, 0, tzinfo=utc))[2] == datetime(2026, 11, 2, 17, 0, tzinfo=utc)
+
+    # Two finished games: one in the week, one the week before.
+    win, lose = _users("wk_win", "wk_lose")
+    with community.engine.begin() as conn:
+        for finished in (since + timedelta(hours=1), since - timedelta(days=1)):
+            gid = conn.execute(insert(duels.games).values(
+                creator_id=win["id"], status="done", created_at=finished, finished_at=finished,
+                teams=2, team_size=1, winning_team=1)).inserted_primary_key[0]
+            conn.execute(insert(duels.game_players).values(game_id=gid, user_id=win["id"], team=1, outcome="win",
+                                                           score=3, joined_at=finished))
+            conn.execute(insert(duels.game_players).values(game_id=gid, user_id=lose["id"], team=2, outcome="loss",
+                                                           score=1, joined_at=finished))
+    week = {r["username"]: r for r in duels.leaderboard(since=since, until=until)}
+    assert week["wk_win"]["wins"] == 1 and week["wk_lose"]["losses"] == 1
+    assert {r["username"]: r["wins"] for r in duels.leaderboard()}["wk_win"] >= 2
+    assert duels.finished_count(since, until) >= 1
+    embed = hooks.leaderboard_embed(since, until)
+    assert "Sep 21 – Sep 27" in embed["description"] and [f["name"] for f in embed["fields"]] == ["This week", "All time"]
+
+    sent = []
+    real_send = hooks._send
+    hooks._send = lambda url, embed: sent.append(embed)
+    os.environ["DISCORD_WEBHOOK_DUELS"] = "https://example.invalid/hook"
+    try:
+        now = datetime(2026, 9, 28, 16, 30, tzinfo=utc)
+        assert hooks.weekly_leaderboard(now) and not hooks.weekly_leaderboard(now)  # once per week
+        assert not hooks.weekly_leaderboard(now - timedelta(days=7))  # an older week never goes out after
+        assert hooks.weekly_leaderboard(now + timedelta(days=7)) and len(sent) == 2
+    finally:
+        hooks._send = real_send
+        del os.environ["DISCORD_WEBHOOK_DUELS"]
+    assert not hooks.weekly_leaderboard(now + timedelta(days=14))  # no channel set: nothing
+
+
 def test_games_from_before_teams_get_players_and_outcomes():
     from sqlalchemy import insert
     old_a, old_b = _users("old_a", "old_b")

@@ -878,23 +878,44 @@ def records(user_ids: Optional[List[int]] = None) -> Dict[int, dict]:
     return out
 
 
-def leaderboard(limit: int = 25) -> List[dict]:
+def leaderboard(limit: int = 25, since: Optional[datetime] = None, until: Optional[datetime] = None) -> List[dict]:
     """Top players by wins (then fewest losses, most draws), with their
-    names and pictures - one query."""
+    names and pictures - one query. With since/until: only games that
+    finished in that window."""
     wins = func.sum(case((game_players.c.outcome == "win", 1), else_=0))
     draws = func.sum(case((game_players.c.outcome == "draw", 1), else_=0))
     losses = func.sum(case((game_players.c.outcome == "loss", 1), else_=0))
+    source = (game_players.join(users, users.c.id == game_players.c.user_id)
+              .outerjoin(avatars, avatars.c.user_id == game_players.c.user_id))
+    if since is not None or until is not None:
+        source = source.join(games, games.c.id == game_players.c.game_id)
     q = (select(users.c.username, avatars.c.updated_at.label("avatar_at"),
                 wins.label("wins"), draws.label("draws"), losses.label("losses"))
-         .select_from(game_players.join(users, users.c.id == game_players.c.user_id)
-                      .outerjoin(avatars, avatars.c.user_id == game_players.c.user_id))
+         .select_from(source)
          .where(game_players.c.outcome.isnot(None))
+         .where(*_finished_between(since, until))
          .group_by(users.c.id, users.c.username, avatars.c.updated_at)
          .order_by(wins.desc(), losses.asc(), draws.desc(), users.c.username).limit(limit))
     with community.reader.connect() as conn:
         return [{**r, "avatar_at": _aware(r["avatar_at"]) if r["avatar_at"] else None,
                  "wins": int(r["wins"]), "draws": int(r["draws"]), "losses": int(r["losses"])}
                 for r in conn.execute(q).mappings()]
+
+
+def _finished_between(since: Optional[datetime], until: Optional[datetime]) -> list:
+    conditions = []
+    if since is not None:
+        conditions.append(games.c.finished_at >= since)
+    if until is not None:
+        conditions.append(games.c.finished_at < until)
+    return conditions
+
+
+def finished_count(since: datetime, until: datetime) -> int:
+    """How many games finished in [since, until)."""
+    with community.reader.connect() as conn:
+        return conn.execute(select(func.count()).select_from(games).where(
+            games.c.status == "done", *_finished_between(since, until))).scalar() or 0
 
 
 def delete_user_games(user_id: int) -> None:
