@@ -12,7 +12,7 @@ from backend.community_api import (
     avatar_url, character_image_url, current_user, post_limit, require_user, same_origin,
 )
 from backend.schemas import (
-    DuelCreateIn, DuelJoinIn, DuelListOut, DuelOut, DuelPickIn, DuelPickOut, DuelPlayerOut,
+    DuelBoutOut, DuelCreateIn, DuelJoinIn, DuelListOut, DuelOut, DuelPickIn, DuelPickOut, DuelPlayerOut,
     DuelResultRoundOut, DuelRoundOut, DuelRoundPickOut, DuelSideOut, LeaderboardOut, LeaderboardRowOut,
 )
 
@@ -40,7 +40,7 @@ def _side(char_id: int, form: str, cache: dict) -> DuelSideOut:
             series += f" · {row['subseries']}"
         cache[key] = DuelSideOut(
             id=char_id, name=characters.display_name_for_id(char_id) or "Removed character", series=series,
-            form=form if form != default else None, image_url=replaced or row.get("image_url"),
+            form=form or default, image_url=replaced or row.get("image_url"),
         )
     return cache[key]
 
@@ -115,7 +115,14 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
         draft = g.get("mode") == "draft"
         if draft and rounds:
             picked = duels.picks_in_time(g["id"], picks, members)
-            points = duels.draft_points(members, picked)
+            bouts = duels.draft_bouts(members, picked, duels.pick_seconds(g["id"], picks, members))
+            points = duels.draft_points(members, picked, bouts=bouts)
+            if any(m.get("score") is not None and m["score"] != sum(points[(n, m["user_id"])] for n in range(1, duels.ROUNDS + 1))
+                   for m in members):
+                # Finished before dead-even picks went to the faster one:
+                # show it as it was scored.
+                bouts = duels.draft_bouts(members, picked)
+                points = duels.draft_points(members, picked, bouts=bouts)
             hands = data.get("hands", {}).get(g["id"], {})
             tier = _tier_of()
         for r in rounds:
@@ -134,8 +141,18 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
                 round_picks.append(DuelRoundPickOut(username=person(m["user_id"])[0], team=m["team"],
                                                     pick_id=pick_id, correct=ok))
             if draft:
+                round_bouts = []
+                for bout in (b for b in bouts if b["round_no"] == r["round_no"]):
+                    xa, ya = bout["x_pick"], bout["y_pick"]
+                    round_bouts.append(DuelBoutOut(
+                        user_a=person(bout["x"])[0], user_b=person(bout["y"])[0],
+                        a=_side(xa, None, cache) if xa else None, b=_side(ya, None, cache) if ya else None,
+                        winner=person(bout["winner"])[0] if bout["winner"] is not None else None,
+                        by_speed=bout["by_speed"],
+                        compare_url=f"compare.html?a={xa}&b={ya}" if xa and ya else None,
+                    ))
                 out.rounds.append(DuelResultRoundOut(round_no=r["round_no"], answer_id=0, verdict="", picked=False,
-                                                     picks=round_picks, compare_url=""))
+                                                     picks=round_picks, compare_url="", bouts=round_bouts))
                 continue
             out.rounds.append(DuelResultRoundOut(
                 round_no=r["round_no"], a=_side(r["char_a"], r["form_a"], cache),

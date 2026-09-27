@@ -491,18 +491,37 @@ def test_draft_deals_hands_by_seat_and_scores_head_to_head():
         while r:
             chosen[(r["round_no"], u["id"])] = r["hand"][idx]
             _, r = duels.pick(game_id, u["id"], r["round_no"], r["hand"][idx])
+    with community.engine.connect() as conn:
+        took = {(p["round_no"], p["user_id"]): (p["answered_at"] - p["started_at"]).total_seconds() for p in conn.execute(
+            select(duels.game_picks).where(duels.game_picks.c.game_id == game_id)).mappings()}
     expected = {ann["id"]: 0, ben["id"]: 0}
     for n in range(1, duels.ROUNDS + 1):
         a, b = chosen[(n, ann["id"])], chosen[(n, ben["id"])]
         w = duels._stronger(a, b)
         if w is not None:
             expected[ann["id"] if w == a else ben["id"]] += 1
+        elif took[(n, ann["id"])] != took[(n, ben["id"])]:  # dead even: the faster pick
+            expected[ann["id"] if took[(n, ann["id"])] < took[(n, ben["id"])] else ben["id"]] += 1
     members = {m["user_id"]: m for m in duels.game(game_id)["members"][game_id]}
     assert {uid: members[uid]["score"] for uid in expected} == expected
     assert duels.game(game_id)["games"][0]["status"] == "done"
     duels.delete_user_games(ann["id"])  # an account deletion takes the hands too
     with community.engine.connect() as conn:
         assert not conn.execute(select(duels.game_hands).where(duels.game_hands.c.game_id.in_([game_id, lobby]))).first()
+
+
+def test_draft_dead_even_picks_go_to_the_faster_one():
+    members = [{"user_id": 1, "team": 1}, {"user_id": 2, "team": 2}, {"user_id": 3, "team": 2}]
+    picked = {(1, 1): 10, (1, 2): 20, (1, 3): None}
+    real = duels._stronger
+    duels._stronger = lambda a, b: real(a, b) if a is None or b is None else None  # every pair dead even
+    try:
+        bouts = [b for b in duels.draft_bouts(members, picked, {(1, 1): 7.5, (1, 2): 3.0}) if b["round_no"] == 1]
+        assert [(b["y"], b["winner"], b["by_speed"]) for b in bouts] == [(2, 2, True), (3, 1, False)]  # no pick loses
+        assert duels.draft_points(members, picked, {(1, 1): 7.5, (1, 2): 3.0})[(1, 2)] == 1
+        assert duels.draft_bouts(members, picked)[0]["winner"] is None  # no times: a tie
+    finally:
+        duels._stronger = real
 
 
 def test_games_from_before_teams_get_players_and_outcomes():

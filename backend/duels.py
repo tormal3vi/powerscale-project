@@ -268,22 +268,44 @@ def _stronger(a: Optional[int], b: Optional[int]) -> Optional[int]:
     return None
 
 
-def draft_points(members: List[dict], picked: Dict[Tuple[int, int], Optional[int]]) -> Dict[Tuple[int, int], int]:
-    """{(round, user id): head-to-head wins} - each player's pick against
-    every opponent's (other teams only) pick that round. `picked` maps
-    (round, user id) to the character they picked in time (or None)."""
-    out: Dict[Tuple[int, int], int] = {}
+def draft_bouts(members: List[dict], picked: Dict[Tuple[int, int], Optional[int]],
+                took: Optional[Dict[Tuple[int, int], float]] = None) -> List[dict]:
+    """Every head-to-head of a draft: each player's pick against every
+    opponent's (other teams only) pick, round by round. `picked` maps
+    (round, user id) to the character they picked in time (or None);
+    `took`, to the seconds they took. Two picks the calculator calls dead
+    even (same-tier characters often have identical stats) go to whoever
+    locked in faster - everyone has the same clock."""
+    took = took or {}
+    out = []
     for n in range(1, ROUNDS + 1):
         for i, x in enumerate(members):
-            out.setdefault((n, x["user_id"]), 0)
             for y in members[i + 1:]:
                 if x["team"] == y["team"]:
                     continue
-                cx, cy = picked.get((n, x["user_id"])), picked.get((n, y["user_id"]))
-                w = _stronger(cx, cy)
-                if w is not None and cx != cy:
-                    winner = x if w == cx else y
-                    out[(n, winner["user_id"])] = out.get((n, winner["user_id"]), 0) + 1
+                ux, uy = x["user_id"], y["user_id"]
+                cx, cy = picked.get((n, ux)), picked.get((n, uy))
+                winner, by_speed = None, False
+                w = _stronger(cx, cy) if cx != cy else None
+                if w is not None:
+                    winner = ux if w == cx else uy
+                elif cx is not None and cy is not None:
+                    tx, ty = took.get((n, ux)), took.get((n, uy))
+                    if tx is not None and ty is not None and tx != ty:
+                        winner, by_speed = (ux if tx < ty else uy), True
+                out.append({"round_no": n, "x": ux, "y": uy, "x_pick": cx, "y_pick": cy,
+                            "winner": winner, "by_speed": by_speed})
+    return out
+
+
+def draft_points(members: List[dict], picked: Dict[Tuple[int, int], Optional[int]],
+                 took: Optional[Dict[Tuple[int, int], float]] = None,
+                 bouts: Optional[List[dict]] = None) -> Dict[Tuple[int, int], int]:
+    """{(round, user id): head-to-head wins} (see draft_bouts)."""
+    out = {(n, m["user_id"]): 0 for n in range(1, ROUNDS + 1) for m in members}
+    for bout in bouts if bouts is not None else draft_bouts(members, picked, took):
+        if bout["winner"] is not None:
+            out[(bout["round_no"], bout["winner"])] += 1
     return out
 
 
@@ -678,7 +700,8 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
     for g in ready:
         team_score: Dict[int, int] = {}
         if g.get("mode") == "draft":
-            points = draft_points(members[g["id"]], picks_in_time(g["id"], picks, members[g["id"]]))
+            points = draft_points(members[g["id"]], picks_in_time(g["id"], picks, members[g["id"]]),
+                                  pick_seconds(g["id"], picks, members[g["id"]]))
             for m in members[g["id"]]:
                 m["score"] = sum(points.get((n, m["user_id"]), 0) for n in range(1, ROUNDS + 1))
                 team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
@@ -801,6 +824,13 @@ def picks_in_time(game_id: int, picks: List[dict], members: List[dict]) -> Dict[
         if p["game_id"] == game_id and p["user_id"] in member_ids:
             out[(p["round_no"], p["user_id"])] = p["pick_id"] if _in_time(p) else None
     return out
+
+
+def pick_seconds(game_id: int, picks: List[dict], members: List[dict]) -> Dict[Tuple[int, int], float]:
+    """Draft: {(round, user id): seconds taken} for picks made in time."""
+    member_ids = {m["user_id"] for m in members}
+    return {(p["round_no"], p["user_id"]): (_aware(p["answered_at"]) - _aware(p["started_at"])).total_seconds()
+            for p in picks if p["game_id"] == game_id and p["user_id"] in member_ids and _in_time(p)}
 
 
 def played(picks: List[dict], game_id: int, user_id: Optional[int], now: datetime) -> int:

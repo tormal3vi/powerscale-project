@@ -363,7 +363,7 @@ class DuelSideOut(BaseModel):
     id: int
     name: str
     series: str
-    form: Optional[str] = None  # only when it isn't the character's default form
+    form: Optional[str] = None  # None for a character with a single form
     image_url: Optional[str] = None
 
 
@@ -402,6 +402,18 @@ class DuelRoundPickOut(BaseModel):
     best_id: Optional[int] = None
 
 
+class DuelBoutOut(BaseModel):
+    """Draft: one head-to-head of a round - two players' picks (None: no
+    pick in time) and who won it, if anyone."""
+    user_a: str
+    user_b: str
+    a: Optional[DuelSideOut] = None
+    b: Optional[DuelSideOut] = None
+    winner: Optional[str] = None  # a username
+    by_speed: bool = False  # dead even: the faster pick won
+    compare_url: Optional[str] = None
+
+
 class DuelResultRoundOut(BaseModel):
     round_no: int
     a: Optional[DuelSideOut] = None  # predict rounds only
@@ -411,6 +423,7 @@ class DuelResultRoundOut(BaseModel):
     picked: bool  # chosen by the challenger rather than drawn at random
     picks: List[DuelRoundPickOut]
     compare_url: str
+    bouts: List[DuelBoutOut] = []  # draft rounds only
 
 
 class DuelOut(BaseModel):

@@ -103,7 +103,7 @@ function sideTileHtml(side, px) {
 }
 
 function sideLabel(side) {
-  return `${escapeHtml(bareName(side.name))}${side.form ? ` <span class="duel-form">${escapeHtml(side.form)}</span>` : ''}`;
+  return `${escapeHtml(shortName(side.name))}${side.form ? ` <span class="duel-form">${escapeHtml(side.form)}</span>` : ''}`;
 }
 
 function gameLink(id) {
@@ -231,7 +231,7 @@ function renderNew() {
     addBtn.hidden = draft || mode !== 'pick' || n >= 5;
     seriesField.hidden = !draft && mode === 'pick' && n >= 5; // nothing random left to draw
     if (draft) {
-      hint.textContent = 'Each round everyone is dealt 4 characters of similar tiers and picks the one they think is strongest. Picks then go head to head: each win is a point.';
+      hint.textContent = 'Each round everyone is dealt 4 characters of similar tiers and picks the one they think is strongest. Picks then go head to head: each win is a point, and dead-even picks go to whoever locked in faster.';
       return;
     }
     hint.textContent = mode === 'random'
@@ -357,7 +357,7 @@ function actionButtons(g, { page = false } = {}) {
   if (g.can_play && g.my_played < g.total) b.push(`<button type="button" class="btn-gold" data-act="play">${g.my_played ? 'Continue' : 'Play'}</button>`);
   if (g.can_decline) b.push('<button type="button" class="pill-button" data-act="decline">Decline</button>');
   if (page && g.can_leave) b.push('<button type="button" class="pill-button" data-act="leave">Leave game</button>');
-  if (page && g.can_cancel) b.push('<button type="button" class="pill-button" data-act="cancel">Cancel game</button>');
+  if (g.can_cancel) b.push(`<button type="button" class="pill-button" data-act="cancel">${page ? 'Cancel game' : 'Cancel'}</button>`);
   if (page && (g.status === 'open' || g.status === 'active')) b.push('<button type="button" class="pill-button" data-act="copy">Copy link</button>');
   if (!page && g.status === 'done') b.push('<button type="button" class="pill-button" data-act="open">Results</button>');
   if (!page && !b.length) b.push('<button type="button" class="pill-button" data-act="open">View</button>');
@@ -622,19 +622,20 @@ function renderGame(g) {
 function resultsHtml(g) {
   const outcome = g.outcome || '';
   const title = { win: 'You won', loss: 'You lost', draw: "It's a draw" }[outcome] || 'Finished';
-  const teamsSorted = Array.from({ length: g.teams }, (_, i) => i + 1);
+  // Two sides: yours on the left, like the score. More: in team order.
+  const teamsSorted = g.teams === 2 && g.my_team === 2 ? [2, 1] : Array.from({ length: g.teams }, (_, i) => i + 1);
   const score = g.teams === 2 && isTeamGame(g)
-    ? `Team 1 ${g.team_scores[0]} — ${g.team_scores[1]} Team 2`
+    ? `${teamLabel(g, teamsSorted[0])} ${g.team_scores[teamsSorted[0] - 1]} — ${g.team_scores[teamsSorted[1] - 1]} ${teamLabel(g, teamsSorted[1])}`
     : g.teams === 2 ? scoreLine(g).replace('–', ' — ') // yours first
       : g.team_scores.map((s, i) => `${teamLabel(g, i + 1)}: ${s}`).join(' · ');
-  const person = (p) => `<div class="duel-person">${avatar(p, `duel-person-avatar${p.me ? ' me' : ''}`)}
-    <div class="duel-person-name">${escapeHtml(p.me ? 'you' : p.username)} · ${p.score}</div></div>`;
+  const person = (p) => `<div class="duel-person" title="${escapeHtml(p.username)}">${avatar(p, `duel-person-avatar${p.me ? ' me' : ''}`)}
+    <div class="duel-person-name">${escapeHtml(p.me ? 'you' : p.username)}</div><div class="duel-person-score">${p.score}</div></div>`;
   const people = teamsSorted.map((t) => `<div class="duel-result-team">${g.players.filter((p) => p.team === t).map(person).join('')}</div>`).join('');
   const byName = Object.fromEntries(g.players.map((p) => [p.username, p]));
   const pick = (r, p) => {
     const player = byName[p.username] || { username: p.username };
     const kind = p.pick_id == null ? 'miss' : p.correct ? 'ok' : 'bad';
-    const said = p.pick_id == null ? 'no answer' : p.pick_id === r.a.id ? bareName(r.a.name) : bareName(r.b.name);
+    const said = p.pick_id == null ? 'no answer' : p.pick_id === r.a.id ? shortName(r.a.name) : shortName(r.b.name);
     return `<div class="duel-pick" title="${escapeHtml(`${p.username}: ${said}`)}">
       <div class="duel-pick-face">${avatar(player, 'duel-pick-avatar')}<span class="duel-pick-mark ${kind}">${MARKS[kind]}</span></div>
       <div class="duel-pick-name">${escapeHtml(player.me ? 'you' : p.username)}</div></div>`;
@@ -646,17 +647,28 @@ function resultsHtml(g) {
   const draftRow = (p) => {
     const player = byName[p.username] || { username: p.username, team: 0 };
     const chosen = p.hand.find((s) => s.id === p.pick_id);
-    const hand = p.hand.map((s) => `<span class="dr-mini-wrap${s.id === p.pick_id ? ' picked' : ''}" title="${escapeHtml(bareName(s.name))}${
-      s.id === p.pick_id ? ' (their pick)' : ''}${s.id === p.best_id ? ' (highest tier)' : ''}">
-      <span class="dr-mini" style="background:${accentFor(s.id)}">${characterTileInner(s.name, s.image_url, 80)}</span>${s.id === p.best_id ? STAR : ''}</span>`).join('');
+    // Every card opens its character's page.
+    const hand = p.hand.map((s) => `<a class="dr-mini-wrap${s.id === p.pick_id ? ' picked' : ''}" href="character.html?id=${s.id}"
+      title="${escapeHtml(shortName(s.name))}${s.form ? ` · ${escapeHtml(s.form)}` : ''}${s.id === p.pick_id ? ' (their pick)' : ''}${s.id === p.best_id ? ' (highest tier)' : ''}">
+      <span class="dr-mini" style="background:${accentFor(s.id)}">${characterTileInner(s.name, s.image_url, 80)}</span>${s.id === p.best_id ? STAR : ''}</a>`).join('');
     const pts = p.points ? (p.points >= rivalsOf(player) ? 'max' : 'some') : '';
     return `<div class="dr-row${chosen ? '' : ' missed'}">
       <div class="dr-who">${avatar(player, `duel-pick-avatar${player.me ? ' me' : ''}`)}<div class="dr-who-text">
         <div class="dr-who-name${player.me ? ' me' : ''}">${escapeHtml(player.me ? 'you' : p.username)}</div>
-        <div class="dr-who-pick">${chosen ? escapeHtml(bareName(chosen.name)) : 'no pick'}</div></div></div>
+        <div class="dr-who-pick">${chosen ? `${escapeHtml(shortName(chosen.name))}${chosen.form ? ` · ${escapeHtml(chosen.form)}` : ''}` : 'no pick'}</div></div></div>
       <div class="dr-hand">${hand}</div>
       <span class="dr-points ${pts}">+${p.points}</span>
     </div>`;
+  };
+  // A round's head-to-heads: each opens the matchup on Compare.
+  const who = (name) => escapeHtml(byName[name] && byName[name].me ? 'you' : name);
+  const boutSide = (side, user, won) => `<span class="dr-bout-side${won ? ' won' : ''}">${
+    side ? escapeHtml(shortName(side.name)) : `<span class="dr-bout-none">${who(user)}: no pick</span>`}</span>`;
+  const boutHtml = (b) => {
+    const inner = `${boutSide(b.a, b.user_a, b.winner && b.winner === b.user_a)}<span class="duel-vs">vs</span>${boutSide(b.b, b.user_b, b.winner && b.winner === b.user_b)}${
+      b.by_speed ? '<span class="dr-bout-note" title="Dead even on stats: the faster pick won">faster pick</span>'
+        : !b.winner && b.a && b.b ? '<span class="dr-bout-note">even</span>' : ''}`;
+    return b.compare_url ? `<a class="dr-bout" href="${escapeHtml(b.compare_url)}">${inner}</a>` : `<span class="dr-bout">${inner}</span>`;
   };
   if (g.mode === 'draft') {
     return `
@@ -669,9 +681,12 @@ function resultsHtml(g) {
     ${g.rounds.map((r) => `
       <section class="dr-round">
         <h2 class="dr-round-title">Round ${r.round_no}</h2>
-        <div class="dr-round-card">${r.picks.map(draftRow).join('')}</div>
+        <div class="dr-round-card">
+          ${r.bouts.length ? `<div class="dr-bouts">${r.bouts.map(boutHtml).join('')}</div>` : ''}
+          ${r.picks.map(draftRow).join('')}
+        </div>
       </section>`).join('')}
-    <p class="dr-legend">Gold ring: their pick. Star: the highest-tier character in their hand. Each pick earns a point for every opponent's pick it beats.</p>`;
+    <p class="dr-legend">Gold ring: their pick. Star: the highest-tier character in their hand. Each pick earns a point for every opponent's pick it beats; when two picks are dead even on stats, the faster pick wins. Tap a matchup to open it, or a card for that character.</p>`;
   }
   return `
     <div class="duel-result-head ${outcome}">
@@ -784,8 +799,9 @@ function showRound(r) {
         <button type="button" class="duel-choice" data-pick="${s.id}">
           <span class="duel-choice-check">${CHECK(18)}</span>
           ${sideTileHtml(s, 320)}
-          <span class="duel-choice-name">${escapeHtml(bareName(s.name))}</span>
-          <span class="duel-choice-series">${escapeHtml(s.series)}${s.form ? ` · ${escapeHtml(s.form)}` : ''}</span>
+          <span class="duel-choice-name">${escapeHtml(shortName(s.name))}</span>
+          ${s.form ? `<span class="duel-choice-form">${escapeHtml(s.form)}</span>` : ''}
+          <span class="duel-choice-series">${escapeHtml(s.series)}</span>
         </button>`).join(r.mode === 'draft' ? '' : '<span class="duel-choice-vs">vs</span>')}
     </div>
     <div class="duel-play-status" aria-live="polite"></div>`);
