@@ -285,6 +285,7 @@ def test_title_named_series_lead_with_the_page_title():
     assert titled_name("Black Cat (Marvel Comics)", "Black Cat/Felicia Hardy") == "Black Cat, Black Cat/Felicia Hardy"
     assert titled_name("Silver Surfer (Marvel Comics)", "Silver Surfer, Norrin Radd") == "Silver Surfer, Norrin Radd"
     assert titled_name("Nova (Sam Alexander)", None) == "Nova"
+    assert titled_name("Whiplash (Anton Vanko)", "Anton Igorevich Vanko, Whiplash") == "Whiplash, Anton Igorevich Vanko"
 
 
 def test_duels_show_the_picture_of_the_form_they_use():
@@ -576,7 +577,7 @@ def test_draft_dead_even_picks_go_to_the_faster_one():
     members = [{"user_id": 1, "team": 1}, {"user_id": 2, "team": 2}, {"user_id": 3, "team": 2}]
     picked = {(1, 1): 10, (1, 2): 20, (1, 3): None}
     real = duels._stronger
-    duels._stronger = lambda a, b: real(a, b) if a is None or b is None else None  # every pair dead even
+    duels._stronger = lambda a, b, lean=False: real(a, b) if a is None or b is None else None  # every pair dead even
     try:
         bouts = [b for b in duels.draft_bouts(members, picked, {(1, 1): 7.5, (1, 2): 3.0}) if b["round_no"] == 1]
         assert [(b["y"], b["winner"], b["by_speed"]) for b in bouts] == [(2, 2, True), (3, 1, False)]  # no pick loses
@@ -854,6 +855,26 @@ def test_discord_linking_and_duel_command():
     community.unlink_discord(ann["id"])
     assert community.user_by_discord("111") is None
     assert run("profile", as_discord("111", "ann_dc"))["flags"] == discord_bot.EPHEMERAL
+
+
+def test_draft_too_close_to_call_is_even():
+    from backend import characters
+    pool = characters.scorable_pool()
+    close = None
+    for i, (a, _, _) in enumerate(pool[:400]):
+        for b, _, _ in pool[i + 1:i + 30]:
+            v = characters.run_compare(a, b, None, None)
+            if v.favored is None and v.composite and community.get_override(a, b, v.form_a, v.form_b) is None:
+                close = (a, b, v.composite)
+                break
+        if close:
+            break
+    a, b, lean = close  # the site says "too close to call", though it leans a little
+    assert duels._stronger(a, b) is None  # even: the faster pick decides
+    assert duels._stronger(a, b, lean=True) == (a if lean > 0 else b)  # how games finished before were scored
+    members = [{"user_id": 1, "team": 1}, {"user_id": 2, "team": 2}]
+    bout = duels.draft_bouts(members, {(1, 1): a, (1, 2): b}, {(1, 1): 9.0, (1, 2): 4.0})[0]
+    assert bout["winner"] == 2 and bout["by_speed"]
 
 
 def test_games_from_before_teams_get_players_and_outcomes():

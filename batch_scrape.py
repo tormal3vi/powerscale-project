@@ -174,7 +174,10 @@ def titled_name(title: str, name: Optional[str]) -> str:
         return bare
     if re.split(r"[,;]", name, maxsplit=1)[0].strip().lower() == bare.lower():
         return name  # already leads with it
-    return f"{bare}, {name}"
+    # Moved to the front, not repeated: "Anton Igorevich Vanko, Whiplash"
+    # -> "Whiplash, Anton Igorevich Vanko".
+    rest = [a for a in name.split(", ") if a.strip().lower() != bare.lower()]
+    return ", ".join([bare] + rest)
 
 
 def subseries_lookup(series: str):

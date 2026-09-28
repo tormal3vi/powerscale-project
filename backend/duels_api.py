@@ -115,14 +115,16 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
         draft = g.get("mode") == "draft"
         if draft and rounds:
             picked = duels.picks_in_time(g["id"], picks, members)
-            bouts = duels.draft_bouts(members, picked, duels.pick_seconds(g["id"], picks, members))
-            points = duels.draft_points(members, picked, bouts=bouts)
-            if any(m.get("score") is not None and m["score"] != sum(points[(n, m["user_id"])] for n in range(1, duels.ROUNDS + 1))
-                   for m in members):
-                # Finished before dead-even picks went to the faster one:
-                # show it as it was scored.
-                bouts = duels.draft_bouts(members, picked)
+            took = duels.pick_seconds(g["id"], picks, members)
+            # Show each game as it was scored: today's rules, else the rules
+            # it finished under - the calculator's lean deciding "too close
+            # to call" picks, before that with no faster-pick tiebreak.
+            for rules in ({"took": took}, {"took": took, "lean": True}, {"lean": True}):
+                bouts = duels.draft_bouts(members, picked, **rules)
                 points = duels.draft_points(members, picked, bouts=bouts)
+                if all(m.get("score") is None or m["score"] == sum(points[(n, m["user_id"])] for n in range(1, duels.ROUNDS + 1))
+                       for m in members):
+                    break
             hands = data.get("hands", {}).get(g["id"], {})
             tier = _tier_of()
         for r in rounds:

@@ -251,10 +251,12 @@ def _deal(seats: int, excluded: frozenset) -> List[dict]:
     return rows
 
 
-def _stronger(a: Optional[int], b: Optional[int]) -> Optional[int]:
-    """Draft: which of two picks wins - an admin overrule, else the
-    calculator (its lean when it's too close to call). No pick loses to any
-    pick; None when neither picked, or it's dead even."""
+def _stronger(a: Optional[int], b: Optional[int], lean: bool = False) -> Optional[int]:
+    """Draft: which of two picks wins - an admin overrule, else whoever the
+    calculator favors. No pick loses to any pick; None when neither picked,
+    or it's even: what the site calls "too close to call" (the faster pick
+    then decides, see draft_bouts). lean: the old rule, for games finished
+    before - the calculator's lean decided even too-close-to-call picks."""
     if a is None or b is None:
         return a if b is None else b
     try:
@@ -264,13 +266,13 @@ def _stronger(a: Optional[int], b: Optional[int]) -> Optional[int]:
     ov = community.get_override(a, b, v.form_a, v.form_b)
     if ov is not None:
         return ov["winner_id"]
-    if v.composite:
-        return a if v.composite > 0 else b
-    return None
+    if not v.composite or (v.favored is None and not lean):
+        return None
+    return a if v.composite > 0 else b
 
 
 def draft_bouts(members: List[dict], picked: Dict[Tuple[int, int], Optional[int]],
-                took: Optional[Dict[Tuple[int, int], float]] = None) -> List[dict]:
+                took: Optional[Dict[Tuple[int, int], float]] = None, lean: bool = False) -> List[dict]:
     """Every head-to-head of a draft: each player's pick against every
     opponent's (other teams only) pick, round by round. `picked` maps
     (round, user id) to the character they picked in time (or None);
@@ -287,7 +289,7 @@ def draft_bouts(members: List[dict], picked: Dict[Tuple[int, int], Optional[int]
                 ux, uy = x["user_id"], y["user_id"]
                 cx, cy = picked.get((n, ux)), picked.get((n, uy))
                 winner, by_speed = None, False
-                w = _stronger(cx, cy) if cx != cy else None
+                w = _stronger(cx, cy, lean) if cx != cy else None
                 if w is not None:
                     winner = ux if w == cx else uy
                 elif cx is not None and cy is not None:

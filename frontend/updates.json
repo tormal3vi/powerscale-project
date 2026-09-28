@@ -1,5 +1,14 @@
 [
   {
+    "id": "2026-09-29.6",
+    "date": "2026-09-29",
+    "title": "Draft: too close to call is a tie",
+    "changes": [
+      "In a draft, picks the site calls \"too close to call\" now count as even, so the faster pick wins them (marked \"faster pick\"), instead of whoever the calculator leaned to by a hair. Finished games keep their scores.",
+      "Compare shows plain names under the verdict meter, not each character's whole list of aliases."
+    ]
+  },
+  {
     "id": "2026-09-29.5",
     "date": "2026-09-29",
     "title": "Duel pictures match the form",

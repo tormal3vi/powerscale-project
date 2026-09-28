@@ -580,7 +580,7 @@ function renderVerdict() {
   const [accentA, accentB] = accentPair(state.a.id, state.b.id);
   const fillColor = leansLeft ? accentA : accentB;
 
-  const calcHeadline = `${favored ? escapeHtml(favored) + ' favored — ' : ''}${escapeHtml(v.label)}${v.confidence_hint !== 'n/a' ? ' (' + v.confidence_hint + ')' : ''}`;
+  const calcHeadline = `${favored ? escapeHtml(shortName(favored)) + ' favored — ' : ''}${escapeHtml(v.label)}${v.confidence_hint !== 'n/a' ? ' (' + v.confidence_hint + ')' : ''}`;
   const calcShort = `${favored ? escapeHtml(shortName(favored)) + ' favored — ' : ''}${escapeHtml(v.label)}`;
   card.innerHTML = `
     <div class="verdict-head">
@@ -597,7 +597,7 @@ function renderVerdict() {
         <div class="verdict-meter-fill" style="left:${fillLeft}%; width:${fillWidth}%; background:${fillColor};"></div>
         <div class="verdict-meter-center"></div>
       </div>
-      <div class="verdict-meter-labels"><span>${escapeHtml(v.character_a)}</span><span>${escapeHtml(v.character_b)}</span></div>
+      <div class="verdict-meter-labels"><span>${escapeHtml(shortName(v.character_a))}</span><span>${escapeHtml(shortName(v.character_b))}</span></div>
     </div>
     <div class="verdict-reasons">${reasonBullets(v).map((r) => `<div>— ${escapeHtml(r)}</div>`).join('')}</div>
     ${v.partial_data ? `<div class="verdict-callout"><div class="verdict-callout-text">Based on partial data — ${v.axes_used}/4 stats were comparable, so this can't reach the top confidence band.</div></div>` : ''}
