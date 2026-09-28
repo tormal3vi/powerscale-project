@@ -53,6 +53,7 @@ const Api = {
   listCharacters: () => apiGet('/api/characters'),
   getCharacter: (id) => apiGet(`/api/characters/${id}`),
   listCategories: () => apiGet('/api/categories'),
+  dailyMatchup: () => apiGet('/api/daily-matchup'),
   fetchCharacter: (query) => apiPost('/api/characters/fetch', { query }),
   compare: (charA, charB, formA, formB) =>
     apiPost('/api/compare', { char_a: charA, char_b: charB, form_a: formA || null, form_b: formB || null }),
@@ -119,6 +120,9 @@ const Api = {
   }),
   removeAvatar: () => apiDelete('/api/me/avatar'),
   myProfile: () => apiGet('/api/me/profile'),
+  discordPending: (code) => apiGet(`/api/me/discord/pending?code=${encodeURIComponent(code)}`),
+  linkDiscord: (code) => apiPost('/api/me/discord', { code }),
+  unlinkDiscord: () => apiDelete('/api/me/discord'),
   userPage: (username) => apiGet(`/api/users/${encodeURIComponent(username)}/page`),
   userProfile: (username) => apiGet(`/api/users/${encodeURIComponent(username)}`),
   saveProfile: (profile) => apiSend('PUT', '/api/me/profile', profile),

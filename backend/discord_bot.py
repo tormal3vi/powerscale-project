@@ -1,4 +1,5 @@
-"""The Powerscale Discord app: /compare, /character, /random, /leaderboard, /profile.
+"""The Powerscale Discord app: /compare, /character, /random, /leaderboard, /profile,
+/link and /duel.
 
 Discord delivers each slash command to this site as a signed POST (its
 "interactions endpoint"), and the reply goes back in the response. No
@@ -25,7 +26,7 @@ import threading
 import time
 import unicodedata
 import urllib.parse
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
@@ -34,7 +35,7 @@ from starlette.concurrency import run_in_threadpool
 
 import calculator
 import db
-from backend import characters, community, community_api, duels, tickets
+from backend import characters, community, community_api, discord_webhooks, duels, tickets
 from backend.discord_webhooks import GOLD, _clip, _md, _site
 
 router = APIRouter()
@@ -45,7 +46,7 @@ EPHEMERAL = 64  # message flag: only the person who asked sees it
 STATS = (("tier", "Tier"), ("attack_potency", "Attack Potency"), ("speed", "Speed"), ("durability", "Durability"))
 
 # Option types (Discord's numbers)
-STRING = 3
+STRING, USER = 3, 6
 # Everywhere: a server it's added to, a user's own install, DMs.
 EVERYWHERE = {"integration_types": [0, 1], "contexts": [0, 1, 2]}
 
@@ -65,8 +66,21 @@ COMMANDS = [
     {"name": "random", "description": "A random matchup between characters of similar tiers.", **EVERYWHERE},
     {"name": "leaderboard", "description": "The top duel players on the site.", **EVERYWHERE},
     {"name": "profile", "description": "Someone's Powerscale profile: posts, duel record, favorite character.",
-     **EVERYWHERE, "options": [{"type": STRING, "name": "username", "description": "Their username on powerscale.online",
-                                "required": True, "autocomplete": True}]},
+     **EVERYWHERE, "options": [
+         {"type": STRING, "name": "username", "description": "Their username on powerscale.online (or leave empty)",
+          "required": False, "autocomplete": True},
+         {"type": USER, "name": "user", "description": "Or a Discord user who linked their account",
+          "required": False}]},
+    {"name": "link", "description": "Connect your Discord to your Powerscale account.", **EVERYWHERE},
+    {"name": "duel", "description": "Start a duel on Powerscale and post it here for someone to join.", **EVERYWHERE,
+     "options": [
+         {"type": STRING, "name": "mode", "required": False,
+          "description": "Prediction (call the site's verdicts) or Draft (pick your fighters)",
+          "choices": [{"name": "Prediction", "value": "predict"}, {"name": "Draft", "value": "draft"}]},
+         {"type": STRING, "name": "format", "description": "Players and teams (default 1v1)", "required": False,
+          "choices": [{"name": f, "value": f} for f in duels.FORMATS]},
+         {"type": USER, "name": "opponent", "description": "Challenge someone (1v1; they need a linked account)",
+          "required": False}]},
 ]
 
 
@@ -104,11 +118,11 @@ def handle(interaction: dict) -> dict:
     if kind == 4:  # typing in an option with suggestions
         return {"type": 8, "data": {"choices": _suggest(options)}}
     if kind == 2:  # a slash command
+        command = {"compare": _compare, "character": _character, "random": _random, "leaderboard": _leaderboard,
+                   "profile": _profile, "link": _link, "duel": _duel}.get(data.get("name"))
         try:
-            reply = {"compare": _compare, "character": _character, "random": _random, "leaderboard": _leaderboard,
-                     "profile": _profile}[data.get("name")]({k: o.get("value") for k, o in options.items()})
-        except KeyError:
-            reply = _oops("I don't know that command.")
+            reply = (command({k: o.get("value") for k, o in options.items()}, interaction) if command
+                     else _oops("I don't know that command."))
         except Exception:  # noqa: BLE001 - Discord shows its own vague error otherwise
             reply = _oops("Something went wrong on the site. Try again in a moment.")
         return {"type": 4, "data": {"allowed_mentions": {"parse": []}, **reply}}
@@ -306,7 +320,7 @@ def _compare_reply(a: int, b: int, form_a: Optional[str] = None, form_b: Optiona
     return {"embeds": [embed], "components": _link_button(url)}
 
 
-def _compare(args: dict) -> dict:
+def _compare(args: dict, interaction: Optional[dict] = None) -> dict:
     a, b = _find(args.get("a")), _find(args.get("b"))
     if a is None or b is None:
         missing = args.get("a") if a is None else args.get("b")
@@ -322,7 +336,7 @@ def _compare(args: dict) -> dict:
     return _compare_reply(a["id"], b["id"], *forms)
 
 
-def _character(args: dict) -> dict:
+def _character(args: dict, interaction: Optional[dict] = None) -> dict:
     c = _find(args.get("name"))
     if c is None:
         return _oops(f"No character matches “{_clip(str(args.get('name')), 80)}”. Pick one from the suggestions as you type.")
@@ -346,7 +360,7 @@ def _character(args: dict) -> dict:
     return {"embeds": [embed], "components": _link_button(url)}
 
 
-def _random(args: dict) -> dict:
+def _random(args: dict, interaction: Optional[dict] = None) -> dict:
     pool = characters.scorable_pool()
     a, tier, _ = random.choice(pool)
     near = [cid for cid, t, _ in pool if cid != a and abs(t - tier) <= duels.RANDOM_TIER_SPREAD]
@@ -354,7 +368,7 @@ def _random(args: dict) -> dict:
     return _compare_reply(a, b)
 
 
-def _leaderboard(args: dict) -> dict:
+def _leaderboard(args: dict, interaction: Optional[dict] = None) -> dict:
     rows = duels.leaderboard(limit=10)
     url = f"{_site()}/duels.html"
     if not rows:
@@ -384,8 +398,15 @@ def _recent_duels(user_id: int, limit: int = 3) -> str:
     return "\n".join(lines)
 
 
-def _profile(args: dict) -> dict:
+def _profile(args: dict, interaction: Optional[dict] = None) -> dict:
     name = str(args.get("username") or "").strip().lstrip("@")
+    if args.get("user") or not name:  # a Discord user, or yourself
+        discord_id = args.get("user") or _discord_user(interaction)[0]
+        linked = community.user_by_discord(discord_id) if discord_id else None
+        if linked is None:
+            return _oops("They haven't linked a Powerscale account yet (/link)." if args.get("user")
+                         else "Give a username - or link your own account with /link.")
+        name = linked["username"]
     profile = community.get_profile(username=name) if name else None
     if profile is None:
         return _oops(f"No one called “{_clip(name, 40)}” on Powerscale. Pick a name from the suggestions as you type.")
@@ -418,12 +439,72 @@ def _profile(args: dict) -> dict:
     return {"embeds": [embed], "components": _link_button(url, "View profile")}
 
 
+def _discord_user(interaction: Optional[dict]) -> Tuple[Optional[str], str]:
+    """(Discord user id, their handle) of whoever used the command."""
+    user = ((interaction or {}).get("member") or {}).get("user") or (interaction or {}).get("user") or {}
+    return (str(user["id"]) if user.get("id") else None), user.get("username") or "someone"
+
+
+def _link(args: dict, interaction: Optional[dict] = None) -> dict:
+    discord_id, handle = _discord_user(interaction)
+    if not discord_id:
+        return _oops("Couldn't tell who you are - try again.")
+    code = community.discord_link_code(discord_id, handle)
+    url = f"{_site()}/profile.html?" + urllib.parse.urlencode({"link": code})
+    now = community.user_by_discord(discord_id)
+    first = (f"You're connected to **{_md(now['username'])}** now. To switch accounts, open this link "
+             "logged in as the other one.") if now else "Open this link while logged in on powerscale.online and confirm:"
+    lines = [first,
+             f"<{url}>",
+             f"It works once, for {community.DISCORD_LINK_MINUTES} minutes. Don't share it: it connects *this* Discord account."]
+    return {"content": "\n".join(lines), "flags": EPHEMERAL, "components": _link_button(url, "Connect on Powerscale")}
+
+
+def _duel(args: dict, interaction: Optional[dict] = None) -> dict:
+    from backend import duels_api
+    discord_id, _ = _discord_user(interaction)
+    me = community.user_by_discord(discord_id) if discord_id else None
+    if me is None:
+        return _oops("Link your Powerscale account first: use /link.")
+    fmt, mode = args.get("format") or "1v1", args.get("mode") or "predict"
+    opponent_id = str(args["opponent"]) if args.get("opponent") else None
+    invite = []
+    if opponent_id:
+        opponent = community.user_by_discord(opponent_id)
+        if opponent is None:
+            return _oops("They haven't linked a Powerscale account yet - they can use /link.")
+        if opponent["id"] == me["id"]:
+            return _oops("You can't challenge yourself.")
+        if fmt != "1v1":
+            return _oops("Challenging someone works for 1v1. Leave out the opponent to open a bigger game to anyone.")
+        invite = [opponent["username"]]
+    if not community_api.post_limit.allow(f"user:{me['id']}"):
+        return _oops("You're making games too fast - wait a minute.")
+    try:
+        game_id = duels.create(me["id"], fmt, invite, [], [], mode)
+    except duels.DuelError as exc:
+        return _oops(str(exc))
+    g = duels_api._one(game_id, None)
+    embed = discord_webhooks.lobby_embed(g)
+    url = f"{_site()}/duels.html?game={game_id}"
+    reply = {"embeds": [embed], "components": _link_button(url, "Join the game")}
+    if opponent_id:
+        embed["title"] = _clip(f"⚔️ {me['username']} challenges {invite[0]}", 256)
+        embed["footer"] = {"text": "Invite only · powerscale.online"}
+        reply.update(content=f"<@{opponent_id}>, you've been challenged!",
+                     allowed_mentions={"users": [opponent_id]})  # the one ping this app sends
+    elif str((interaction or {}).get("channel_id")) != str(discord_webhooks.lobby_channel_id()):
+        discord_webhooks.lobby_open(game_id)  # also in the duels channel, unless this is it
+    return reply
+
+
 # --- registering the commands --------------------------------------------------------------------
 
 def _shape(commands: List[dict]) -> list:
     """What matters for comparing registered commands with COMMANDS."""
     def opt(o):
-        return (o["name"], o.get("description"), o["type"], bool(o.get("required")), bool(o.get("autocomplete")))
+        return (o["name"], o.get("description"), o["type"], bool(o.get("required")), bool(o.get("autocomplete")),
+                tuple(c["value"] for c in o.get("choices") or []))
     return sorted((c["name"], c.get("description"), tuple(opt(o) for o in c.get("options") or []),
                    tuple(sorted(c.get("integration_types") or [])), tuple(sorted(c.get("contexts") or [])))
                   for c in commands)

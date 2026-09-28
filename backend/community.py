@@ -88,6 +88,18 @@ users = Table(
     Column("bio", String(200), nullable=True),
     # A character id in powerscale.db (a separate database, so no FK).
     Column("favorite_char_id", Integer, nullable=True),
+    # Their Discord account, once linked (/link in the Discord app).
+    Column("discord_id", String(32), nullable=True),
+    Column("discord_name", String(64), nullable=True),
+)
+# One-time codes from the Discord app's /link: open the link while logged
+# in on the site, confirm, and that Discord account is yours.
+discord_links = Table(
+    "discord_links", metadata,
+    Column("code", String(64), primary_key=True),
+    Column("discord_id", String(32), nullable=False),
+    Column("discord_name", String(64), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
 )
 sessions = Table(
     "sessions", metadata,
@@ -183,7 +195,8 @@ site_marks = Table(
 # gets them here. Nullable, so adding them touches no existing row.
 _ADDED_COLUMNS = {
     "posts": [("kind", "VARCHAR(16)"), ("ruling_winner", "INTEGER"), ("credit_user_id", "INTEGER")],
-    "users": [("bio", "VARCHAR(200)"), ("favorite_char_id", "INTEGER")],
+    "users": [("bio", "VARCHAR(200)"), ("favorite_char_id", "INTEGER"), ("discord_id", "VARCHAR(32)"),
+              ("discord_name", "VARCHAR(64)")],
 }
 
 
@@ -216,6 +229,12 @@ def init() -> None:
 def get_mark(key: str) -> Optional[str]:
     with reader.connect() as conn:
         return conn.execute(select(site_marks.c.value).where(site_marks.c.key == key)).scalar()
+
+
+def set_mark(key: str, value: str) -> None:
+    with engine.begin() as conn:
+        if not conn.execute(update(site_marks).where(site_marks.c.key == key).values(value=value)).rowcount:
+            conn.execute(insert(site_marks).values(key=key, value=value))
 
 
 def claim_mark(key: str, value: str) -> bool:
@@ -352,7 +371,7 @@ def get_profile(user_id: Optional[int] = None, username: Optional[str] = None) -
     where = users.c.id == user_id if user_id is not None else users.c.username_lower == (username or "").lower()
     with reader.connect() as conn:
         row = conn.execute(select(users.c.id, users.c.username, users.c.bio, users.c.favorite_char_id,
-                                  users.c.created_at).where(where)).mappings().first()
+                                  users.c.created_at, users.c.discord_name).where(where)).mappings().first()
         if row is None:
             return None
         post_count = conn.execute(select(func.count()).select_from(posts).where(
@@ -361,6 +380,64 @@ def get_profile(user_id: Optional[int] = None, username: Optional[str] = None) -
             posts, posts.c.id == likes.c.post_id).where(posts.c.user_id == row["id"])).scalar()
     return {**row, "created_at": _aware(row["created_at"]), "post_count": post_count,
             "likes_received": likes_received}
+
+
+# --- linking a Discord account ----------------------------------------------------------------
+
+DISCORD_LINK_MINUTES = 15
+
+
+class LinkError(Exception):
+    pass
+
+
+def discord_link_code(discord_id: str, discord_name: str) -> str:
+    """A one-time code for the Discord app's /link (replacing any earlier
+    one for the same Discord account)."""
+    code = secrets.token_urlsafe(24)
+    now = _now()
+    with engine.begin() as conn:
+        conn.execute(delete(discord_links).where(
+            (discord_links.c.discord_id == discord_id) | (discord_links.c.expires_at < now)))
+        conn.execute(insert(discord_links).values(code=code, discord_id=discord_id, discord_name=discord_name[:64],
+                                                  expires_at=now + timedelta(minutes=DISCORD_LINK_MINUTES)))
+    return code
+
+
+def discord_link_pending(code: str) -> Optional[str]:
+    """The Discord name a code would link, if it's still good."""
+    with reader.connect() as conn:
+        row = conn.execute(select(discord_links).where(discord_links.c.code == code)).mappings().first()
+    return row["discord_name"] if row and _aware(row["expires_at"]) >= _now() else None
+
+
+def redeem_discord_link(code: str, user_id: int) -> str:
+    """Links the code's Discord account to `user_id` (and off any other
+    account it was on); its Discord name. Raises LinkError."""
+    with engine.begin() as conn:
+        row = conn.execute(select(discord_links).where(discord_links.c.code == code)).mappings().first()
+        if row is None:
+            raise LinkError("That link was already used or doesn't exist - run /link again")
+        conn.execute(delete(discord_links).where(discord_links.c.code == code))
+        if _aware(row["expires_at"]) < _now():
+            raise LinkError("That link expired - run /link again")
+        conn.execute(update(users).where(users.c.discord_id == row["discord_id"])
+                     .values(discord_id=None, discord_name=None))
+        conn.execute(update(users).where(users.c.id == user_id).values(discord_id=row["discord_id"],
+                                                                       discord_name=row["discord_name"]))
+    return row["discord_name"]
+
+
+def unlink_discord(user_id: int) -> None:
+    with engine.begin() as conn:
+        conn.execute(update(users).where(users.c.id == user_id).values(discord_id=None, discord_name=None))
+
+
+def user_by_discord(discord_id: str) -> Optional[dict]:
+    with reader.connect() as conn:
+        row = conn.execute(select(users.c.id, users.c.username)
+                           .where(users.c.discord_id == str(discord_id))).mappings().first()
+    return dict(row) if row else None
 
 
 def search_usernames(text: str, limit: int = 25) -> List[str]:

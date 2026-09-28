@@ -288,11 +288,90 @@ $('delete-form').addEventListener('submit', async (e) => {
   }
 });
 
+// --- Discord -------------------------------------------------------------------------
+// /link in the Discord app gives a one-time link here (?link=CODE). It's
+// only connected after you confirm, seeing which Discord account it is -
+// so a link someone else sends you can't attach their account to yours.
+
+const linkCode = new URLSearchParams(location.search).get('link');
+
+function discordText(parts) {
+  // [text, bold, text, ...] - user-chosen names go in as text, not HTML.
+  const el = $('discord-text');
+  el.textContent = '';
+  parts.forEach((part, i) => {
+    const node = i % 2 ? document.createElement('b') : document.createTextNode(part);
+    if (i % 2) node.textContent = part;
+    el.appendChild(node);
+  });
+}
+
+async function renderDiscord() {
+  const actions = $('discord-actions');
+  $('discord-error').textContent = '';
+  actions.innerHTML = '';
+  if (linkCode) {
+    let name;
+    try {
+      name = (await Api.discordPending(linkCode)).discord;
+    } catch (err) {
+      $('discord-error').textContent = err.message;
+      history.replaceState(null, '', 'profile.html');
+      return renderDiscordState();
+    }
+    discordText(['Connect the Discord account ', name, ' to your Powerscale account ', profile.username,
+      '? Only confirm if you just used /link yourself.']);
+    actions.innerHTML = '<button type="button" class="btn-gold settings-btn-lg" id="discord-connect">Connect</button>'
+      + '<button type="button" class="btn-outline settings-btn-lg" id="discord-cancel">Cancel</button>';
+    $('discord-connect').addEventListener('click', async () => {
+      $('discord-connect').disabled = true;
+      try {
+        profile.discord = (await Api.linkDiscord(linkCode)).discord;
+        history.replaceState(null, '', 'profile.html');
+        renderDiscordState();
+      } catch (err) {
+        $('discord-error').textContent = err.message;
+        $('discord-connect').disabled = false;
+      }
+    });
+    $('discord-cancel').addEventListener('click', () => {
+      history.replaceState(null, '', 'profile.html');
+      renderDiscordState();
+    });
+    return;
+  }
+  renderDiscordState();
+}
+
+function renderDiscordState() {
+  const actions = $('discord-actions');
+  actions.innerHTML = '';
+  if (profile.discord) {
+    discordText(['Connected as ', profile.discord, '. In Discord you can start duels with /duel, and people can look you up with /profile.']);
+    actions.innerHTML = '<button type="button" class="btn-outline settings-btn-lg" id="discord-unlink">Disconnect</button>';
+    $('discord-unlink').addEventListener('click', async () => {
+      if (!confirm('Disconnect your Discord account?')) return;
+      try {
+        await Api.unlinkDiscord();
+        profile.discord = null;
+        renderDiscordState();
+      } catch (err) {
+        $('discord-error').textContent = err.message;
+      }
+    });
+    return;
+  }
+  discordText(['Connect your Discord to start duels with /duel and let people look you up with /profile. Type /link in our Discord server, or anywhere the Powerscale app is.']);
+  if (discordInvite()) {
+    actions.innerHTML = `<a class="btn-outline settings-btn-lg" href="${escapeHtml(discordInvite())}" target="_blank" rel="noopener">Join our Discord</a>`;
+  }
+}
+
 // --- load ------------------------------------------------------------------------
 
 (async () => {
   const user = await currentUser();
-  if (!user) { location.href = 'login.html?next=profile.html'; return; }
+  if (!user) { location.href = `login.html?next=${encodeURIComponent(`profile.html${location.search}`)}`; return; }
   try {
     profile = await Api.myProfile();
   } catch (err) {
@@ -304,4 +383,6 @@ $('delete-form').addEventListener('submit', async (e) => {
   renderHeader();
   renderPicture();
   fillDetails();
+  renderDiscord();
+  if (linkCode) $('discord-card').scrollIntoView({ block: 'center' });
 })();

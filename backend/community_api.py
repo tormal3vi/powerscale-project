@@ -14,9 +14,9 @@ from fastapi.concurrency import run_in_threadpool
 import db
 from backend import avatars, characters, community, discord_webhooks, duels, tickets
 from backend.schemas import (
-    AuthIn, CommentIn, CommentListOut, CommentOut, DeleteAccountIn, FavoriteOut, LikeOut, MatchupOut, MeOut,
-    OverrideIn, OverrideOut, PasswordIn, PostIn, PostListOut, PostOut, ProfileIn, ProfileOut, RecordOut, RulingOut,
-    ThreadOut, UserOut,
+    AuthIn, CommentIn, CommentListOut, CommentOut, DeleteAccountIn, DiscordLinkIn, FavoriteOut, LikeOut, MatchupOut,
+    MeOut, OverrideIn, OverrideOut, PasswordIn, PostIn, PostListOut, PostOut, ProfileIn, ProfileOut, RecordOut,
+    RulingOut, ThreadOut, UserOut,
 )
 
 router = APIRouter()
@@ -157,12 +157,40 @@ def _profile_out(profile: dict, own: bool) -> ProfileOut:
         member_since=profile["created_at"], post_count=profile["post_count"],
         likes_received=profile["likes_received"] if own else None,
         record=RecordOut(**duels.records([profile["id"]]).get(profile["id"], {})),
+        discord=profile.get("discord_name") if own else None,
     )
 
 
 @router.get("/api/me/profile", response_model=ProfileOut)
 def my_profile(user: dict = Depends(require_user)):
     return _profile_out(community.get_profile(user_id=user["id"]), own=True)
+
+
+# --- linking a Discord account (the Discord app's /link) ---------------------------------------
+
+@router.get("/api/me/discord/pending")
+def discord_link_pending(code: str, response: Response, user: dict = Depends(require_user)):
+    """Which Discord account a /link code would connect - shown before you
+    confirm, so a link someone else sent you can't connect theirs quietly."""
+    response.headers["Cache-Control"] = "no-store"
+    name = community.discord_link_pending(code)
+    if name is None:
+        raise HTTPException(status_code=404, detail="That link expired or was already used - run /link again")
+    return {"discord": name}
+
+
+@router.post("/api/me/discord", dependencies=[Depends(same_origin)])
+def discord_link(payload: DiscordLinkIn, user: dict = Depends(require_user)):
+    try:
+        return {"discord": community.redeem_discord_link(payload.code, user["id"])}
+    except community.LinkError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/api/me/discord", dependencies=[Depends(same_origin)])
+def discord_unlink(user: dict = Depends(require_user)):
+    community.unlink_discord(user["id"])
+    return {"ok": True}
 
 
 @router.put("/api/me/profile", response_model=ProfileOut, dependencies=[Depends(same_origin)])

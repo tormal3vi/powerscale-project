@@ -1,5 +1,16 @@
 [
   {
+    "id": "2026-09-29.1",
+    "date": "2026-09-29",
+    "title": "Matchup of the day on Discord, and duels from Discord",
+    "changes": [
+      "Every day at 17:00 (Budapest time) the Discord gets the matchup of the day as a poll. The next day shows what the site says next to how everyone voted.",
+      "The matchup of the day is now a close fight between well-known characters from different series, the same one as the button on the Characters page.",
+      "Connect your Discord to your account: type /link, then confirm on the site (Profile settings shows it).",
+      "Once connected, /duel starts a game right from Discord (pick the mode and format, or challenge someone), and /profile works with @mentions."
+    ]
+  },
+  {
     "id": "2026-09-28.4",
     "date": "2026-09-28",
     "title": "Find opponents on Discord, and 32 characters get their forms",

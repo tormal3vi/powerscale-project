@@ -690,6 +690,91 @@ def test_a_finished_duel_is_announced_once():
         discord_webhooks.duel_finished = real
 
 
+def test_matchup_of_the_day_poll_and_reveal():
+    from datetime import datetime, timezone
+    from backend import daily, discord_webhooks as hooks
+    calls = []
+
+    def fake(method, url, embed=None, message=None):
+        calls.append((method, url, message or {"embeds": [embed]}))
+        if method == "GET":
+            return {"poll": {"results": {"answer_counts": [{"id": 1, "count": 3}, {"id": 2, "count": 1}]}}}
+        return {"id": f"msg{len(calls)}"} if "wait=true" in url else {}
+    real = hooks._request
+    hooks._request = fake
+    os.environ["DISCORD_WEBHOOK_DAILY"] = "https://example.invalid/daily"
+    try:
+        utc = timezone.utc  # Budapest is UTC+2 in summer: 17:00 there is 15:00 UTC
+        assert not hooks.daily_matchup(datetime(2021, 6, 1, 14, 59, tzinfo=utc))  # before 17:00
+        assert hooks.daily_matchup(datetime(2021, 6, 1, 15, 5, tzinfo=utc))
+        first = calls[-1][2]
+        a, b = daily.pick(datetime(2021, 6, 1).date())
+        assert a != b and [x["poll_media"]["text"] for x in first["poll"]["answers"]] and first["poll"]["duration"] == 24
+        assert "fields" not in first["embeds"][0]  # nothing to reveal yet
+        assert not hooks.daily_matchup(datetime(2021, 6, 1, 20, 0, tzinfo=utc))  # once a day
+        assert hooks.daily_matchup(datetime(2021, 6, 2, 15, 5, tzinfo=utc))
+        assert calls[-2][0] == "GET" and calls[-2][1].endswith("/messages/msg1")  # yesterday's poll results
+        reveal = calls[-1][2]["embeds"][0]["fields"][0]
+        assert reveal["name"].startswith("Yesterday: ") and "The site says:" in reveal["value"]
+        assert "75% " in reveal["value"] and "(4 votes)" in reveal["value"]
+    finally:
+        hooks._request = real
+        del os.environ["DISCORD_WEBHOOK_DAILY"]
+
+
+def test_discord_linking_and_duel_command():
+    from datetime import timedelta
+    from sqlalchemy import update
+    from backend import discord_bot
+    ann, ben = _users("link_ann", "link_ben")
+
+    def as_discord(discord_id, handle):
+        return {"member": {"user": {"id": discord_id, "username": handle}}, "channel_id": "555"}
+
+    def run(command, who, **opts):
+        return discord_bot.handle({"type": 2, "data": {"name": command, "options": [
+            {"name": k, "type": 3, "value": v} for k, v in opts.items()]}, **who})["data"]
+
+    # /link hands out a private one-time link; confirming it on the site links the account.
+    reply = run("link", as_discord("111", "ann_dc"))
+    assert reply["flags"] == discord_bot.EPHEMERAL and "profile.html?link=" in reply["content"]
+    code = reply["content"].split("link=")[1].split(">")[0]
+    assert community.discord_link_pending(code) == "ann_dc"
+    assert community.redeem_discord_link(code, ann["id"]) == "ann_dc"
+    assert community.user_by_discord("111")["username"] == "link_ann"
+    assert community.get_profile(user_id=ann["id"])["discord_name"] == "ann_dc"
+    for bad in (code, "nonsense"):  # used, or never existed
+        try:
+            community.redeem_discord_link(bad, ben["id"])
+            assert False, "linked twice"
+        except community.LinkError:
+            pass
+    late = community.discord_link_code("222", "ben_dc")
+    with community.engine.begin() as conn:
+        conn.execute(update(community.discord_links).values(expires_at=community._now() - timedelta(minutes=1)))
+    assert community.discord_link_pending(late) is None
+    community.redeem_discord_link(community.discord_link_code("222", "ben_dc"), ben["id"])
+
+    # /duel as a linked user; a challenge pings the opponent and nobody else.
+    assert run("duel", as_discord("999", "stranger"))["flags"] == discord_bot.EPHEMERAL  # not linked
+    open_game = run("duel", as_discord("111", "ann_dc"), mode="draft", format="1v1v1")
+    assert "wants to duel" in open_game["embeds"][0]["title"] and "Draft duel · 1v1v1" in open_game["embeds"][0]["description"]
+    challenge = run("duel", as_discord("111", "ann_dc"), opponent="222")
+    assert challenge["content"].startswith("<@222>") and challenge["allowed_mentions"] == {"users": ["222"]}
+    assert "challenges link_ben" in challenge["embeds"][0]["title"]
+    game_id = int(challenge["components"][0]["components"][0]["url"].split("game=")[1])
+    assert duels.game(game_id)["games"][0]["status"] == "open"
+    assert run("duel", as_discord("111", "ann_dc"), opponent="999")["flags"] == discord_bot.EPHEMERAL  # not linked
+    assert run("duel", as_discord("111", "ann_dc"), opponent="222", format="2v2")["flags"] == discord_bot.EPHEMERAL
+
+    # /profile by Discord user, or your own.
+    assert run("profile", as_discord("111", "ann_dc"), user="222")["embeds"][0]["title"] == "link_ben"
+    assert run("profile", as_discord("111", "ann_dc"))["embeds"][0]["title"] == "link_ann"
+    community.unlink_discord(ann["id"])
+    assert community.user_by_discord("111") is None
+    assert run("profile", as_discord("111", "ann_dc"))["flags"] == discord_bot.EPHEMERAL
+
+
 def test_games_from_before_teams_get_players_and_outcomes():
     from sqlalchemy import insert
     old_a, old_b = _users("old_a", "old_b")

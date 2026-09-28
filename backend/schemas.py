@@ -243,6 +243,11 @@ class ProfileOut(BaseModel):
     post_count: int
     likes_received: Optional[int] = None  # only on your own profile
     record: Optional["RecordOut"] = None  # prediction duels
+    discord: Optional[str] = None  # the linked Discord account's name - only on your own profile
+
+
+class DiscordLinkIn(BaseModel):
+    code: str = Field(..., max_length=64)
 
 
 class ProfileIn(BaseModel):

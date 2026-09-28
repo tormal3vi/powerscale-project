@@ -1406,6 +1406,11 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
 .settings-sessions .settings-text { line-height: 1.5; }
 .settings-sessions .saved-note { margin-top: 8px; }
 .settings-sessions > button { flex-shrink: 0; font-size: 13px; padding: 11px 18px; }
+.settings-discord-actions { display: flex; gap: 10px; flex-shrink: 0; }
+.settings-discord-actions:empty { display: none; }
+.settings-discord-actions > * { font-size: 13px; padding: 11px 18px; }
+#discord-card .settings-text b { color: var(--text-primary); }
+#discord-card .form-error:not(:empty) { display: block; margin-top: 8px; }
 .settings-danger { border-color: rgba(225, 82, 82, 0.27); }
 .settings-danger .settings-card-title { color: #E19999; margin-bottom: 8px; }
 .settings-danger .settings-text { margin-bottom: 16px; }

@@ -47,11 +47,14 @@ def _webhook(*kinds: str) -> Optional[str]:
     return None
 
 
-def _request(method: str, url: str, embed: Optional[dict] = None) -> Optional[dict]:
-    """One call to a webhook; its JSON reply (if any), None when it failed."""
+def _request(method: str, url: str, embed: Optional[dict] = None, message: Optional[dict] = None) -> Optional[dict]:
+    """One call to a webhook - an embed, or a whole `message` (e.g. with a
+    poll); its JSON reply (if any), None when it failed."""
+    if embed is not None:
+        message = {"embeds": [embed]}
     # No pings, ever: a username or an overrule's reason could contain
     # "@everyone".
-    body = json.dumps({"embeds": [embed], "allowed_mentions": {"parse": []}}).encode() if embed else None
+    body = json.dumps({**message, "allowed_mentions": {"parse": []}}).encode() if message else None
     req = urllib.request.Request(url, data=body, method=method, headers={
         "Content-Type": "application/json", "User-Agent": scraper.USER_AGENT})
     try:
@@ -226,18 +229,106 @@ def weekly_leaderboard(now: Optional[datetime] = None) -> bool:
     return embed is not None
 
 
-def start_weekly() -> None:
-    if not _webhook("LEADERBOARD", "DUELS"):
+def start_schedule() -> None:
+    """Every 10 minutes: the weekly leaderboard and the matchup of the
+    day, each when it's due and its channel is set up."""
+    tasks = [task for task, channel in ((weekly_leaderboard, _webhook("LEADERBOARD", "DUELS")),
+                                        (daily_matchup, _webhook("DAILY"))) if channel]
+    if not tasks:
         return
 
     def loop():
         while True:
-            try:
-                weekly_leaderboard()
-            except Exception:  # noqa: BLE001 - try again next round
-                pass
+            for task in tasks:
+                try:
+                    task()
+                except Exception:  # noqa: BLE001 - try again next round
+                    pass
             time.sleep(600)
-    threading.Thread(target=loop, name="discord-weekly", daemon=True).start()
+    threading.Thread(target=loop, name="discord-schedule", daemon=True).start()
+
+
+# --- the matchup of the day ------------------------------------------------------------------------
+# Every day at 17:00 Budapest time (DISCORD_WEBHOOK_DAILY): the site's
+# matchup of the day as a 24-hour Discord poll, and yesterday's revealed -
+# what the site says next to how the server voted. A day the site was down
+# at 17:00 is posted when it's back, the same day; never a past day.
+
+DAILY_HOUR = 17
+
+
+def _character_line(char_id: int) -> str:
+    from backend import characters
+    row = db.get_character_by_id(char_id) or {}
+    name = characters.short_name(characters.display_name_for_id(char_id) or "?")
+    series = (row.get("category") or "") + (f" · {row['subseries']}" if row.get("subseries") else "")
+    return f"**[{_md(name)}]({_site()}/character.html?id={char_id})** ({_md(series)})"
+
+
+def _verdict_line(a: int, b: int) -> str:
+    from backend import characters, community
+    v = characters.run_compare(a, b, None, None)
+    ov = community.get_override(a, b, v.form_a, v.form_b)
+    if ov is not None:
+        winner = v.character_a if ov["winner_id"] == a else v.character_b
+        return f"{characters.short_name(winner)} wins — overruled by admins"
+    if v.favored:
+        return f"{characters.short_name(v.favored)} favored — {v.label}"
+    return v.label
+
+
+def _vote_line(message: Optional[dict], names: Tuple[str, str]) -> Optional[str]:
+    counts = {c["id"]: c["count"] for c in ((message or {}).get("poll") or {}).get("results", {}).get("answer_counts", [])}
+    total = sum(counts.values())
+    if not total:
+        return None
+    first = round(100 * counts.get(1, 0) / total)
+    return f"{first}% {names[0]}, {100 - first}% {names[1]} ({total} vote{'s' if total != 1 else ''})"
+
+
+def daily_matchup(now: Optional[datetime] = None) -> bool:
+    """Posts today's matchup poll if it's 17:00 or later and it hasn't gone
+    out yet. True when it posted."""
+    url = _webhook("DAILY")
+    if not url:
+        return False
+    from backend import characters, community, daily
+    local = (now or datetime.now(timezone.utc)).astimezone(_zone())
+    if local.hour < DAILY_HOUR:
+        return False
+    day = local.date()
+    before = community.get_mark("discord_daily_post")  # "YYYY-MM-DD|message id" of the last one
+    if not community.claim_mark("discord_daily", day.isoformat()):
+        return False
+    a, b = daily.pick(day)
+    names = tuple(_clip(characters.short_name(characters.display_name_for_id(c) or "?"), 55) for c in (a, b))
+    embed = {"title": "⚔️ Matchup of the day", "color": GOLD, "url": f"{_site()}/browse.html",
+             "description": f"{_character_line(a)}\nvs\n{_character_line(b)}\n\n"
+                            "Vote below. The site's verdict comes out tomorrow.",
+             "footer": {"text": "powerscale.online"}}
+    pic = _picture(a)
+    if pic:
+        embed["thumbnail"] = {"url": pic}
+    if before and "|" in before:  # yesterday's, revealed
+        prev_day, prev_id = before.split("|", 1)
+        pa, pb = daily.pick(datetime.strptime(prev_day, "%Y-%m-%d").date())
+        prev_names = tuple(characters.short_name(characters.display_name_for_id(c) or "?") for c in (pa, pb))
+        lines = [f"The site says: **{_md(_verdict_line(pa, pb))}**"]
+        votes = _vote_line(_request("GET", _message_url(url, prev_id)), prev_names)
+        if votes:
+            lines.append(f"You voted: {votes}")
+        lines.append(f"[Open the matchup]({_site()}/compare.html?a={pa}&b={pb})")
+        embed["fields"] = [{"name": _clip(f"Yesterday: {prev_names[0]} vs {prev_names[1]}", 256), "value": "\n".join(lines)}]
+    poll = {"question": {"text": _clip(f"Who would win: {names[0]} or {names[1]}?", 300)},
+            "answers": [{"poll_media": {"text": n}} for n in names], "duration": 24, "allow_multiselect": False}
+    sep = "&" if "?" in url else "?"
+    posted = _request("POST", f"{url}{sep}wait=true", message={"embeds": [embed], "poll": poll})
+    if posted is None:  # if Discord won't take a poll with an embed, post them one after the other
+        _request("POST", url, embed)
+        posted = _request("POST", f"{url}{sep}wait=true", message={"poll": poll})
+    if posted and posted.get("id"):
+        community.set_mark("discord_daily_post", f"{day.isoformat()}|{posted['id']}")
+    return True
 
 
 # --- update notes --------------------------------------------------------------------------------
@@ -376,6 +467,20 @@ def _lobby_task(fn, game_id: int) -> None:
         except Exception:  # noqa: BLE001 - the game works the same without its post
             pass
     _lobby.submit(run)
+
+
+_lobby_channel: dict = {}
+
+
+def lobby_channel_id() -> Optional[str]:
+    """The channel open games are posted in (asked of Discord once)."""
+    url = _webhook("LOBBY", "DUELS")
+    if not url:
+        return None
+    if url not in _lobby_channel:
+        info = _request("GET", url.partition("?")[0]) or {}
+        _lobby_channel[url] = info.get("channel_id")
+    return _lobby_channel[url]
 
 
 def lobby_open(game_id: int) -> None:

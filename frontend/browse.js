@@ -338,21 +338,17 @@ document.getElementById('random-matchup').addEventListener('click', () => {
   goToMatchup(pool[i], pool[j]);
 });
 
-document.getElementById('daily-matchup').addEventListener('click', () => {
-  // Same pair for everyone on the same (UTC) day: seeded from the date,
-  // over a stable id-ordered pool of verdict-capable characters.
-  const pool = state.characters.filter((c) => c.scorable).sort((a, b) => a.id - b.id);
-  const day = new Date().toISOString().slice(0, 10);
-  let seed = 0;
-  for (const ch of day) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
-  const next = () => {
-    seed = (seed * 1103515245 + 12345) >>> 0;
-    return seed;
-  };
-  const i = next() % pool.length;
-  let j = next() % (pool.length - 1);
-  if (j >= i) j += 1;
-  goToMatchup(pool[i], pool[j]);
+document.getElementById('daily-matchup').addEventListener('click', async (e) => {
+  // The same pair for everyone today (Budapest time), picked by the
+  // server: similar tiers, different series, not a walkover. It's also
+  // the Discord server's daily poll.
+  e.currentTarget.disabled = true;
+  try {
+    const { a, b } = await Api.dailyMatchup();
+    goToMatchup({ id: a }, { id: b });
+  } catch {
+    e.currentTarget.disabled = false;
+  }
 });
 
 // --- loading ------------------------------------------------------------

@@ -26,6 +26,10 @@ services:
         sync: false
       - key: DISCORD_WEBHOOK_UPDATES
         sync: false
+      - key: DISCORD_WEBHOOK_DAILY
+        sync: false
+      - key: DISCORD_WEBHOOK_LOBBY
+        sync: false
       # The server's invite link for the "Join our Discord" button,
       # e.g. https://discord.gg/abc123
       - key: DISCORD_INVITE_URL

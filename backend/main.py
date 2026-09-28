@@ -27,8 +27,8 @@ import normalizer
 import parser as parser_module
 import scraper
 from backend import (
-    characters, community, community_api, discord_bot, discord_webhooks, duels, duels_api, form_renames, profiles_api,
-    tickets_api,
+    characters, community, community_api, daily, discord_bot, discord_webhooks, duels, duels_api, form_renames,
+    profiles_api, tickets_api,
 )
 from backend.schemas import (
     AbilityFlagOut,
@@ -57,7 +57,7 @@ db.init_db()  # adds columns newer code expects to an older powerscale.db
 community.init()
 form_renames.apply()  # moves overrules etc. onto renamed forms, once per batch
 discord_bot.start()  # registers the Discord commands, if Discord is set up
-discord_webhooks.start_weekly()  # the Monday leaderboard post, if a channel is set up
+discord_webhooks.start_schedule()  # weekly leaderboard and matchup of the day, if their channels are set up
 discord_webhooks.start_updates()  # this version's update notes, if not announced yet
 
 
@@ -338,6 +338,15 @@ def compare(payload: CompareIn):
     if isinstance(payload.char_a, int) and isinstance(payload.char_b, int):
         out.override = community_api.override_out(payload.char_a, payload.char_b, verdict.form_a, verdict.form_b)
     return out
+
+
+@app.get("/api/daily-matchup")
+def daily_matchup(response: Response):
+    """Today's matchup of the day (see backend/daily.py)."""
+    day = daily.today()
+    a, b = daily.pick(day)
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return {"date": day.isoformat(), "a": a, "b": b}
 
 
 # --- link previews ------------------------------------------------------------
