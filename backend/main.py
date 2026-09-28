@@ -371,7 +371,7 @@ PAGE_TITLES = {
     "profile.html": "Your profile — Powerscale",
     "tickets.html": "Tickets — Powerscale",
 }
-SITE_IMAGE = "/apple-touch-icon.png"
+SITE_IMAGE = "/apple-touch-icon.png?v=2"  # bump v when the logo changes: apps cache by URL
 
 
 def _base_url(request: Request) -> str:

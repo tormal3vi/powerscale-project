@@ -73,7 +73,7 @@ input::placeholder { color: var(--text-placeholder); }
 .topbar-brand { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .topbar-mark {  /* the logo: the same file as the tab icon, the gradient until it loads */
   width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;
-  background: url("favicon.svg") center / 100% 100% no-repeat, linear-gradient(135deg, #E15252, #4C8DE0);
+  background: url("favicon.svg?v=2") center / 100% 100% no-repeat, linear-gradient(135deg, #E15252, #4C8DE0);
 }
 .topbar-nav { display: flex; align-items: center; gap: 28px; }
 .topbar-nav a { font-size: 14px; font-weight: 600; color: var(--text-quaternary); white-space: nowrap; }
