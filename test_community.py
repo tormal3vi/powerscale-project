@@ -240,6 +240,32 @@ def test_delete_account_removes_only_what_the_user_wrote():
     assert community.has_admin_records(admin["id"])
 
 
+def test_character_data_is_stored_compressed():
+    import json, sqlite3
+    from pathlib import Path
+    import db
+    path = Path(tempfile.mkdtemp()) / "old.db"
+    old = sqlite3.connect(path)  # a copy from before compression: TEXT columns, plain JSON
+    old.execute("""CREATE TABLE characters (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+        source_url TEXT NOT NULL UNIQUE, category TEXT, last_scraped_at TEXT NOT NULL, raw_json TEXT NOT NULL,
+        normalized_json TEXT NOT NULL, image_url TEXT, subseries TEXT)""")
+    old.execute("INSERT INTO characters VALUES (40, 'Old', 'u/old', 'S', 'now', ?, ?, NULL, NULL)",
+                (json.dumps({"name": "Old"}), json.dumps({"forms": []})))
+    old.execute("DELETE FROM characters WHERE id = 40")  # a deleted character: its id stays used
+    old.execute("INSERT INTO characters VALUES (7, 'Kept', 'u/kept', 'S', 'now', ?, ?, NULL, 'Part')",
+                (json.dumps({"name": "Kept", "note": "é"}), json.dumps({"forms": [{"name": "Base"}]})))
+    old.commit()
+    old.close()
+    db.init_db(path)
+    kept = db.get_character_by_id(7, path)
+    assert json.loads(kept["raw_json"]) == {"name": "Kept", "note": "é"} and kept["subseries"] == "Part"
+    db.upsert_character("New", "u/new", "S", {"name": "New"}, {"forms": []}, db_path=path)
+    new = db.get_character("u/new", path)
+    assert new["id"] == 41 and json.loads(new["normalized_json"]) == {"forms": []}  # never reuses id 40
+    raw = sqlite3.connect(path).execute("SELECT raw_json FROM characters WHERE id = 41").fetchone()[0]
+    assert isinstance(raw, bytes) and raw[:1] == b"x"  # compressed on disk
+
+
 def test_display_names_label_versions_that_share_a_page_title():
     # Invincible's Comics and TV pages spell the Name field differently, so
     # only their page titles show they're two versions of one character.

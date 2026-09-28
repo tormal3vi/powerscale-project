@@ -6,6 +6,12 @@ JSON blobs rather than individual columns - Phase 1/2's schemas are
 still evolving, and a blob means adding a new field there never
 requires a migration here.
 
+The two blobs are stored zlib-compressed (declared type ZJSON): it took
+the file from 44 MB to a third of that, and it's committed to git, which
+refuses files over 100 MB. Reads don't notice - connect() turns a ZJSON
+column back into the JSON text it was, so `json.loads(row["raw_json"])`
+works as before. upsert_character() is the only writer.
+
 Known simplification: `category` holds whichever category name a
 character was most recently scraped under, not a full many-to-many
 membership list. A character scraped via two different category batch
@@ -16,6 +22,7 @@ would be needed if a character's full category membership ever matters.
 
 import json
 import sqlite3
+import zlib
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -30,8 +37,8 @@ CREATE TABLE IF NOT EXISTS characters (
     source_url TEXT NOT NULL UNIQUE,
     category TEXT,
     last_scraped_at TEXT NOT NULL,
-    raw_json TEXT NOT NULL,
-    normalized_json TEXT NOT NULL,
+    raw_json ZJSON NOT NULL,
+    normalized_json ZJSON NOT NULL,
     image_url TEXT,
     subseries TEXT
 );
@@ -41,9 +48,22 @@ CREATE INDEX IF NOT EXISTS idx_characters_category ON characters(category);
 """
 
 
+def _pack(obj: Any) -> bytes:
+    return zlib.compress(json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 9)
+
+
+def _unpack(value: bytes) -> str:
+    # zlib output starts with 0x78 ("x"); JSON text with "{" - so a copy
+    # stored before compression still reads fine.
+    return zlib.decompress(value).decode("utf-8") if value[:1] == b"x" else value.decode("utf-8")
+
+
+sqlite3.register_converter("ZJSON", _unpack)
+
+
 @contextmanager
 def connect(db_path: Path = DB_PATH):
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -65,6 +85,41 @@ def init_db(db_path: Path = DB_PATH) -> None:
         # a second row of filters under the series. NULL for everyone else.
         if "subseries" not in columns:
             conn.execute("ALTER TABLE characters ADD COLUMN subseries TEXT")
+        _compress_storage(conn)
+
+
+def _compress_storage(conn: sqlite3.Connection) -> bool:
+    """A copy made before compression: rebuild the table with ZJSON
+    columns (ids kept). True if it did; run compact() after to shrink
+    the file itself."""
+    types = {r["name"]: (r["type"] or "").upper() for r in conn.execute("PRAGMA table_info(characters)")}
+    if types.get("raw_json") == "ZJSON":
+        return False
+    columns = [r["name"] for r in conn.execute("PRAGMA table_info(characters)")]
+    conn.execute(_SCHEMA.split(";")[0].replace("IF NOT EXISTS characters", "characters_packed"))
+    rows = conn.execute(f"SELECT {', '.join(columns)} FROM characters").fetchall()
+    packed = [tuple(zlib.compress(row[c].encode("utf-8"), 9) if c in ("raw_json", "normalized_json") else row[c]
+                    for c in columns) for row in rows]
+    conn.executemany(f"INSERT INTO characters_packed ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
+                     packed)
+    # Ids of deleted characters are never handed out again (community data
+    # may still name them): keep the counter where it was.
+    seq = conn.execute("SELECT seq FROM sqlite_sequence WHERE name = 'characters'").fetchone()
+    conn.execute("DROP TABLE characters")
+    conn.execute("ALTER TABLE characters_packed RENAME TO characters")
+    if seq:
+        conn.execute("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'characters'", (seq[0],))
+    conn.executescript(_SCHEMA.split(";", 1)[1])  # the indexes
+    return True
+
+
+def compact(db_path: Path = DB_PATH) -> None:
+    """Gives the space freed (e.g. by _compress_storage) back to the disk."""
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("VACUUM")
+    finally:
+        conn.close()
 
 
 def get_character(source_url: str, db_path: Path = DB_PATH) -> Optional[sqlite3.Row]:
@@ -118,8 +173,8 @@ def upsert_character(
                 source_url,
                 category,
                 now,
-                json.dumps(raw, ensure_ascii=False),
-                json.dumps(normalized, ensure_ascii=False),
+                _pack(raw),
+                _pack(normalized),
                 raw.get("image_url"),
                 subseries,
             ),
