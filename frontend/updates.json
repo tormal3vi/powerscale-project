@@ -1,5 +1,16 @@
 [
   {
+    "id": "2026-09-29.9",
+    "date": "2026-09-29",
+    "title": "Share matchups and challenge your friends",
+    "changes": [
+      "Compare has a Share menu: copy the link, post it to Reddit or X, or use your phone's share sheet.",
+      "Challenge a friend: from any matchup, make a duel with that matchup in it and send the link. Your friend lands on a \"You're challenged\" card and joins in one tap (or logs in first and comes right back).",
+      "Duel results can be shared too.",
+      "Tucked at the bottom of the Share menu: save the matchup as an image, ready to post."
+    ]
+  },
+  {
     "id": "2026-09-29.8",
     "date": "2026-09-29",
     "title": "Marvel part 3: the MCU, films, cartoons and games",

@@ -328,7 +328,7 @@ function showCreated(g) {
     <div class="duel-note">${who} Play your five rounds whenever you're ready.</div>
     <div class="duel-created-row">
       <button type="button" class="btn-gold" data-act="play">Play now</button>
-      <button type="button" class="pill-button" data-act="copy">Copy link</button>
+      <button type="button" class="pill-button" data-act="copy">Copy challenge link</button>
     </div>`;
   box.querySelector('[data-act="play"]').addEventListener('click', () => play(g.id, g));
   const copy = box.querySelector('[data-act="copy"]');
@@ -358,7 +358,9 @@ function actionButtons(g, { page = false } = {}) {
   if (g.can_decline) b.push('<button type="button" class="pill-button" data-act="decline">Decline</button>');
   if (page && g.can_leave) b.push('<button type="button" class="pill-button" data-act="leave">Leave game</button>');
   if (g.can_cancel) b.push(`<button type="button" class="pill-button" data-act="cancel">${page ? 'Cancel game' : 'Cancel'}</button>`);
-  if (page && (g.status === 'open' || g.status === 'active')) b.push('<button type="button" class="pill-button" data-act="copy">Copy link</button>');
+  if (page && (g.status === 'open' || g.status === 'active')) {
+    b.push(`<button type="button" class="pill-button" data-act="copy">${g.status === 'open' ? 'Copy challenge link' : 'Copy link'}</button>`);
+  }
   if (!page && g.status === 'done') b.push('<button type="button" class="pill-button" data-act="open">Results</button>');
   if (!page && !b.length) b.push('<button type="button" class="pill-button" data-act="open">View</button>');
   return b.join('');
@@ -593,11 +595,13 @@ function renderGame(g) {
   const back = '<button type="button" class="duel-back">← All games</button>';
   if (g.status === 'done') {
     gameView.innerHTML = `${back}${resultsHtml(g)}`;
+    wireResultShare(gameView, g);
   } else {
     const mine = g.players.find((p) => p.me);
     const doneWaiting = mine && mine.played >= g.total && (g.status === 'open' || g.status === 'active');
     const stillPlaying = g.players.filter((p) => !p.me && p.played < g.total);
     gameView.innerHTML = `${back}
+      ${challengeHtml(g)}
       <div class="duel-game-head">
         <span class="duel-tag">${tagText(g)}</span>
         <h1 class="duel-game-title">${gameHeading(g)}</h1>
@@ -615,6 +619,45 @@ function renderGame(g) {
   }
   gameView.querySelector('.duel-back').addEventListener('click', () => closeGame());
   gameView.querySelectorAll('[data-act]').forEach((btn) => btn.addEventListener('click', () => onAction(g, btn.dataset.act, btn)));
+}
+
+// Someone opened a friend's game link: say who's challenging them, and
+// get them in - straight to round 1, or to log in and come back here.
+function challengeHtml(g) {
+  if (g.status !== 'open' || g.players.some((p) => p.me)) return '';
+  const kind = g.mode === 'draft' ? `Draft duel · ${g.format}` : `Prediction duel · ${g.format}`;
+  const how = g.mode === 'draft' ? 'Five rounds: pick the strongest from a hand of four.'
+    : "Five matchups, 20 seconds each: call who the site says wins.";
+  let action;
+  if (!me) {
+    const next = encodeURIComponent(`duels.html?game=${g.id}`);
+    action = `<a class="btn-gold" href="login.html?next=${next}">Log in to play</a>
+      <a class="duel-challenge-alt" href="login.html?mode=register&next=${next}">or create an account</a>`;
+  } else if (g.can_join) {
+    action = '<button type="button" class="btn-gold" data-act="join">Join &amp; play</button>';
+  } else {
+    return '';  // invite only, and not you
+  }
+  return `<div class="duel-challenge">
+    <div class="duel-challenge-kicker">⚔️ You're challenged</div>
+    <div class="duel-challenge-title">${escapeHtml(g.creator)} wants to duel</div>
+    <div class="duel-challenge-sub">${kind} · ${how}</div>
+    <div class="duel-challenge-actions">${action}</div>
+  </div>`;
+}
+
+function wireResultShare(container, g) {
+  const btn = container.querySelector('.duel-result-share');
+  if (!btn) return;
+  attachShareMenu(btn, () => {
+    const mine = g.players.find((p) => p.me);
+    const scores = g.teams === 2 && g.my_team === 2 ? [...g.team_scores].reverse() : g.team_scores;
+    const kind = `${g.mode === 'draft' ? 'Draft' : 'Prediction'} duel (${g.format})`;
+    const text = mine
+      ? `${{ win: 'I won', loss: 'I lost', draw: 'I drew' }[g.outcome] || 'I played'} a ${kind} on Powerscale, ${scores.join('–')}. Think you can call who wins?`
+      : `A ${kind} on Powerscale: ${g.players.map((p) => p.username).join(' vs ')}, ${g.team_scores.join('–')}.`;
+    return { url: gameLink(g.id), title: `Powerscale ${kind}`, text };
+  });
 }
 
 // Headline (you won / lost, the score, everyone's points by team), then
@@ -674,6 +717,7 @@ function resultsHtml(g) {
     return `
     <div class="duel-result-head ${outcome}">
       <div class="duel-result-kicker">${tagText(g)} · Finished</div>
+      <button type="button" class="duel-result-share pill-button btn-sm">Share ▾</button>
       <div class="duel-result-title">${title}</div>
       <div class="duel-result-score">${score}</div>
       <div class="duel-result-people">${people}</div>
@@ -691,6 +735,7 @@ function resultsHtml(g) {
   return `
     <div class="duel-result-head ${outcome}">
       <div class="duel-result-kicker">${tagText(g)} · Finished</div>
+      <button type="button" class="duel-result-share pill-button btn-sm">Share ▾</button>
       <div class="duel-result-title">${title}</div>
       <div class="duel-result-score">${score}</div>
       <div class="duel-result-people">${people}</div>
@@ -862,6 +907,7 @@ async function showFinished(gameId) {
   try { g = await Api.getGame(gameId); } catch { g = playing; }
   if (g && g.status === 'done') {
     playFrame(`<div class="duel-play-end">${resultsHtml(g)}</div><button type="button" class="btn-gold duel-done-btn">Done</button>`);
+    wireResultShare(playBox, g);
   } else {
     const others = g ? g.players.filter((p) => !p.me && p.played < g.total) : [];
     const wait = g && g.status === 'open'

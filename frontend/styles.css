@@ -2273,3 +2273,41 @@ a.dr-mini-wrap.picked:hover .dr-mini { box-shadow: 0 0 0 2px var(--accent-gold);
   .dr-hand { order: 3; flex-basis: 100%; gap: 6px; }
   .dr-mini { width: 36px; height: 36px; border-radius: 8px; }
 }
+
+/* --- Share menu (Compare, duel results) ----------------------------------- */
+.share-wrap { position: relative; display: inline-flex; }
+.share-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; min-width: 210px; padding: 6px;
+  background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: flex; flex-direction: column; }
+.share-menu[hidden] { display: none; }
+.share-item { text-align: left; background: none; border: none; border-radius: 8px; padding: 9px 12px; color: var(--text-primary);
+  font: 600 13px var(--font-sans); cursor: pointer; white-space: nowrap; }
+.share-item:hover, .share-item:focus-visible { background: var(--pill-bg); outline: none; }
+.share-extra { color: var(--accent-gold); }
+.share-sep { height: 1px; background: var(--divider); margin: 4px 6px; }
+.share-quiet { font-weight: 500; font-size: 12px; color: var(--text-quaternary); padding: 7px 12px; }
+.share-quiet:hover { color: var(--text-secondary); }
+.share-note { padding: 8px 12px 10px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; max-width: 240px; white-space: normal; }
+.share-note a { color: var(--accent-gold); font-weight: 600; }
+@media (max-width: 1250px) {
+  .topbar.menu-open .share-wrap { display: flex; flex-direction: column; }
+  .topbar.menu-open .share-wrap > button { width: 100%; }
+  .topbar.menu-open .share-menu { position: static; margin-top: 6px; box-shadow: none; }
+}
+
+/* A friend's duel link, opened: who's challenging, and the way in. */
+.duel-challenge { background: linear-gradient(135deg, rgba(217, 164, 65, 0.14), rgba(217, 164, 65, 0.04));
+  border: 1px solid rgba(217, 164, 65, 0.4); border-radius: 18px; padding: 22px 24px; margin-bottom: 20px; }
+.duel-challenge-kicker { font: 600 11px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent-gold); }
+.duel-challenge-title { font: 700 26px var(--font-serif); margin: 6px 0 4px; overflow-wrap: anywhere; }
+.duel-challenge-sub { font-size: 13.5px; color: var(--text-secondary); }
+.duel-challenge-actions { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
+.duel-challenge-alt { font-size: 13px; color: var(--text-tertiary); border-bottom: 1px solid var(--control-border); }
+.duel-challenge-alt:hover { color: var(--text-primary); }
+.duel-result-head { position: relative; }
+.duel-result-head .share-wrap { position: absolute; top: 16px; right: 16px; }
+@media (max-width: 640px) {
+  .duel-challenge { padding: 18px; }
+  .duel-challenge-title { font-size: 21px; }
+  .duel-result-head .share-wrap { position: static; margin-top: 10px; justify-content: center; }
+}

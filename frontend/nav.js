@@ -182,6 +182,71 @@ async function showDuelsDot(count) {
   document.querySelector('.topbar-menu-btn')?.classList.toggle('has-dot', count > 0);
 }
 
+// A small menu under a button: copy the link, post it to Reddit or X, or
+// the phone's own share sheet - plus whatever the page adds (extras:
+// [{ label, onClick, quiet }], quiet ones set apart at the bottom).
+// getShare() returns { url, title, text } when the menu opens.
+function attachShareMenu(button, getShare, extras = []) {
+  const wrap = document.createElement('span');
+  wrap.className = 'share-wrap';
+  button.replaceWith(wrap);
+  wrap.appendChild(button);
+  button.setAttribute('aria-haspopup', 'menu');
+  button.setAttribute('aria-expanded', 'false');
+  const menu = document.createElement('div');
+  menu.className = 'share-menu';
+  menu.setAttribute('role', 'menu');
+  menu.hidden = true;
+  wrap.appendChild(menu);
+  const close = () => { menu.hidden = true; button.setAttribute('aria-expanded', 'false'); };
+  const item = (label, onClick, cls = '') => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `share-item ${cls}`;
+    b.setAttribute('role', 'menuitem');
+    b.textContent = label;
+    b.addEventListener('click', () => onClick(b));
+    menu.appendChild(b);
+    return b;
+  };
+  const open = () => {
+    const share = getShare();
+    if (!share) return;
+    const enc = encodeURIComponent;
+    menu.innerHTML = '';
+    item('Copy link', async (b) => {
+      try { await navigator.clipboard.writeText(share.url); b.textContent = 'Link copied'; } catch { b.textContent = 'Copy failed'; }
+      setTimeout(close, 900);
+    });
+    item('Share on Reddit', () => { window.open(`https://www.reddit.com/submit?url=${enc(share.url)}&title=${enc(share.title)}`, '_blank', 'noopener'); close(); });
+    item('Share on X', () => { window.open(`https://x.com/intent/tweet?text=${enc(share.text || share.title)}&url=${enc(share.url)}`, '_blank', 'noopener'); close(); });
+    if (navigator.share) {
+      item('More…', async () => {
+        close();
+        try { await navigator.share({ title: share.title, text: share.text || share.title, url: share.url }); } catch { /* dismissed */ }
+      });
+    }
+    const loud = extras.filter((x) => !x.quiet);
+    const quiet = extras.filter((x) => x.quiet);
+    loud.forEach((x) => item(x.label, (b) => x.onClick(b, close), 'share-extra'));
+    if (quiet.length) {
+      const hr = document.createElement('div');
+      hr.className = 'share-sep';
+      menu.appendChild(hr);
+      quiet.forEach((x) => item(x.label, (b) => x.onClick(b, close), 'share-quiet'));
+    }
+    menu.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+  };
+  button.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (menu.hidden) open(); else close();
+  });
+  document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  return wrap;
+}
+
 function pillButton(label, { href, id, gold = false } = {}) {
   const el = document.createElement(href ? 'a' : 'button');
   el.className = gold ? 'btn-gold' : 'pill-button';

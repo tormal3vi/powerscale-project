@@ -13,6 +13,8 @@ import json
 import os
 import re
 import unicodedata
+import urllib.request
+from collections import OrderedDict
 from html import escape as html_escape
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -281,6 +283,49 @@ def get_character(char_id: int):
         image_replaced=replaced_url is not None,
         forms=forms,
     )
+
+
+# --- /api/characters/{id}/picture (for drawing on a canvas) -------------------
+# The wiki's image server doesn't let other sites read its pictures from a
+# script, so a canvas that draws one can't be saved (the share image on
+# Compare). This serves the same picture from here. It takes a character
+# and form - never a URL - so it can't be pointed anywhere else.
+
+_picture_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
+_PICTURE_CACHE_SIZE = 200
+_PICTURE_MAX_BYTES = 6 * 1024 * 1024
+
+
+@app.get("/api/characters/{char_id}/picture")
+def character_picture(char_id: int, form: Optional[str] = None, px: int = 400):
+    px = px if px in (200, 400, 800) else 400
+    replaced = community.character_image_versions().get(char_id)
+    if replaced:  # an admin's replacement: already served from here
+        return RedirectResponse(community_api.character_image_url(char_id, replaced))
+    url = characters.form_picture(char_id, form)
+    if not url or not url.startswith("https://static.wikia.nocookie.net/vsbattles/"):
+        raise HTTPException(status_code=404, detail="No picture")
+    key = (url, px)
+    if key not in _picture_cache:
+        path, _, query = url.partition("?")
+        crop = f"{path}/top-crop/width/{px}/height/{px}" + (f"?{query}" if query else "")
+        req = urllib.request.Request(crop, headers={"User-Agent": scraper.USER_AGENT,
+                                                    "Accept": "image/webp,image/png,image/*"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                kind = resp.headers.get("Content-Type", "")
+                body = resp.read(_PICTURE_MAX_BYTES + 1)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail="The wiki's picture didn't load") from exc
+        if not kind.startswith("image/") or len(body) > _PICTURE_MAX_BYTES:
+            raise HTTPException(status_code=502, detail="The wiki sent something other than a picture")
+        _picture_cache[key] = (body, kind)
+        while len(_picture_cache) > _PICTURE_CACHE_SIZE:
+            _picture_cache.popitem(last=False)
+    else:
+        _picture_cache.move_to_end(key)
+    body, kind = _picture_cache[key]
+    return Response(body, media_type=kind, headers={"Cache-Control": "public, max-age=86400"})
 
 
 # --- /api/characters/fetch (add a character, live) --------------------------

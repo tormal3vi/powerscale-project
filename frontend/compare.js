@@ -625,23 +625,201 @@ function notesHtml(v) {
 }
 
 
-const copyLinkBtn = pillButton('Copy link');
-copyLinkBtn.addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText(location.href);
-    copyLinkBtn.textContent = 'Link copied';
-  } catch {
-    copyLinkBtn.textContent = 'Copy failed';
+// --- sharing ------------------------------------------------------------
+// Share ▾: copy the link, Reddit, X, the phone's share sheet; challenge a
+// friend to a duel on this matchup; and, set apart at the bottom, save
+// the matchup as an image for posting.
+
+function verdictLines(v) {
+  if (v.override) return [`${shortName(v.override.winner_name)} wins`, 'Overruled by admins'];
+  if (v.composite === null) return ['Not enough data', 'for a verdict'];
+  if (v.favored) return [`${shortName(v.favored)} favored`, `${v.label}${v.confidence_hint !== 'n/a' ? ` (${v.confidence_hint})` : ''}`];
+  return ['Too close to call', 'A toss-up'];
+}
+
+function shareInfo() {
+  if (!state.a || !state.b || !state.verdict) return null;
+  const nameA = shortName(state.a.name);
+  const nameB = shortName(state.b.name);
+  const [first, second] = verdictLines(state.verdict);
+  return {
+    url: location.href,
+    title: `${nameA} vs ${nameB}: who would win?`,
+    text: `${nameA} vs ${nameB}: ${first}${second ? ` (${second.toLowerCase()})` : ''}. Agree?`,
+  };
+}
+
+async function challengeFriend(button) {
+  const user = await currentUser();
+  if (!user) {
+    location.href = `login.html?next=${encodeURIComponent(location.pathname.split('/').pop() + location.search)}`;
+    return;
   }
-  setTimeout(() => { copyLinkBtn.textContent = 'Copy link'; }, 1800);
-});
-const shareBtn = pillButton('Share to board');
-shareBtn.addEventListener('click', () => {
+  const nameA = shortName(state.a.name);
+  const nameB = shortName(state.b.name);
+  button.disabled = true;
+  button.textContent = 'Creating…';
+  try {
+    const g = await Api.createGame('1v1', [], [{ char_a: state.a.id, char_b: state.b.id,
+      form_a: activeForm('a').name, form_b: activeForm('b').name }], [], 'predict');
+    const url = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}duels.html?game=${g.id}`;
+    let shared = false;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Duel me on Powerscale', text: `Can you call ${nameA} vs ${nameB}? Five matchups, 20 seconds each.`, url });
+        shared = true;
+      } catch { /* dismissed: fall back to copying */ }
+    }
+    let copied = false;
+    if (!shared) {
+      try { await navigator.clipboard.writeText(url); copied = true; } catch { /* shown below */ }
+    }
+    const note = document.createElement('div');
+    note.className = 'share-note';
+    note.innerHTML = `Challenge ready${copied ? ', link copied' : ''}. ${shared ? 'Sent!' : 'Send it to a friend:'} this matchup is one of the five rounds. <a href="duels.html?game=${g.id}">Open it</a>`;
+    button.replaceWith(note);
+  } catch (err) {
+    button.textContent = /clear winner/.test(err.message) ? 'Too close to call for a duel round' : err.message;
+  }
+}
+
+async function saveMatchupImage() {
+  const W = 1080;
+  const H = 1080;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const x = canvas.getContext('2d');
+  await Promise.all(['700 64px Fraunces', '600 30px "Public Sans"', '600 26px "IBM Plex Mono"']
+    .map((f) => document.fonts.load(f).catch(() => null)));
+  const [accentA, accentB] = accentPair(state.a.id, state.b.id);
+  const load = (src) => new Promise((res) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = src;
+  });
+  // Served from this site (see /api/characters/{id}/picture): a picture
+  // straight from the wiki would make the canvas impossible to save.
+  const picture = (side) => `api/characters/${state[side].id}/picture?px=400&form=${encodeURIComponent(activeForm(side).name)}`;
+  const [imgA, imgB, logo] = await Promise.all([load(picture('a')), load(picture('b')), load('favicon.svg?v=2')]);
+
+  x.fillStyle = '#14120F';
+  x.fillRect(0, 0, W, H);
+  for (const [cx, color] of [[0, accentA], [W, accentB]]) {  // a soft glow from each side
+    const glow = x.createRadialGradient(cx, 420, 0, cx, 420, 620);
+    glow.addColorStop(0, color);
+    glow.addColorStop(1, 'transparent');
+    x.globalAlpha = 0.16;
+    x.fillStyle = glow;
+    x.fillRect(0, 0, W, H);
+    x.globalAlpha = 1;
+  }
+  const text = (str, px, cx, y, { font = '"Public Sans"', weight = 600, color = '#F3EEE4', max = 460, spacing = 0 } = {}) => {
+    let size = px;
+    if ('letterSpacing' in x) x.letterSpacing = `${spacing}px`;
+    do {
+      x.font = `${weight} ${size}px ${font}, sans-serif`;
+      size -= 2;
+    } while (x.measureText(str).width > max && size > 14);
+    x.fillStyle = color;
+    x.textAlign = 'center';
+    x.fillText(str, cx, y);
+    if ('letterSpacing' in x) x.letterSpacing = '0px';
+  };
+  text('WHO WOULD WIN?', 28, W / 2, 110, { font: '"IBM Plex Mono"', color: '#D9A441', max: 900, spacing: 6 });
+
+  const S = 380;
+  const sides = [['a', imgA, accentA, 270], ['b', imgB, accentB, W - 270]];
+  for (const [side, img, color, cx] of sides) {
+    const left = cx - S / 2;
+    const top = 170;
+    x.save();
+    x.beginPath();
+    x.roundRect(left, top, S, S, 36);
+    x.clip();
+    x.fillStyle = color;
+    x.fillRect(left, top, S, S);
+    if (img) x.drawImage(img, left, top, S, S);
+    else text(initialFor(state[side].name), 170, cx, top + S / 2 + 60, { font: 'Fraunces', weight: 700, color: '#14120F' });
+    x.restore();
+    x.lineWidth = 6;
+    x.strokeStyle = color;
+    x.beginPath();
+    x.roundRect(left, top, S, S, 36);
+    x.stroke();
+    const form = activeForm(side);
+    const character = state[side];
+    text(shortName(character.name), 42, cx, 620, { font: 'Fraunces', weight: 700, max: 440 });
+    const series = character.subseries ? `${character.category} · ${character.subseries}` : character.category;
+    text(series, 22, cx, 660, { font: '"IBM Plex Mono"', color: '#A69C8C', max: 440 });
+    const detail = [character.forms.length > 1 ? form.name : null, prettifyLabel(form.tier.baseline_label) ? `Tier ${prettifyLabel(form.tier.baseline_label)}` : null]
+      .filter(Boolean).join(' · ');
+    if (detail) text(detail, 22, cx, 696, { color: color, max: 440 });
+  }
+  text('VS', 60, W / 2, 380, { font: 'Fraunces', weight: 700, color: '#D9A441' });
+
+  const v = state.verdict;
+  const [first, second] = verdictLines(v);
+  text(first, 54, W / 2, 800, { font: 'Fraunces', weight: 700, max: 960 });
+  if (second) text(second, 28, W / 2, 846, { color: '#D8D0C0', max: 960 });
+  // The verdict meter, as on the page: from the middle toward whoever leads.
+  const trackW = 760;
+  const trackX = (W - trackW) / 2;
+  x.fillStyle = '#2B2720';
+  x.beginPath();
+  x.roundRect(trackX, 884, trackW, 14, 7);
+  x.fill();
+  const lean = v.override ? (v.override.winner_id === state.a.id ? 1 : -1) : Math.max(-1, Math.min(1, v.composite || 0));
+  if (lean) {
+    const w = Math.abs(lean) * trackW / 2;
+    x.fillStyle = lean > 0 ? accentA : accentB;
+    x.beginPath();
+    x.roundRect(lean > 0 ? W / 2 - w : W / 2, 884, w, 14, 7);
+    x.fill();
+  }
+  x.fillStyle = '#F3EEE4';
+  x.fillRect(W / 2 - 1.5, 878, 3, 26);
+
+  // The logo, then the address, centered together.
+  x.font = '600 30px "IBM Plex Mono", monospace';
+  const site = 'powerscale.online';
+  const start = (W - (44 + 16 + x.measureText(site).width)) / 2;
+  if (logo) x.drawImage(logo, start, 972, 44, 44);
+  x.fillStyle = '#A69C8C';
+  x.textAlign = 'left';
+  x.fillText(site, start + 60, 1004);
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  const slug = (str) => str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'character';
+  const name = `${slug(shortName(state.a.name))}-vs-${slug(shortName(state.b.name))}.png`;
+  const file = new File([blob], name, { type: 'image/png' });
+  if (matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: shareInfo().title }); return; } catch { /* dismissed: download instead */ }
+  }
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+}
+
+const shareMenuBtn = pillButton('Share ▾');
+const boardBtn = pillButton('Post to Board');
+boardBtn.addEventListener('click', () => {
   if (!state.a || !state.b) return;
   const p = new URLSearchParams({ a: state.a.id, b: state.b.id, fa: activeForm('a').name, fb: activeForm('b').name });
   location.href = `board.html?${p}`;
 });
-renderTopbar([copyLinkBtn, shareBtn, pillButton('Change characters', { href: 'browse.html' })]);
+renderTopbar([shareMenuBtn, boardBtn, pillButton('Change characters', { href: 'browse.html' })]);
+attachShareMenu(shareMenuBtn, shareInfo, [
+  { label: 'Challenge a friend', onClick: (b) => challengeFriend(b) },
+  { label: 'Save as image', quiet: true, onClick: async (b, close) => {
+    b.textContent = 'Drawing…';
+    try { await saveMatchupImage(); close(); } catch { b.textContent = "Couldn't make the image"; }
+    setTimeout(() => { b.textContent = 'Save as image'; }, 1500);
+  } },
+]);
 
 // --- comments -----------------------------------------------------------
 // This matchup's own discussion, separate from the Board: shared by A vs B
