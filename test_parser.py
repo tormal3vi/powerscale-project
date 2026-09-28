@@ -342,6 +342,15 @@ def test_saitama_flat_key_multi_form_extraction():
     assert "|" in stats.attack_potency
 
 
+def test_johnny_joestar_keys_field_splits_forms():
+    # His page names its forms in "Keys:" (plural), not "Key:" - 37 pages
+    # do, and all of them came back as a single "Base" form.
+    stats = parse_character(_load("JohnnyJoestar"))
+    assert [f.name for f in stats.forms] == ["Act 1", "Act 2", "Act 3", "Act 4"]
+    assert "8-C with Act 1" in stats.forms[0].tier
+    assert "Building level+" in stats.forms[3].stats.attack_potency
+
+
 def test_bambietta_per_field_tabber_and_shared_unsplit_field():
     # Found diagnosing a Bambietta-vs-Ainz verdict: Key "Alive | Zombie",
     # but two different things went wrong on this one page -

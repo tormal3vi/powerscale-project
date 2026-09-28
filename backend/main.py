@@ -27,7 +27,8 @@ import normalizer
 import parser as parser_module
 import scraper
 from backend import (
-    characters, community, community_api, discord_bot, discord_webhooks, duels, duels_api, profiles_api, tickets_api,
+    characters, community, community_api, discord_bot, discord_webhooks, duels, duels_api, form_renames, profiles_api,
+    tickets_api,
 )
 from backend.schemas import (
     AbilityFlagOut,
@@ -54,6 +55,7 @@ app.include_router(profiles_api.router)
 app.include_router(discord_bot.router)
 db.init_db()  # adds columns newer code expects to an older powerscale.db
 community.init()
+form_renames.apply()  # moves overrules etc. onto renamed forms, once per batch
 discord_bot.start()  # registers the Discord commands, if Discord is set up
 discord_webhooks.start_weekly()  # the Monday leaderboard post, if a channel is set up
 discord_webhooks.start_updates()  # this version's update notes, if not announced yet

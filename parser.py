@@ -806,7 +806,8 @@ def _extract_forms_from_flat_key(stats: "CharacterStats") -> List[CharacterForm]
     (see module docstring). Only fires when Key has 2+ segments and Tier's
     own '|' segments line up with it exactly - Tier is the field always
     present, so it decides whether this page is multi-form at all."""
-    key_text = stats.extra_fields.get("Key")
+    # Most pages say "Key:", some "Keys:" (Johnny Joestar, Frieza, Gohan...).
+    key_text = stats.extra_fields.get("Key") or stats.extra_fields.get("Keys")
     if not key_text:
         return []
     key_segments = _split_top_level(key_text, "|")
