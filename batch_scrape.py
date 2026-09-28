@@ -78,6 +78,10 @@ SUBSERIES = {
     # Garth Ennis's comics and the Amazon shows rate the same Supes very
     # differently; the pages say which in their titles.
     "The Boys": ("TV Series", []),
+    # The Midway games and NetherRealm's second timeline (MK9-11) rate the
+    # same fighters very differently. Titles say which; the rest by page.
+    "Mortal Kombat": ("Second Timeline", []),
+    "Street Fighter": ("Games", []),
 }
 
 # Parts only the page titles tell apart: "Omni-Man (TV Series)", "Goku
@@ -90,6 +94,12 @@ SUBSERIES_BY_QUALIFIER = {
     "Invincible": {"TV Series": "TV Series", "Comics": "Comics", "Invincible Comics": "Comics"},
     "Puella Magi Verse": {"Magia Record": "Magia Record"},
     "The Boys": {"Dynamite Entertainment": "Comics", "Gen V": "Gen V"},
+    "Mortal Kombat": {"Midway": "Original Timeline", "Second Timeline": "Second Timeline", "Legends": "Legends",
+                      "2021 Movie": "Films & Shows", "Mortal Kombat Films": "Films & Shows",
+                      "Mortal Kombat: Rebirth": "Films & Shows", "Rebirth": "Films & Shows",
+                      "Federation of Martial Arts": "Films & Shows"},
+    "Street Fighter": {"Udon Comics": "Other Media", "Street Fighter: The Movie": "Other Media",
+                       "Power Rangers": "Other Media", "Asura's Wrath": "Other Media"},
 }
 
 
@@ -97,6 +107,17 @@ SUBSERIES_BY_QUALIFIER = {
 # the character or a one-page category named like the page itself, which
 # category_fetcher drops as the series' own page).
 SUBSERIES_BY_TITLE = {
+    # Other franchises' characters as they are in the Mortal Kombat games.
+    "Mortal Kombat": {**{t: "Guests" for t in (
+        "Alien (Mortal Kombat)", "Billy Loomis (Mortal Kombat)", "Freddy Krueger (Mortal Kombat)",
+        "Ghostface (Mortal Kombat)", "Homelander (Mortal Kombat)", "Jason Voorhees (Mortal Kombat)",
+        "John Rambo (Mortal Kombat)", "Kratos (Mortal Kombat)", "Leatherface (Mortal Kombat)",
+        "Omni-Man (Mortal Kombat)", "Predator (Mortal Kombat)", "The Joker (Mortal Kombat)")},
+        "Cole Young": "Films & Shows",
+        # Unmarked pages from the Midway games...
+        **{t: "Original Timeline" for t in ("Dark Kahn", "Hsu Hao", "Meat", "Mokap", "The Elder Gods")},
+        # ...and from Mortal Kombat 1 (2023), a new continuity.
+        **{t: "New Era" for t in ("Black Dragon Assassin", "Black Dragon Enforcer", "Lt. Col. Cage")}},
     "DC": {
         "Batman (The Lego Movie)": "Other adaptations",
         "Green Lantern (2011 Film Version)": "Other adaptations",
@@ -118,6 +139,11 @@ EXCLUDED_TITLES = {
         "DC Comics Cosmology",  # an overview of DC's universe, not a character
     },
     "The Boys": {"Compound V (The Boys)"},  # the drug, not a character
+    # Items, and a page about a comic crossover rather than a character.
+    "Mortal Kombat": {"Amulet of Shinnok", "Kamidogu", "The Hourglass (Mortal Kombat)"},
+    "Street Fighter": {"Street Fighter/Darkstalkers (Udon Comics)"},
+    "Tekken": {"Tekken Verse Universal Abilities",
+               "Pandora (Street Fighter X Tekken)"},  # listed under Street Fighter too: filed there
 }
 
 
@@ -187,8 +213,8 @@ def run_batch(
     lookup already built, when running several categories in a row."""
     print(f"Fetching member list for {category!r}...")
     titles = fetch_category_members(category)
-    if series:
-        titles = [t for t in titles if t not in EXCLUDED_TITLES.get(series, ())]
+    excluded = EXCLUDED_TITLES.get(series or category.replace("Category:", "").strip(), ())
+    titles = [t for t in titles if t not in excluded]
     print(f"Found {len(titles)} character page(s) after filtering.")
     if series and subseries_of is None:
         subseries_of = subseries_lookup(series)

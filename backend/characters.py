@@ -75,8 +75,14 @@ def _title_is_better_known(name: str, title: str, bare: str) -> bool:
         return True
     note = re.search(r"\(([^)]*)\)", first)
     if note and re.search(r"\b(unknown|real name|true name)\b", note.group(1), re.I):
-        # "Joker (Real name is unknown)"
-        return _name_words(re.sub(r"\([^)]*\)", "", first)) == title_words
+        # "Joker (Real name is unknown)"; "Grey Cloud (real name), Nightwolf"
+        # - a real name they're rarely called: the title, if it's in there.
+        return title_words <= _name_words(name)
+    quoted = _name_words(" ".join(re.findall(r'["\u201c]([^"\u201d]+)["\u201d]', first)))
+    if quoted & title_words and title_words <= _name_words(first):
+        # The title is the nickname in quotes: 'Jackson "Jax" Briggs' is Jax,
+        # 'Jacqueline Sonya "Jacqui" Briggs' Jacqui Briggs, '"Alien"' Alien.
+        return True
     if not title_words <= _name_words(name) or not lead or title_words <= lead:
         return False  # "Son Goku, Kakarot" is fine next to a page titled "Goku"
     qualifier = re.search(r"\(([^)]*)\)\s*$", title)

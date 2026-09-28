@@ -266,6 +266,19 @@ def test_character_data_is_stored_compressed():
     assert isinstance(raw, bytes) and raw[:1] == b"x"  # compressed on disk
 
 
+def test_display_names_prefer_the_name_people_use():
+    from backend import characters as C
+    wiki = "https://vsbattles.fandom.com/wiki/"
+    cases = [('Jackson "Jax" Briggs, Major Briggs', wiki + "Jax_(Second_Timeline)", "Jax"),
+             ('Jacqueline Sonya "Jacqui" Briggs', wiki + "Jacqui_Briggs", "Jacqui Briggs"),
+             ("Grey Cloud (real name), Nightwolf", wiki + "Nightwolf_(Second_Timeline)", "Nightwolf"),
+             ('"Alien", Xenomorph', wiki + "Alien_(Mortal_Kombat)", "Alien"),
+             ('Monkey D. Luffy, "Straw Hat Luffy"', wiki + "Monkey_D._Luffy_(Emperor)", "Monkey D. Luffy"),  # unchanged
+             ("Joker (Real name is unknown)", wiki + "Joker_(Post-Crisis)", "Joker")]
+    for name, url, shown in cases:
+        assert C.short_name(C.base_name(name, url)) == shown, (name, C.base_name(name, url))
+
+
 def test_display_names_label_versions_that_share_a_page_title():
     # Invincible's Comics and TV pages spell the Name field differently, so
     # only their page titles show they're two versions of one character.
