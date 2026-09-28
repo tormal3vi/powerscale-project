@@ -1,5 +1,13 @@
 [
   {
+    "id": "2026-09-28.3",
+    "date": "2026-09-28",
+    "title": "/profile on Discord",
+    "changes": [
+      "New bot command: /profile shows anyone's Powerscale profile right in Discord: their posts, likes, duel record and rank, favorite character and latest duels. Names are suggested as you type."
+    ]
+  },
+  {
     "id": "2026-09-28.2",
     "date": "2026-09-28",
     "title": "A new logo",

@@ -562,6 +562,21 @@ def test_discord_app_checks_signatures_and_answers_commands():
     assert " vs " in run("random")["embeds"][0]["title"]
     assert run("leaderboard")["embeds"][0]["title"] == "Duel leaderboard"
 
+    # /profile: suggestions by name, the public profile, and unknown names.
+    (fan,) = _users("tier_fan_99")
+    community.update_profile(fan["id"], "tier_fan_99", "Kratos *always* wins", kratos)
+    names = discord_bot.handle({"type": 4, "data": {"name": "profile", "options": [
+        {"name": "username", "type": 3, "value": "TIER_F", "focused": True}]}})["data"]["choices"]
+    assert {"name": "tier_fan_99", "value": "tier_fan_99"} in names
+    assert discord_bot.handle({"type": 4, "data": {"name": "profile", "options": [
+        {"name": "username", "type": 3, "value": "_", "focused": True}]}})["data"]["choices"]  # "_" isn't a wildcard
+    card = run("profile", username="@Tier_Fan_99")["embeds"][0]  # any case, with or without @
+    fields = {f["name"]: f["value"] for f in card["fields"]}
+    assert card["title"] == "tier_fan_99" and card["url"].endswith("/user.html?u=tier_fan_99")
+    assert "Kratos \\*always\\* wins" in card["description"] and "Member since" in card["description"]
+    assert fields["Duels"] == "None yet" and fields["Posts"] == "0" and "character.html?id=" in fields["Favorite character"]
+    assert run("profile", username="nobody_here")["flags"] == discord_bot.EPHEMERAL
+
 
 def test_weekly_leaderboard_posts_once_a_week():
     from datetime import datetime, timedelta, timezone

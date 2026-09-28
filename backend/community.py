@@ -363,6 +363,27 @@ def get_profile(user_id: Optional[int] = None, username: Optional[str] = None) -
             "likes_received": likes_received}
 
 
+def search_usernames(text: str, limit: int = 25) -> List[str]:
+    """Usernames starting with `text` (any case), then ones containing it,
+    A-Z - for the Discord app's suggestions."""
+    q = "".join("\\" + ch if ch in "%_\\" else ch for ch in (text or "").strip().lower())
+    found: List[str] = []
+    with reader.connect() as conn:
+        for pattern in (f"{q}%", f"%{q}%"):
+            rows = conn.execute(select(users.c.username).where(users.c.username_lower.like(pattern, escape="\\"))
+                                .order_by(users.c.username_lower).limit(limit)).scalars()
+            found += [u for u in rows if u not in found]
+            if len(found) >= limit or not q:
+                break
+    return found[:limit]
+
+
+def comment_count(user_id: int) -> int:
+    with reader.connect() as conn:
+        return conn.execute(select(func.count()).select_from(matchup_comments)
+                            .where(matchup_comments.c.user_id == user_id)).scalar() or 0
+
+
 def username_taken(username: str, except_user_id: Optional[int] = None) -> bool:
     with reader.connect() as conn:
         where = users.c.username_lower == username.lower()

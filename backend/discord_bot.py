@@ -1,4 +1,4 @@
-"""The Powerscale Discord app: /compare, /character, /random, /leaderboard.
+"""The Powerscale Discord app: /compare, /character, /random, /leaderboard, /profile.
 
 Discord delivers each slash command to this site as a signed POST (its
 "interactions endpoint"), and the reply goes back in the response. No
@@ -34,7 +34,7 @@ from starlette.concurrency import run_in_threadpool
 
 import calculator
 import db
-from backend import characters, community, community_api, duels
+from backend import characters, community, community_api, duels, tickets
 from backend.discord_webhooks import GOLD, _clip, _site
 
 router = APIRouter()
@@ -64,6 +64,9 @@ COMMANDS = [
                  _character_option("form", "Form (default: their strongest)", False)]},
     {"name": "random", "description": "A random matchup between characters of similar tiers.", **EVERYWHERE},
     {"name": "leaderboard", "description": "The top duel players on the site.", **EVERYWHERE},
+    {"name": "profile", "description": "Someone's Powerscale profile: posts, duel record, favorite character.",
+     **EVERYWHERE, "options": [{"type": STRING, "name": "username", "description": "Their username on powerscale.online",
+                                "required": True, "autocomplete": True}]},
 ]
 
 
@@ -102,8 +105,8 @@ def handle(interaction: dict) -> dict:
         return {"type": 8, "data": {"choices": _suggest(options)}}
     if kind == 2:  # a slash command
         try:
-            reply = {"compare": _compare, "character": _character, "random": _random,
-                     "leaderboard": _leaderboard}[data.get("name")]({k: o.get("value") for k, o in options.items()})
+            reply = {"compare": _compare, "character": _character, "random": _random, "leaderboard": _leaderboard,
+                     "profile": _profile}[data.get("name")]({k: o.get("value") for k, o in options.items()})
         except KeyError:
             reply = _oops("I don't know that command.")
         except Exception:  # noqa: BLE001 - Discord shows its own vague error otherwise
@@ -201,6 +204,8 @@ def _suggest(options: dict) -> List[dict]:
     if focused is None:
         return []
     name = focused["name"]
+    if name == "username":
+        return [{"name": u, "value": u} for u in community.search_usernames(str(focused.get("value") or ""))]
     if name.startswith("form"):
         owner = _find((options.get({"form_a": "a", "form_b": "b", "form": "name"}[name]) or {}).get("value"))
         if owner is None:
@@ -361,6 +366,61 @@ def _leaderboard(args: dict) -> dict:
     embed = {"title": "Duel leaderboard", "url": url, "color": GOLD, "description": "\n".join(lines),
              "footer": {"text": "Wins–draws–losses · powerscale.online"}}
     return {"embeds": [embed], "components": _link_button(url, "Play a duel")}
+
+
+def _md(text: str) -> str:
+    """Text shown as-is in Discord markdown: "tier_climber" stays un-italic."""
+    return re.sub(r"([\\_*~|`\[\]])", r"\\\1", text)
+
+
+def _recent_duels(user_id: int, limit: int = 3) -> str:
+    from backend.duels_api import _duel_out
+    recent = duels.recent_finished(user_id, limit=limit)
+    lines, cache = [], {}
+    for g in recent["games"]:
+        d = _duel_out(g, user_id, recent, recent["people"], cache)
+        word = {"win": "Won", "loss": "Lost", "draw": "Draw"}.get(d.outcome or "", "Finished")
+        mine, scores = d.my_team, d.team_scores
+        score = (f"{scores[mine - 1]}–{scores[2 - mine]}" if d.teams == 2 and mine and len(scores) == 2
+                 else " · ".join(str(x) for x in scores))
+        rivals = ", ".join(p.username for p in d.players if p.team != mine)
+        kind = ("Draft · " if d.mode == "draft" else "") + d.format
+        lines.append(f"[{word} {score}]({_site()}/duels.html?game={d.id}) vs {_md(rivals)} · {kind}")
+    return "\n".join(lines)
+
+
+def _profile(args: dict) -> dict:
+    name = str(args.get("username") or "").strip().lstrip("@")
+    profile = community.get_profile(username=name) if name else None
+    if profile is None:
+        return _oops(f"No one called “{_clip(name, 40)}” on Powerscale. Pick a name from the suggestions as you type.")
+    out = community_api._profile_out(profile, own=False)
+    uid, rec = profile["id"], out.record
+    played = rec.wins + rec.draws + rec.losses
+    rank = next((i + 1 for i, r in enumerate(duels.leaderboard(limit=1000)) if r["username"] == out.username), None)
+    url = f"{_site()}/user.html?" + urllib.parse.urlencode({"u": out.username})
+    about = [_md(_clip(" ".join(out.bio.split()), 300))] if out.bio else []
+    about.append(f"Member since {out.member_since:%B %Y}")
+    fields = [
+        {"name": "Posts", "value": str(out.post_count), "inline": True},
+        {"name": "Likes received", "value": str(profile["likes_received"]), "inline": True},
+        {"name": "Matchup comments", "value": str(community.comment_count(uid)), "inline": True},
+        {"name": "Duels", "inline": True,
+         "value": ((f"#{rank} · " if rank else "") + f"{rec.wins}–{rec.draws}–{rec.losses}") if played else "None yet"},
+        {"name": "Overrules suggested", "value": str(tickets.credited_overrules(uid)), "inline": True},
+    ]
+    if out.favorite:
+        fields.append({"name": "Favorite character", "inline": True,
+                       "value": f"[{_md(_clip(out.favorite.name, 80))}]({_site()}/character.html?id={out.favorite.id})"})
+    recent = _recent_duels(uid)
+    if recent:
+        fields.append({"name": "Recent duels", "value": recent, "inline": False})
+    embed = {"title": _clip(out.username + (" · Admin" if out.is_admin else ""), 256), "url": url, "color": GOLD,
+             "description": "\n".join(about), "fields": fields, "footer": {"text": "Wins–draws–losses · powerscale.online"}}
+    picture = _site() + out.avatar_url if out.avatar_url else (_picture(out.favorite.id) if out.favorite else None)
+    if picture:
+        embed["thumbnail"] = {"url": picture}
+    return {"embeds": [embed], "components": _link_button(url, "View profile")}
 
 
 # --- registering the commands --------------------------------------------------------------------
