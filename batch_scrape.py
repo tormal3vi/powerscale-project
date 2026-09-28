@@ -9,6 +9,7 @@ Usage:
     python batch_scrape.py "Kages" --force
     python batch_scrape.py "Kages" --freshness-days 7
     python batch_scrape.py "Bat Family" --series DC   # stored as DC, by subseries
+    python batch_scrape.py Avengers X-Men --series Marvel --only-in "Marvel Comics"
 """
 
 import argparse
@@ -80,6 +81,16 @@ SUBSERIES = {
     "The Boys": ("TV Series", []),
     # The Midway games and NetherRealm's second timeline (MK9-11) rate the
     # same fighters very differently. Titles say which; the rest by page.
+    # Like DC: the comics by default, each adaptation its own part.
+    "Marvel": ("Comics", [
+        ("MCU", ["Marvel Cinematic Universe"]),
+        ("Fox films", ["X-Men (Fox)", "Fantastic Four (Fox)"]),
+        ("Other films", ["Spider-Man Trilogy", "Hulk (2003)"]),
+        ("Animated", ["Marvel Animated", "X-Men Evolution", "Avengers Assemble", "Spider-Man: The New Animated Series",
+                      "Spider-Man and his Amazing Friends", "Marvel & Disney: What If…?"]),
+        ("Games", ["Marvel's Spider-Man", "Marvel Rivals", "Marvel's Avengers (Game)", "Spider-Man: Shattered Dimensions"]),
+        ("Other media", ["Spider-Man: The Manga", "Marvel Age"]),
+    ]),
     "Mortal Kombat": ("Second Timeline", []),
     "Street Fighter": ("Games", []),
 }
@@ -98,6 +109,8 @@ SUBSERIES_BY_QUALIFIER = {
                       "2021 Movie": "Films & Shows", "Mortal Kombat Films": "Films & Shows",
                       "Mortal Kombat: Rebirth": "Films & Shows", "Rebirth": "Films & Shows",
                       "Federation of Martial Arts": "Films & Shows"},
+    # Marvel's Ultimate universe (Earth-1610) rates characters on its own.
+    "Marvel": {"Ultimate Comics": "Ultimate Comics"},
     "Street Fighter": {"Udon Comics": "Other Media", "Street Fighter: The Movie": "Other Media",
                        "Power Rangers": "Other Media", "Asura's Wrath": "Other Media"},
 }
@@ -145,6 +158,23 @@ EXCLUDED_TITLES = {
     "Tekken": {"Tekken Verse Universal Abilities",
                "Pandora (Street Fighter X Tekken)"},  # listed under Street Fighter too: filed there
 }
+
+
+# Series whose wiki page titles are the names fans use, while the "Name:"
+# field leads with a legal name: Marvel's "Doctor Doom" page says "Victor
+# Von Doom", "Mister Fantastic" says "Reed Richards". Their characters are
+# named by the title (qualifier dropped); the field stays on as aliases.
+TITLE_NAMED_SERIES = {"Marvel"}
+
+
+def titled_name(title: str, name: Optional[str]) -> str:
+    """"Doctor Doom" + "Victor Von Doom" -> "Doctor Doom, Victor Von Doom"."""
+    bare = re.sub(r"\s*\([^)]*\)\s*$", "", title).strip()
+    if not name:
+        return bare
+    if re.split(r"[,;]", name, maxsplit=1)[0].strip().lower() == bare.lower():
+        return name  # already leads with it
+    return f"{bare}, {name}"
 
 
 def subseries_lookup(series: str):
@@ -207,6 +237,7 @@ def run_batch(
     dry_run: bool = False,
     series: Optional[str] = None,
     subseries_of=None,
+    only_in: Optional[set] = None,
 ) -> dict:
     """With `series`, every character is stored under that series (not the
     wiki category scraped) with its subseries; `subseries_of` can pass a
@@ -214,7 +245,7 @@ def run_batch(
     print(f"Fetching member list for {category!r}...")
     titles = fetch_category_members(category)
     excluded = EXCLUDED_TITLES.get(series or category.replace("Category:", "").strip(), ())
-    titles = [t for t in titles if t not in excluded]
+    titles = [t for t in titles if t not in excluded and (only_in is None or t in only_in)]
     print(f"Found {len(titles)} character page(s) after filtering.")
     if series and subseries_of is None:
         subseries_of = subseries_lookup(series)
@@ -231,6 +262,7 @@ def run_batch(
     db.init_db()
 
     summary = {
+        "titles": titles,
         "scraped": 0,
         "skipped_fresh": 0,
         "skipped_no_stats": 0,
@@ -262,7 +294,7 @@ def run_batch(
 
             normalized = normalizer.normalize_character(stats)
             db.upsert_character(
-                name=stats.name or title,
+                name=titled_name(title, stats.name) if series in TITLE_NAMED_SERIES else (stats.name or title),
                 source_url=url,
                 category=series or category,
                 raw=stats.to_dict(),
@@ -293,6 +325,10 @@ def main() -> int:
         help="Show what would be scraped (count + sample titles) without fetching any character page",
     )
     argp.add_argument(
+        "--only-in", metavar="CATEGORY",
+        help="Keep only pages that are also in this category, e.g. a team's members who are in 'Marvel Comics'",
+    )
+    argp.add_argument(
         "--series", choices=sorted(SUBSERIES),
         help="Store everything under this one series, split into subseries (see SUBSERIES)",
     )
@@ -300,9 +336,13 @@ def main() -> int:
 
     try:
         lookup = subseries_lookup(args.series) if args.series else None
+        only_in = set(fetch_category_members(args.only_in)) if args.only_in else None
+        done: set = set()
         for category in args.category:
-            run_batch(category, force=args.force, freshness_days=args.freshness_days, dry_run=args.dry_run,
-                      series=args.series, subseries_of=lookup)
+            summary = run_batch(category, force=args.force, freshness_days=args.freshness_days, dry_run=args.dry_run,
+                                series=args.series, subseries_of=lookup,
+                                only_in=None if only_in is None else only_in - done)
+            done |= set(summary.get("titles") or [])
     except scraper.FetchError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

@@ -279,6 +279,14 @@ def test_display_names_prefer_the_name_people_use():
         assert C.short_name(C.base_name(name, url)) == shown, (name, C.base_name(name, url))
 
 
+def test_title_named_series_lead_with_the_page_title():
+    from batch_scrape import titled_name
+    assert titled_name("Doctor Doom", "Victor Von Doom") == "Doctor Doom, Victor Von Doom"
+    assert titled_name("Black Cat (Marvel Comics)", "Black Cat/Felicia Hardy") == "Black Cat, Black Cat/Felicia Hardy"
+    assert titled_name("Silver Surfer (Marvel Comics)", "Silver Surfer, Norrin Radd") == "Silver Surfer, Norrin Radd"
+    assert titled_name("Nova (Sam Alexander)", None) == "Nova"
+
+
 def test_display_names_label_versions_that_share_a_page_title():
     # Invincible's Comics and TV pages spell the Name field differently, so
     # only their page titles show they're two versions of one character.
