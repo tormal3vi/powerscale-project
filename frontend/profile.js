@@ -327,6 +327,7 @@ async function renderDiscord() {
       $('discord-connect').disabled = true;
       try {
         profile.discord = (await Api.linkDiscord(linkCode)).discord;
+        if (profile.discord_shown == null) profile.discord_shown = true;
         history.replaceState(null, '', 'profile.html');
         renderDiscordState();
       } catch (err) {
@@ -348,12 +349,26 @@ function renderDiscordState() {
   actions.innerHTML = '';
   if (profile.discord) {
     discordText(['Connected as ', profile.discord, '. In Discord you can start duels with /duel, and people can look you up with /profile.']);
+    // Shown on your public profile, and findable from Discord - both ways, or neither.
+    $('discord-text').insertAdjacentHTML('beforeend', `
+      <label class="settings-check"><input type="checkbox" id="discord-shown"${profile.discord_shown ? ' checked' : ''}>
+        Show it on my public profile, and let people find my Powerscale account from Discord</label>`);
+    $('discord-shown').addEventListener('change', async (e) => {
+      try {
+        await Api.showDiscord(e.target.checked);
+        profile.discord_shown = e.target.checked;
+      } catch (err) {
+        e.target.checked = !e.target.checked;
+        $('discord-error').textContent = err.message;
+      }
+    });
     actions.innerHTML = '<button type="button" class="btn-outline settings-btn-lg" id="discord-unlink">Disconnect</button>';
     $('discord-unlink').addEventListener('click', async () => {
       if (!confirm('Disconnect your Discord account?')) return;
       try {
         await Api.unlinkDiscord();
         profile.discord = null;
+        profile.discord_shown = true;
         renderDiscordState();
       } catch (err) {
         $('discord-error').textContent = err.message;

@@ -1,5 +1,15 @@
 [
   {
+    "id": "2026-09-29.2",
+    "date": "2026-09-29",
+    "title": "Your Discord on your profile",
+    "changes": [
+      "Linked your Discord? Your Powerscale profile now shows it, and /profile in Discord shows who you are on both.",
+      "Right-click anyone in Discord → Apps → Powerscale profile to see their profile.",
+      "Rather keep them apart? Untick \"Show it on my public profile\" in Profile settings: it hides the link both ways."
+    ]
+  },
+  {
     "id": "2026-09-29.1",
     "date": "2026-09-29",
     "title": "Matchup of the day on Discord, and duels from Discord",

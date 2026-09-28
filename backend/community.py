@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 
 from sqlalchemy import exc as exc_mod
 from sqlalchemy import (
-    Column, DateTime, ForeignKey, Index, Integer, LargeBinary, MetaData, String, Table, Text,
+    Boolean, Column, DateTime, ForeignKey, Index, Integer, LargeBinary, MetaData, String, Table, Text,
     UniqueConstraint, and_, create_engine, delete, event, exists, func, insert, inspect, literal, select, text,
     update,
 )
@@ -91,6 +91,9 @@ users = Table(
     # Their Discord account, once linked (/link in the Discord app).
     Column("discord_id", String(32), nullable=True),
     Column("discord_name", String(64), nullable=True),
+    # Shown on their public profile, and findable from Discord (/profile
+    # @them) - NULL means yes, the default. Off hides the link both ways.
+    Column("discord_public", Boolean, nullable=True),
 )
 # One-time codes from the Discord app's /link: open the link while logged
 # in on the site, confirm, and that Discord account is yours.
@@ -196,7 +199,7 @@ site_marks = Table(
 _ADDED_COLUMNS = {
     "posts": [("kind", "VARCHAR(16)"), ("ruling_winner", "INTEGER"), ("credit_user_id", "INTEGER")],
     "users": [("bio", "VARCHAR(200)"), ("favorite_char_id", "INTEGER"), ("discord_id", "VARCHAR(32)"),
-              ("discord_name", "VARCHAR(64)")],
+              ("discord_name", "VARCHAR(64)"), ("discord_public", "BOOLEAN")],
 }
 
 
@@ -371,7 +374,8 @@ def get_profile(user_id: Optional[int] = None, username: Optional[str] = None) -
     where = users.c.id == user_id if user_id is not None else users.c.username_lower == (username or "").lower()
     with reader.connect() as conn:
         row = conn.execute(select(users.c.id, users.c.username, users.c.bio, users.c.favorite_char_id,
-                                  users.c.created_at, users.c.discord_name).where(where)).mappings().first()
+                                  users.c.created_at, users.c.discord_id, users.c.discord_name,
+                                  users.c.discord_public).where(where)).mappings().first()
         if row is None:
             return None
         post_count = conn.execute(select(func.count()).select_from(posts).where(
@@ -433,11 +437,20 @@ def unlink_discord(user_id: int) -> None:
         conn.execute(update(users).where(users.c.id == user_id).values(discord_id=None, discord_name=None))
 
 
-def user_by_discord(discord_id: str) -> Optional[dict]:
+def user_by_discord(discord_id: str, shown_only: bool = False) -> Optional[dict]:
+    """The account a Discord user linked. shown_only: only if they show it
+    publicly - for looking someone else up."""
     with reader.connect() as conn:
-        row = conn.execute(select(users.c.id, users.c.username)
+        row = conn.execute(select(users.c.id, users.c.username, users.c.discord_public)
                            .where(users.c.discord_id == str(discord_id))).mappings().first()
-    return dict(row) if row else None
+    if row is None or (shown_only and row["discord_public"] is False):
+        return None
+    return {"id": row["id"], "username": row["username"]}
+
+
+def show_discord(user_id: int, shown: bool) -> None:
+    with engine.begin() as conn:
+        conn.execute(update(users).where(users.c.id == user_id).values(discord_public=bool(shown)))
 
 
 def search_usernames(text: str, limit: int = 25) -> List[str]:

@@ -243,11 +243,19 @@ class ProfileOut(BaseModel):
     post_count: int
     likes_received: Optional[int] = None  # only on your own profile
     record: Optional["RecordOut"] = None  # prediction duels
-    discord: Optional[str] = None  # the linked Discord account's name - only on your own profile
+    # The linked Discord account: always on your own profile, on anyone
+    # else's only if they show it.
+    discord: Optional[str] = None
+    discord_id: Optional[str] = None
+    discord_shown: Optional[bool] = None  # your own profile only: the "show it" setting
 
 
 class DiscordLinkIn(BaseModel):
     code: str = Field(..., max_length=64)
+
+
+class DiscordShownIn(BaseModel):
+    shown: bool
 
 
 class ProfileIn(BaseModel):

@@ -1410,6 +1410,8 @@ a.vs-card-name:hover, a.character-card-name:hover { text-decoration: underline; 
 .settings-discord-actions:empty { display: none; }
 .settings-discord-actions > * { font-size: 13px; padding: 11px 18px; }
 #discord-card .settings-text b { color: var(--text-primary); }
+.settings-check { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; color: var(--text-secondary); cursor: pointer; }
+.settings-check input { margin-top: 3px; accent-color: var(--accent-gold); }
 #discord-card .form-error:not(:empty) { display: block; margin-top: 8px; }
 .settings-danger { border-color: rgba(225, 82, 82, 0.27); }
 .settings-danger .settings-card-title { color: #E19999; margin-bottom: 8px; }
@@ -2151,6 +2153,11 @@ a.tk-title:hover, a.tk-row-title:hover { color: var(--accent-gold); }
 .up-fav { display: inline-flex; align-items: center; gap: 8px; padding: 4px 11px 4px 4px; border-radius: var(--radius-pill);
   background: var(--pill-bg); font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
 .up-fav:hover { color: var(--accent-gold); }
+.up-discord { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px 5px 8px; border-radius: var(--radius-pill);
+  background: var(--pill-bg); font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.up-discord .discord-icon { width: 16px; height: 16px; color: #5865F2; }
+.up-discord:hover { background: #5865F2; color: #fff; }
+.up-discord:hover .discord-icon { color: #fff; }
 .up-fav-tile { position: relative; width: 22px; height: 22px; border-radius: 6px; overflow: hidden; display: flex; align-items: center;
   justify-content: center; font: 700 11px var(--font-serif); color: var(--bg); flex-shrink: 0; }
 .up-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }

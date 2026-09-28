@@ -14,9 +14,9 @@ from fastapi.concurrency import run_in_threadpool
 import db
 from backend import avatars, characters, community, discord_webhooks, duels, tickets
 from backend.schemas import (
-    AuthIn, CommentIn, CommentListOut, CommentOut, DeleteAccountIn, DiscordLinkIn, FavoriteOut, LikeOut, MatchupOut,
-    MeOut, OverrideIn, OverrideOut, PasswordIn, PostIn, PostListOut, PostOut, ProfileIn, ProfileOut, RecordOut,
-    RulingOut, ThreadOut, UserOut,
+    AuthIn, CommentIn, CommentListOut, CommentOut, DeleteAccountIn, DiscordLinkIn, DiscordShownIn, FavoriteOut,
+    LikeOut, MatchupOut, MeOut, OverrideIn, OverrideOut, PasswordIn, PostIn, PostListOut, PostOut, ProfileIn,
+    ProfileOut, RecordOut, RulingOut, ThreadOut, UserOut,
 )
 
 router = APIRouter()
@@ -150,6 +150,7 @@ def _favorite_out(char_id: Optional[int], cache: Optional[dict] = None) -> Optio
 
 
 def _profile_out(profile: dict, own: bool) -> ProfileOut:
+    shown = profile.get("discord_public") is not False  # NULL: shown, the default
     return ProfileOut(
         username=profile["username"], is_admin=community.is_admin(profile["username"]),
         avatar_url=avatar_url(profile["username"], community.avatar_updated_at(profile["id"])),
@@ -157,7 +158,9 @@ def _profile_out(profile: dict, own: bool) -> ProfileOut:
         member_since=profile["created_at"], post_count=profile["post_count"],
         likes_received=profile["likes_received"] if own else None,
         record=RecordOut(**duels.records([profile["id"]]).get(profile["id"], {})),
-        discord=profile.get("discord_name") if own else None,
+        discord=profile.get("discord_name") if own or shown else None,
+        discord_id=profile.get("discord_id") if own or shown else None,
+        discord_shown=profile.get("discord_public") is not False if own else None,
     )
 
 
@@ -185,6 +188,12 @@ def discord_link(payload: DiscordLinkIn, user: dict = Depends(require_user)):
         return {"discord": community.redeem_discord_link(payload.code, user["id"])}
     except community.LinkError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/api/me/discord/shown", dependencies=[Depends(same_origin)])
+def discord_shown(payload: DiscordShownIn, user: dict = Depends(require_user)):
+    community.show_discord(user["id"], payload.shown)
+    return {"shown": payload.shown}
 
 
 @router.delete("/api/me/discord", dependencies=[Depends(same_origin)])

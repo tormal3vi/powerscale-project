@@ -106,6 +106,8 @@ async function render() {
           ${fav ? `<a class="up-fav" href="character.html?id=${fav.id}">
             <span class="up-fav-tile${fav.image_url ? ' has-pic' : ''}" style="background:${accentFor(fav.id)}">${characterTileInner(fav.name, fav.image_url, 48)}</span>
             ${escapeHtml(fav.name)}</a>` : ''}
+          ${p.discord ? `<a class="up-discord" href="https://discord.com/users/${encodeURIComponent(p.discord_id)}" target="_blank"
+            rel="noopener" title="Their Discord account">${DISCORD_ICON}<span class="up-discord-name"></span></a>` : ''}
           <span class="up-since">Member since ${monthYear(p.member_since)}${p.bio ? '' : ' · no bio yet'}</span>
         </div>
       </div>
@@ -137,6 +139,8 @@ async function render() {
   root.querySelector('.up-name').textContent = p.username;
   const bio = root.querySelector('.up-bio');
   if (bio) bio.textContent = p.bio;
+  const discordName = root.querySelector('.up-discord-name');
+  if (discordName) discordName.textContent = p.discord;
   root.querySelectorAll('[data-t]').forEach((el) => { el.textContent = texts[Number(el.dataset.t)]; });
   root.querySelectorAll('[data-act]').forEach((btn) => btn.addEventListener('click', async () => {
     try {

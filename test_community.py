@@ -767,9 +767,28 @@ def test_discord_linking_and_duel_command():
     assert run("duel", as_discord("111", "ann_dc"), opponent="999")["flags"] == discord_bot.EPHEMERAL  # not linked
     assert run("duel", as_discord("111", "ann_dc"), opponent="222", format="2v2")["flags"] == discord_bot.EPHEMERAL
 
-    # /profile by Discord user, or your own.
-    assert run("profile", as_discord("111", "ann_dc"), user="222")["embeds"][0]["title"] == "link_ben"
+    # /profile by Discord user, or your own - with a Discord line.
+    card = run("profile", as_discord("111", "ann_dc"), user="222")["embeds"][0]
+    assert card["title"] == "link_ben" and {"name": "Discord", "value": "<@222>", "inline": True} in card["fields"]
     assert run("profile", as_discord("111", "ann_dc"))["embeds"][0]["title"] == "link_ann"
+    right_click = discord_bot.handle({"type": 2, "data": {"type": 2, "name": "Powerscale profile", "target_id": "222"},
+                                      **as_discord("111", "ann_dc")})["data"]
+    assert right_click["embeds"][0]["title"] == "link_ben"
+
+    # The public profile shows it, both ways - until they hide it.
+    from backend import community_api
+    public = community_api._profile_out(community.get_profile(user_id=ben["id"]), own=False)
+    assert public.discord == "ben_dc" and public.discord_id == "222" and public.discord_shown is None
+    community.show_discord(ben["id"], False)
+    public = community_api._profile_out(community.get_profile(user_id=ben["id"]), own=False)
+    assert public.discord is None and public.discord_id is None
+    own = community_api._profile_out(community.get_profile(user_id=ben["id"]), own=True)
+    assert own.discord == "ben_dc" and own.discord_shown is False
+    hidden = run("profile", as_discord("111", "ann_dc"), user="222")
+    assert hidden["flags"] == discord_bot.EPHEMERAL  # can't be found from Discord
+    assert run("duel", as_discord("111", "ann_dc"), opponent="222")["flags"] == discord_bot.EPHEMERAL
+    assert run("profile", as_discord("222", "ben_dc"))["embeds"][0]["title"] == "link_ben"  # themselves: still fine
+    assert not any(f["name"] == "Discord" for f in run("profile", as_discord("222", "ben_dc"))["embeds"][0]["fields"])
     community.unlink_discord(ann["id"])
     assert community.user_by_discord("111") is None
     assert run("profile", as_discord("111", "ann_dc"))["flags"] == discord_bot.EPHEMERAL

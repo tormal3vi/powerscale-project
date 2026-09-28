@@ -123,6 +123,7 @@ const Api = {
   discordPending: (code) => apiGet(`/api/me/discord/pending?code=${encodeURIComponent(code)}`),
   linkDiscord: (code) => apiPost('/api/me/discord', { code }),
   unlinkDiscord: () => apiDelete('/api/me/discord'),
+  showDiscord: (shown) => apiSend('PUT', '/api/me/discord/shown', { shown }),
   userPage: (username) => apiGet(`/api/users/${encodeURIComponent(username)}/page`),
   userProfile: (username) => apiGet(`/api/users/${encodeURIComponent(username)}`),
   saveProfile: (profile) => apiSend('PUT', '/api/me/profile', profile),

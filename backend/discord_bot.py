@@ -72,6 +72,8 @@ COMMANDS = [
          {"type": USER, "name": "user", "description": "Or a Discord user who linked their account",
           "required": False}]},
     {"name": "link", "description": "Connect your Discord to your Powerscale account.", **EVERYWHERE},
+    # Right-click someone -> Apps -> Powerscale profile.
+    {"name": "Powerscale profile", "type": 2, **EVERYWHERE},
     {"name": "duel", "description": "Start a duel on Powerscale and post it here for someone to join.", **EVERYWHERE,
      "options": [
          {"type": STRING, "name": "mode", "required": False,
@@ -117,12 +119,15 @@ def handle(interaction: dict) -> dict:
     options = {o["name"]: o for o in data.get("options") or []}
     if kind == 4:  # typing in an option with suggestions
         return {"type": 8, "data": {"choices": _suggest(options)}}
-    if kind == 2:  # a slash command
-        command = {"compare": _compare, "character": _character, "random": _random, "leaderboard": _leaderboard,
-                   "profile": _profile, "link": _link, "duel": _duel}.get(data.get("name"))
+    if kind == 2:  # a command
+        args = {k: o.get("value") for k, o in options.items()}
+        if data.get("type") == 2:  # right-click a user -> Apps -> Powerscale profile
+            command, args = _profile, {"user": data.get("target_id")}
+        else:
+            command = {"compare": _compare, "character": _character, "random": _random, "leaderboard": _leaderboard,
+                       "profile": _profile, "link": _link, "duel": _duel}.get(data.get("name"))
         try:
-            reply = (command({k: o.get("value") for k, o in options.items()}, interaction) if command
-                     else _oops("I don't know that command."))
+            reply = command(args, interaction) if command else _oops("I don't know that command.")
         except Exception:  # noqa: BLE001 - Discord shows its own vague error otherwise
             reply = _oops("Something went wrong on the site. Try again in a moment.")
         return {"type": 4, "data": {"allowed_mentions": {"parse": []}, **reply}}
@@ -401,8 +406,10 @@ def _recent_duels(user_id: int, limit: int = 3) -> str:
 def _profile(args: dict, interaction: Optional[dict] = None) -> dict:
     name = str(args.get("username") or "").strip().lstrip("@")
     if args.get("user") or not name:  # a Discord user, or yourself
-        discord_id = args.get("user") or _discord_user(interaction)[0]
-        linked = community.user_by_discord(discord_id) if discord_id else None
+        me = _discord_user(interaction)[0]
+        discord_id = str(args.get("user") or me or "")
+        # Someone else only if they show their link; yourself always.
+        linked = community.user_by_discord(discord_id, shown_only=discord_id != me) if discord_id else None
         if linked is None:
             return _oops("They haven't linked a Powerscale account yet (/link)." if args.get("user")
                          else "Give a username - or link your own account with /link.")
@@ -425,6 +432,8 @@ def _profile(args: dict, interaction: Optional[dict] = None) -> dict:
          "value": ((f"#{rank} · " if rank else "") + f"{rec.wins}–{rec.draws}–{rec.losses}") if played else "None yet"},
         {"name": "Overrules suggested", "value": str(tickets.credited_overrules(uid)), "inline": True},
     ]
+    if out.discord_id:  # linked, and shown
+        fields.append({"name": "Discord", "value": f"<@{out.discord_id}>", "inline": True})
     if out.favorite:
         fields.append({"name": "Favorite character", "inline": True,
                        "value": f"[{_md(_clip(out.favorite.name, 80))}]({_site()}/character.html?id={out.favorite.id})"})
@@ -470,7 +479,7 @@ def _duel(args: dict, interaction: Optional[dict] = None) -> dict:
     opponent_id = str(args["opponent"]) if args.get("opponent") else None
     invite = []
     if opponent_id:
-        opponent = community.user_by_discord(opponent_id)
+        opponent = community.user_by_discord(opponent_id, shown_only=True)
         if opponent is None:
             return _oops("They haven't linked a Powerscale account yet - they can use /link.")
         if opponent["id"] == me["id"]:
@@ -505,7 +514,7 @@ def _shape(commands: List[dict]) -> list:
     def opt(o):
         return (o["name"], o.get("description"), o["type"], bool(o.get("required")), bool(o.get("autocomplete")),
                 tuple(c["value"] for c in o.get("choices") or []))
-    return sorted((c["name"], c.get("description"), tuple(opt(o) for o in c.get("options") or []),
+    return sorted((c["name"], c.get("type", 1), c.get("description") or "", tuple(opt(o) for o in c.get("options") or []),
                    tuple(sorted(c.get("integration_types") or [])), tuple(sorted(c.get("contexts") or [])))
                   for c in commands)
 
