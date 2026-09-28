@@ -109,8 +109,13 @@ SUBSERIES_BY_QUALIFIER = {
                       "2021 Movie": "Films & Shows", "Mortal Kombat Films": "Films & Shows",
                       "Mortal Kombat: Rebirth": "Films & Shows", "Rebirth": "Films & Shows",
                       "Federation of Martial Arts": "Films & Shows"},
-    # Marvel's Ultimate universe (Earth-1610) rates characters on its own.
-    "Marvel": {"Ultimate Comics": "Ultimate Comics"},
+    # Marvel's Ultimate universes (Earth-1610, and 2024's Earth-6160) rate
+    # characters on their own; the Mangaverse and a TV show's Spider-Man
+    # are other media.
+    "Marvel": {"Ultimate Comics": "Ultimate Comics", "Ultimate Marvel": "Ultimate Comics",
+               "Ultimate Universe": "Ultimate Comics", "Ultimate": "Ultimate Comics",
+               "New Ultimate Universe": "Ultimate Comics", "Mangaverse": "Other media",
+               "Electric Company": "Other media"},
     "Street Fighter": {"Udon Comics": "Other Media", "Street Fighter: The Movie": "Other Media",
                        "Power Rangers": "Other Media", "Asura's Wrath": "Other Media"},
 }
@@ -152,6 +157,24 @@ EXCLUDED_TITLES = {
         "DC Comics Cosmology",  # an overview of DC's universe, not a character
     },
     "The Boys": {"Compound V (The Boys)"},  # the drug, not a character
+    "Marvel": {
+        # Other franchises Marvel published comics of, as whole-franchise pages.
+        "007", "Beavis and Butt-Head", "Care Bears", "Masters of the Universe", "Star Trek", "Virtua Fighter",
+        "The Haunted Mansion", "Ultra Series (Marvel)",
+        # Overviews, rules and concepts; places.
+        "Marvel & Disney: What If…?", "Marvel Age", "Marvel Comics Cosmology (World Hierarchy)", "Marvel Mangaverse",
+        "Marvel × Shonen Jump+", "MAX-Universe", "Ultimate Marvel", "Ultimate Universe",
+        "Power-scaling Rules for Marvel and DC Comics", "God Physiology (Marvel Comics)",
+        "The Nature of Astral Forms, the Astral Plane, and Telepathy (Marvel Comics)", "Latveria", "Wakanda (Marvel Comics)",
+        # Items and vehicles.
+        "Cosmic Cubes", "The Infinity Stones", "The Ultimate Nullifier", "Mjolnir (Marvel Comics)",
+        "Universal Weapon (Marvel Comics)", "All-Black the Necrosword", "Spider-Mobile (Marvel Comics)",
+        # Iron Man's and War Machine's suits, one page per armor model: equipment,
+        # and 32 of them would crowd random duels. Iron Man's page covers him.
+        *(f"Iron Man Armor Model {n}" for n in (1, 2, 4, 6, 7, 8, 9, 13, 15, 16, 19, 20, 22, 29, 36, 37, 38, 42,
+                                                50, 51, 54, 61, 63, 65, 70, 72)),
+        *(f"War Machine Armor Model {n}" for n in (1, 2, 4, 6)),
+    },
     # Items, and a page about a comic crossover rather than a character.
     "Mortal Kombat": {"Amulet of Shinnok", "Kamidogu", "The Hourglass (Mortal Kombat)"},
     "Street Fighter": {"Street Fighter/Darkstalkers (Udon Comics)"},
