@@ -397,7 +397,7 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exc
             by_round.setdefault(h["round_no"], []).append(h["char_id"])
         prewarm.round_pictures([tuple(ids) for _, ids in sorted(by_round.items())])
     else:
-        prewarm.round_pictures([(r["char_a"], r["char_b"]) for r in rounds])
+        prewarm.round_pictures([((r["char_a"], r["form_a"]), (r["char_b"], r["form_b"])) for r in rounds])
     return game_id
 
 

@@ -354,11 +354,15 @@ def daily_matchup(response: Response):
 # <meta> tags without running any JavaScript, so a matchup/character link
 # only previews properly if the server writes its summary into the HTML.
 
-def _preview_image(char_id: int) -> Optional[str]:
+def _preview_image(char_id: int, form: Optional[str] = None) -> Optional[str]:
     """A square crop of the character's wiki picture for a link preview
-    (same CDN crop the pages use - see characterPictureUrl in api.js)."""
-    row = db.get_character_by_id(char_id)
-    url = row.get("image_url") if row else None
+    (same CDN crop the pages use - see characterPictureUrl in api.js):
+    that form's picture when one is named, else the character's."""
+    if form:
+        url = characters.form_picture(char_id, form)
+    else:
+        row = db.get_character_by_id(char_id)
+        url = row.get("image_url") if row else None
     if not url:
         return None
     path, _, query = url.partition("?")
@@ -456,7 +460,8 @@ def _compare_preview(a: Optional[str], b: Optional[str], fa: Optional[str], fb: 
             verdict += f" ({v.confidence_hint})"
     else:
         verdict = v.label
-    return title, f"{verdict}. {v.form_a} vs {v.form_b}.", _preview_image(pictured)
+    pictured_form = v.form_a if pictured == char_a else v.form_b
+    return title, f"{verdict}. {v.form_a} vs {v.form_b}.", _preview_image(pictured, pictured_form)
 
 
 def _character_preview(char_id: Optional[str]):

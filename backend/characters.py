@@ -163,6 +163,27 @@ def all_collisions() -> set:
         return _colliding
 
 
+@functools.lru_cache(maxsize=4096)
+def form_picture(char_id: int, form_name: Optional[str] = None) -> Optional[str]:
+    """The wiki picture for one of a character's forms - the default form
+    (its strongest, what duels and verdicts use) when none is named: the
+    form's own picture if its page has one (God Dimple), else the
+    character's. An admin's replacement picture is the caller's to prefer."""
+    row = db.get_character_by_id(char_id)
+    if row is None:
+        return None
+    normalized = json.loads(row["normalized_json"])
+    raw_forms = json.loads(row["raw_json"]).get("forms") or []
+    forms = normalized.get("forms") or []
+    if forms:
+        name = form_name or calculator.select_form(normalized).get("name")
+        # raw and normalized forms are parallel lists
+        index = next((i for i, f in enumerate(forms) if f.get("name") == name), None)
+        if index is not None and index < len(raw_forms) and raw_forms[index].get("image_url"):
+            return raw_forms[index]["image_url"]
+    return row.get("image_url")
+
+
 def invalidate() -> None:
     """Call after changing the characters table."""
     global _colliding
@@ -170,6 +191,7 @@ def invalidate() -> None:
         _colliding = None
     _compare_cached.cache_clear()
     scorable_pool.cache_clear()
+    form_picture.cache_clear()
 
 
 @functools.lru_cache(maxsize=1)

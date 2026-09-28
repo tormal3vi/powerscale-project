@@ -287,6 +287,21 @@ def test_title_named_series_lead_with_the_page_title():
     assert titled_name("Nova (Sam Alexander)", None) == "Nova"
 
 
+def test_duels_show_the_picture_of_the_form_they_use():
+    from backend import characters, duels_api
+    dimple = 4804  # God Dimple (his default, strongest form) has its own picture
+    main = db_row_image(dimple)
+    assert "God_Dimple" in characters.form_picture(dimple) and characters.form_picture(dimple) != main
+    assert characters.form_picture(dimple, "Full Power") == main  # no picture of its own: the character's
+    side = duels_api._side(dimple, None, {})
+    assert side.form == "God Dimple" and "God_Dimple" in side.image_url
+
+
+def db_row_image(char_id):
+    import db
+    return db.get_character_by_id(char_id)["image_url"]
+
+
 def test_display_names_label_versions_that_share_a_page_title():
     # Invincible's Comics and TV pages spell the Name field differently, so
     # only their page titles show they're two versions of one character.

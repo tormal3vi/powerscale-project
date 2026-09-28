@@ -13,9 +13,8 @@ is sent to the players, so the matchups stay hidden.
 import os
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, List, Optional
 
-import db
 import scraper
 
 DUEL_PX = 320  # the size duels.js asks for: characterPictureUrl(url, 320)
@@ -40,16 +39,19 @@ def _fetch(url: str) -> None:
         pass
 
 
-def round_pictures(pairs: Iterable[Tuple[int, int]]) -> None:
-    """Queues both pictures of each (character, character) round, in round
-    order, so the first rounds are ready first."""
+def round_pictures(rounds: Iterable[tuple]) -> None:
+    """Queues every picture of each round, in round order, so the first
+    rounds are ready first. A round lists its characters - ids (their
+    default form: a draft hand) or (id, form) pairs - and each gets the
+    picture of that form, as the round will show it."""
     if os.environ.get("PREWARM_PICTURES") == "0":  # tests: no network
         return
+    from backend import characters
     urls: List[str] = []
-    for pair in pairs:
-        for char_id in pair:
-            row = db.get_character_by_id(char_id) or {}
-            url = picture_url(row.get("image_url"), DUEL_PX)
+    for shown in rounds:
+        for entry in shown:
+            char_id, form = entry if isinstance(entry, tuple) else (entry, None)
+            url = picture_url(characters.form_picture(char_id, form), DUEL_PX)
             if url and url not in urls:
                 urls.append(url)
     for url in urls:

@@ -1,5 +1,13 @@
 [
   {
+    "id": "2026-09-29.5",
+    "date": "2026-09-29",
+    "title": "Duel pictures match the form",
+    "changes": [
+      "Duels show the picture of the form the round actually uses: God Dimple looks like God Dimple, Cosmic Garou like Cosmic Garou. It fixes 347 characters, and the Discord bot's pictures and shared matchup links too."
+    ]
+  },
+  {
     "id": "2026-09-29.4",
     "date": "2026-09-29",
     "title": "Marvel is here (part 1)",

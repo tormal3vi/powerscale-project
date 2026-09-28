@@ -269,12 +269,14 @@ def _stat_lines(char_id: int, form_name: Optional[str]) -> str:
     return "\n".join(f"**{label}:** {_clip(_stat(form, axis), 90)}" for axis, label in STATS)
 
 
-def _picture(char_id: int, px: int = 200) -> Optional[str]:
+def _picture(char_id: int, px: int = 200, form: Optional[str] = None) -> Optional[str]:
+    """An admin's replacement picture, else the wiki's for that form (the
+    default form when none is named)."""
     replaced = community.character_image_versions().get(char_id)
     url = community_api.character_image_url(char_id, replaced) if replaced else None
     if url:
         return _site() + url if url.startswith("/") else url
-    url = (db.get_character_by_id(char_id) or {}).get("image_url")
+    url = characters.form_picture(char_id, form)
     if not url or not url.startswith("https://static.wikia.nocookie.net/"):
         return None
     path, _, query = url.partition("?")
@@ -319,7 +321,7 @@ def _compare_reply(a: int, b: int, form_a: Optional[str] = None, form_b: Optiona
                    {"name": _clip(title_b, 256), "value": _stat_lines(b, v.form_b), "inline": True}],
         "footer": {"text": "Heuristic estimate from normalized VS Battles Wiki stats · powerscale.online"},
     }
-    pic = _picture(pictured)
+    pic = _picture(pictured, form=v.form_a if pictured == a else v.form_b)
     if pic:
         embed["thumbnail"] = {"url": pic}
     return {"embeds": [embed], "components": _link_button(url)}
@@ -359,7 +361,7 @@ def _character(args: dict, interaction: Optional[dict] = None) -> dict:
     embed = {"title": _clip(c["display"], 256), "url": url, "color": GOLD,
              "description": "\n".join(description) + "\n\n" + _stat_lines(c["id"], form),
              "footer": {"text": "From the VS Battles Wiki · powerscale.online"}}
-    pic = _picture(c["id"], 400)
+    pic = _picture(c["id"], 400, form=shown)
     if pic:
         embed["thumbnail"] = {"url": pic}
     return {"embeds": [embed], "components": _link_button(url)}

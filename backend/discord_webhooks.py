@@ -85,9 +85,10 @@ def _later(kind: str, build) -> None:
     _pool.submit(run)
 
 
-def _picture(char_id: int) -> Optional[str]:
-    row = db.get_character_by_id(char_id) or {}
-    url = row.get("image_url")
+def _picture(char_id: int, form: Optional[str] = None) -> Optional[str]:
+    """The wiki picture for that form (the default form when none is named)."""
+    from backend import characters
+    url = characters.form_picture(char_id, form)
     if not url or not url.startswith("https://static.wikia.nocookie.net/"):
         return None
     path, _, query = url.partition("?")
@@ -124,7 +125,7 @@ def overrule(char_a: int, char_b: int, form_a: str, form_b: str, winner_id: int,
                  "url": f"{_site()}/compare.html?a={char_a}&b={char_b}&fa={urllib.parse.quote(form_a)}"
                         f"&fb={urllib.parse.quote(form_b)}",
                  "description": "\n".join(lines), "footer": {"text": f"Ruled by {admin}"}}
-        pic = _picture(winner_id)
+        pic = _picture(winner_id, v.form_a if winner_id == char_a else v.form_b)
         if pic:
             embed["thumbnail"] = {"url": pic}
         return embed
