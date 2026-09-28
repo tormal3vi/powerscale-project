@@ -17,10 +17,11 @@ def name_key(name: str) -> str:
     """A character's primary name for collision purposes: the first alias
     (names list aliases after ',', ';' or '/'), parentheticals dropped,
     whitespace collapsed - so "Frieza/Freeza/Freezer", "Frieza / Freeza /
-    Freezer" and plain "Frieza" all count as the same name."""
+    Freezer" and plain "Frieza" all count as the same name. A leading "The"
+    doesn't count either: "The Mandarin" (Lego) and "Mandarin" clash."""
     first = re.split(r"[,;/]", name, maxsplit=1)[0]
     first = re.sub(r"\([^)]*\)", "", first)
-    return " ".join(first.split()).lower()
+    return re.sub(r"^the\s+", "", " ".join(first.split()).lower())
 
 
 def _name_words(s: str) -> set:
@@ -94,7 +95,7 @@ def _title_key(source_url: str) -> Optional[str]:
     if not source_url.startswith("http"):
         return None
     bare = re.sub(r"\s*\([^)]*\)\s*$", "", scraper.page_title(source_url)).strip()
-    return "title:" + bare.lower()
+    return "title:" + re.sub(r"^the\s+", "", bare.lower())
 
 
 def colliding_names(conn) -> set:

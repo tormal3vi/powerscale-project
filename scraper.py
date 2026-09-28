@@ -74,7 +74,9 @@ def page_url(name_or_url: str) -> str:
     """Canonical /wiki/ URL for a name or URL, for display/record-keeping
     (not used for fetching - fetching goes through /api.php)."""
     title = _page_title(name_or_url)
-    return f"{BASE_URL}/wiki/{title.replace(' ', '_')}"
+    # "?" and "#" would start a query or a fragment ("Hank Pym (Marvel
+    # Cinematic Universe: What If...?)"): encoded, the link opens the page.
+    return f"{BASE_URL}/wiki/{title.replace(' ', '_').replace('?', '%3F').replace('#', '%23')}"
 
 
 def page_title(name_or_url: str) -> str:
@@ -85,8 +87,10 @@ def page_title(name_or_url: str) -> str:
 def _page_title(name_or_url: str) -> str:
     """Turn a character name or a /wiki/<Title> URL into a bare page title."""
     if name_or_url.startswith("http://") or name_or_url.startswith("https://"):
-        path = urlparse(name_or_url).path
-        title = path.rsplit("/wiki/", 1)[-1]
+        # Everything after /wiki/ - not urlparse's path, which would stop at
+        # a "?" that belongs to the title (in addresses stored before
+        # page_url encoded it).
+        title = name_or_url.split("/wiki/", 1)[1] if "/wiki/" in name_or_url else urlparse(name_or_url).path
         return unquote(title).replace("_", " ")
     return name_or_url.strip()
 

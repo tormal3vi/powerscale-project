@@ -303,6 +303,16 @@ def db_row_image(char_id):
     return db.get_character_by_id(char_id)["image_url"]
 
 
+def test_page_addresses_keep_a_question_mark_in_the_title():
+    import scraper
+    title = "Hank Pym (Marvel Cinematic Universe: What If...?)"
+    url = scraper.page_url(title)
+    assert url.endswith("What_If...%3F)") and scraper.page_title(url) == title
+    # addresses stored before encoding still read whole
+    assert scraper.page_title("https://vsbattles.fandom.com/wiki/Hank_Pym_(Marvel_Cinematic_Universe:_What_If...?)") == title
+    assert scraper.page_title(scraper.page_url("Cloak & Dagger (Marvel Rivals)")) == "Cloak & Dagger (Marvel Rivals)"
+
+
 def test_display_names_label_versions_that_share_a_page_title():
     # Invincible's Comics and TV pages spell the Name field differently, so
     # only their page titles show they're two versions of one character.

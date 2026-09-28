@@ -83,13 +83,19 @@ SUBSERIES = {
     # same fighters very differently. Titles say which; the rest by page.
     # Like DC: the comics by default, each adaptation its own part.
     "Marvel": ("Comics", [
-        ("MCU", ["Marvel Cinematic Universe"]),
+        # Film series before the MCU: their characters' cameos (Deadpool &
+        # Wolverine, No Way Home) put them in the MCU category too.
         ("Fox films", ["X-Men (Fox)", "Fantastic Four (Fox)"]),
-        ("Other films", ["Spider-Man Trilogy", "Hulk (2003)"]),
+        ("Sony films", ["Spider-Man Trilogy", "The Amazing Spider-Man", "Sony's Marvel Universe"]),
+        ("Other films", ["Hulk (2003)", "Blade Trilogy"]),
+        ("MCU", ["Marvel Cinematic Universe"]),
         ("Animated", ["Marvel Animated", "X-Men Evolution", "Avengers Assemble", "Spider-Man: The New Animated Series",
-                      "Spider-Man and his Amazing Friends", "Marvel & Disney: What If…?"]),
-        ("Games", ["Marvel's Spider-Man", "Marvel Rivals", "Marvel's Avengers (Game)", "Spider-Man: Shattered Dimensions"]),
-        ("Other media", ["Spider-Man: The Manga", "Marvel Age"]),
+                      "Spider-Man and his Amazing Friends", "Spectacular Spider-Man", "Iron Man: Armored Adventures",
+                      "Spider-Man (Fox Kids)", "Super Hero Squad"]),
+        ("Games", ["Marvel's Spider-Man", "Marvel Rivals", "Marvel's Avengers (Game)", "Spider-Man: Shattered Dimensions",
+                   "Spider-Man: Web of Shadows", "Spider-Man (2000 Game)", "Marvel Future Fight", "Marvel Tōkon",
+                   "Marvel vs. Capcom", "Lego Marvel"]),
+        ("Other media", ["Spider-Man: The Manga", "Marvel Age", "Marvel & Disney: What If…?"]),
     ]),
     "Mortal Kombat": ("Second Timeline", []),
     "Street Fighter": ("Games", []),
@@ -115,7 +121,11 @@ SUBSERIES_BY_QUALIFIER = {
     "Marvel": {"Ultimate Comics": "Ultimate Comics", "Ultimate Marvel": "Ultimate Comics",
                "Ultimate Universe": "Ultimate Comics", "Ultimate": "Ultimate Comics",
                "New Ultimate Universe": "Ultimate Comics", "Mangaverse": "Other media",
-               "Electric Company": "Other media"},
+               "Electric Company": "Other media",
+               # adaptation pages no adaptation category lists
+               "Super Hero Squad": "Animated", "Wolverine and the X-Men": "Animated",
+               "Spider-Man Unlimited": "Animated", "Ultimate Alliance": "Games", "TASM Games": "Games",
+               "Lego": "Games", "FANT4STIC": "Fox films", "Spider-Verse": "Animated"},  # Sony's animated films
     "Street Fighter": {"Udon Comics": "Other Media", "Street Fighter: The Movie": "Other Media",
                        "Power Rangers": "Other Media", "Asura's Wrath": "Other Media"},
 }
@@ -125,6 +135,7 @@ SUBSERIES_BY_QUALIFIER = {
 # the character or a one-page category named like the page itself, which
 # category_fetcher drops as the series' own page).
 SUBSERIES_BY_TITLE = {
+    "Marvel": {"Spider-Society": "Animated"},  # the Spider-Verse films' team
     # Other franchises' characters as they are in the Mortal Kombat games.
     "Mortal Kombat": {**{t: "Guests" for t in (
         "Alien (Mortal Kombat)", "Billy Loomis (Mortal Kombat)", "Freddy Krueger (Mortal Kombat)",
@@ -174,6 +185,27 @@ EXCLUDED_TITLES = {
         *(f"Iron Man Armor Model {n}" for n in (1, 2, 4, 6, 7, 8, 9, 13, 15, 16, 19, 20, 22, 29, 36, 37, 38, 42,
                                                 50, 51, 54, 61, 63, 65, 70, 72)),
         *(f"War Machine Armor Model {n}" for n in (1, 2, 4, 6)),
+        # Adaptations: items, a ship, and pages about a whole film/show/game.
+        *(f"{item} (Marvel Cinematic Universe)" for item in (
+            "Aether", "All-Black the Necrosword", "Casket of Ancient Winters", "Chitauri Scepter", "Eye of Agamotto",
+            "Gungnir", "Infinity Gauntlet", "Mjölnir", "Quantum Bands", "Soul Stone", "Stormbreaker", "Tesseract",
+            "The Darkhold", "The Orb")),
+        "Sanctuary II", "Marvel Cinematic Universe Cosmology", "FOX's X-Men", "FOX's Fantastic Four",
+        "Sam Raimi's Spider-Man Trilogy", "The Amazing Spider-Man Film series", "Marvel Animated Universe",
+        "The Spectacular Spider-Man", "Spider-Man and his Amazing Friends", "Spider-Man - X-Men: The Animated Series",
+        "Wolverine & the X-Men - Avengers: EMH!", "Marvel's Avengers", "Marvel Tōkon: Fighting Souls",
+        "Marvel vs. Capcom Cosmology", "Sonar Crystallizer", "Stun Beam (1982 Hulk Cartoon)", "The Infinity Sword",
+        "Infinity Gems (Marvel vs. Capcom)",
+        # Capcom's side of Marvel vs. Capcom: not Marvel characters.
+        *(f"{c} (Marvel vs. Capcom)" for c in (
+            "Abyss", "Akuma", "Albert Wesker", "Amaterasu", "Anakaris", "Anita", "Arthur", "B.B. Hood", "Cammy White",
+            "Captain Commando", "Charlie Nash", "Chris Redfield", "Chun-Li", "Crimson Viper", "Dan Hibiki", "Dante",
+            "Dhalsim", "Felicia", "Firebrand", "Frank West", "Grandmaster Meio", "Guile", "Hayato Kanzaki", "Hsien-Ko",
+            "Jedah Dohma", "Jill Valentine", "Jin Saotome", "Ken Masters", "M. Bison", "Mega Man", "Mega Man X",
+            "Michelle Heart", "Mike Haggar", "Monster Hunter", "Morrigan Aensland", "Nemesis", "Phoenix Wright",
+            "Roll", "Ryu", "Sakura Kasugano", "Sigma", "Spencer", "Strider Hiryu", "Trish", "Tron Bonne", "Vergil",
+            "Viewtiful Joe", "Zangief", "Zero", "The Resistance")),
+        "Amingo", "Norimaro", "Ruby Heart", "Shadow Lady", "SonSon",
     },
     # Items, and a page about a comic crossover rather than a character.
     "Mortal Kombat": {"Amulet of Shinnok", "Kamidogu", "The Hourglass (Mortal Kombat)"},
@@ -264,12 +296,14 @@ def run_batch(
     series: Optional[str] = None,
     subseries_of=None,
     only_in: Optional[set] = None,
+    titles: Optional[List[str]] = None,
 ) -> dict:
     """With `series`, every character is stored under that series (not the
     wiki category scraped) with its subseries; `subseries_of` can pass a
     lookup already built, when running several categories in a row."""
-    print(f"Fetching member list for {category!r}...")
-    titles = fetch_category_members(category)
+    if titles is None:
+        print(f"Fetching member list for {category!r}...")
+        titles = fetch_category_members(category)
     excluded = EXCLUDED_TITLES.get(series or category.replace("Category:", "").strip(), ())
     titles = [t for t in titles if t not in excluded and (only_in is None or t in only_in)]
     print(f"Found {len(titles)} character page(s) after filtering.")
