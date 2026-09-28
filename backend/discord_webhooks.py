@@ -3,8 +3,9 @@
 A webhook is a channel's secret posting URL (Discord: channel settings ->
 Integrations -> Webhooks). Set them as environment variables, never in
 code: DISCORD_WEBHOOK_OVERRULES gets admin overrules, DISCORD_WEBHOOK_DUELS
-finished duels, DISCORD_WEBHOOK_LEADERBOARD the weekly leaderboard (else
-the duels channel), DISCORD_WEBHOOK_UPDATES the site's update notes;
+finished duels, DISCORD_WEBHOOK_LOBBY open games looking for players and
+DISCORD_WEBHOOK_LEADERBOARD the weekly leaderboard (both else the duels
+channel), DISCORD_WEBHOOK_UPDATES the site's update notes;
 DISCORD_WEBHOOK_URL is used for whichever isn't set.
 With none set (local runs, tests) nothing is sent.
 
@@ -15,6 +16,7 @@ is built from what's saved, after the request that caused it is done.
 
 import json
 import os
+import re
 import threading
 import time
 import urllib.parse
@@ -45,17 +47,23 @@ def _webhook(*kinds: str) -> Optional[str]:
     return None
 
 
-def _send(url: str, embed: dict) -> None:
+def _request(method: str, url: str, embed: Optional[dict] = None) -> Optional[dict]:
+    """One call to a webhook; its JSON reply (if any), None when it failed."""
     # No pings, ever: a username or an overrule's reason could contain
     # "@everyone".
-    body = json.dumps({"embeds": [embed], "allowed_mentions": {"parse": []}}).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={
+    body = json.dumps({"embeds": [embed], "allowed_mentions": {"parse": []}}).encode() if embed else None
+    req = urllib.request.Request(url, data=body, method=method, headers={
         "Content-Type": "application/json", "User-Agent": scraper.USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            resp.read()
+            text = resp.read()
+        return json.loads(text) if text else {}
     except Exception:  # noqa: BLE001 - a missed announcement isn't worth an error page
-        pass
+        return None
+
+
+def _send(url: str, embed: dict) -> None:
+    _request("POST", url, embed)
 
 
 def _later(kind: str, build) -> None:
@@ -81,6 +89,11 @@ def _picture(char_id: int) -> Optional[str]:
         return None
     path, _, query = url.partition("?")
     return f"{path}/top-crop/width/200/height/200" + (f"?{query}" if query else "")
+
+
+def _md(text: str) -> str:
+    """Text shown as-is in Discord markdown: "tier_climber" stays un-italic."""
+    return re.sub(r"([\\_*~|`\[\]])", r"\\\1", text)
 
 
 def _clip(text: str, n: int) -> str:
@@ -276,3 +289,99 @@ def start_updates() -> None:
         except Exception:  # noqa: BLE001 - tried again on the next start
             pass
     threading.Thread(target=run, name="discord-updates", daemon=True).start()
+
+
+# --- open games looking for players ---------------------------------------------------------
+# A game open to anyone gets a "wants to duel" post with a link to join.
+# It's kept current - seats left - and deleted once the game is full,
+# cancelled or expired, so the channel only ever shows games you can
+# still join. At most one post per player every 10 minutes. The calls
+# run one at a time, in order, so a game that fills a moment after it's
+# created still has its post removed.
+
+LOBBY_EVERY = 600  # seconds between one player's posts
+_lobby = ThreadPoolExecutor(max_workers=1, thread_name_prefix="discord-lobby")
+_last_lobby_post: dict = {}
+
+
+def _message_url(webhook: str, message_id: str) -> str:
+    base, _, query = webhook.partition("?")
+    return f"{base}/messages/{message_id}" + (f"?{query}" if query else "")
+
+
+def lobby_embed(g) -> dict:
+    kind = f"{'Draft' if g.mode == 'draft' else 'Prediction'} duel · {g.format}"
+    how = ("Everyone is dealt 4 characters and picks the strongest, five rounds."
+           if g.mode == "draft" else "Five matchups, 20 seconds each: call who the site says wins.")
+    joined = [_md(p.username) for p in g.players]
+    lines = [f"**{kind}** · {g.seats_left} seat{'s' if g.seats_left != 1 else ''} left", how]
+    if len(joined) > 1:
+        lines.append("In: " + ", ".join(joined))
+    url = f"{_site()}/duels.html?game={g.id}"
+    lines.append(f"**[Join the game →]({url})**")
+    embed = {"title": _clip(f"⚔️ {g.creator} wants to duel", 256), "url": url, "color": GOLD,
+             "description": "\n".join(lines),
+             "footer": {"text": "Open to anyone · powerscale.online"}}
+    creator = next((p for p in g.players if p.username == g.creator), None)
+    if creator and creator.avatar_url:
+        embed["thumbnail"] = {"url": _site() + creator.avatar_url}
+    return embed
+
+
+def _set_message(game_id: int, message_id: Optional[str]) -> None:
+    from sqlalchemy import update
+    from backend import community, duels
+    with community.engine.begin() as conn:
+        conn.execute(update(duels.games).where(duels.games.c.id == game_id).values(discord_msg=message_id))
+
+
+def _lobby_post(url: str, game_id: int) -> None:
+    from backend import duels_api
+    g = duels_api._one(game_id, None)
+    if g.status != "open" or g.private:
+        return
+    now = time.time()
+    if now - _last_lobby_post.get(g.creator, 0) < LOBBY_EVERY:
+        return
+    _last_lobby_post[g.creator] = now
+    sep = "&" if "?" in url else "?"
+    message = _request("POST", f"{url}{sep}wait=true", lobby_embed(g))  # wait: Discord sends the message back
+    if message and message.get("id"):
+        _set_message(game_id, str(message["id"]))
+
+
+def _lobby_refresh(url: str, game_id: int) -> None:
+    from sqlalchemy import select
+    from backend import community, duels, duels_api
+    with community.reader.connect() as conn:
+        message_id = conn.execute(select(duels.games.c.discord_msg).where(duels.games.c.id == game_id)).scalar()
+    if not message_id:
+        return
+    g = duels_api._one(game_id, None)
+    if g.status == "open":
+        _request("PATCH", _message_url(url, message_id), lobby_embed(g))
+    else:
+        _request("DELETE", _message_url(url, message_id))
+        _set_message(game_id, None)
+
+
+def _lobby_task(fn, game_id: int) -> None:
+    url = _webhook("LOBBY", "DUELS")
+    if not url:
+        return
+
+    def run():
+        try:
+            fn(url, game_id)
+        except Exception:  # noqa: BLE001 - the game works the same without its post
+            pass
+    _lobby.submit(run)
+
+
+def lobby_open(game_id: int) -> None:
+    _lobby_task(_lobby_post, game_id)
+
+
+def lobby_update(game_id: int) -> None:
+    """After a join, leave, cancel or expiry: update the post, or remove it."""
+    _lobby_task(_lobby_refresh, game_id)

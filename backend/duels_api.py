@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 import calculator
 import db
-from backend import characters, community, duels
+from backend import characters, community, discord_webhooks, duels
 from backend.community_api import (
     avatar_url, character_image_url, current_user, post_limit, require_user, same_origin,
 )
@@ -205,18 +205,21 @@ def create_game(payload: DuelCreateIn, user: dict = Depends(require_user)):
                 raise HTTPException(status_code=404, detail=f"No character with id {cid}")
     game_id = _run(duels.create, user["id"], payload.format, payload.invite, [m.model_dump() for m in payload.matchups],
                    payload.exclude, payload.mode)
+    discord_webhooks.lobby_open(game_id)  # open to anyone: "wants to duel" on Discord
     return _one(game_id, user["id"])
 
 
 @router.post("/api/games/{game_id}/join", response_model=DuelOut, dependencies=[Depends(same_origin)])
 def join_game(game_id: int, payload: DuelJoinIn, user: dict = Depends(require_user)):
     _run(duels.join, game_id, user["id"], payload.team)
+    discord_webhooks.lobby_update(game_id)
     return _one(game_id, user["id"])
 
 
 @router.post("/api/games/{game_id}/leave", dependencies=[Depends(same_origin)])
 def leave_game(game_id: int, user: dict = Depends(require_user)):
     _run(duels.leave, game_id, user["id"])
+    discord_webhooks.lobby_update(game_id)
     return {"ok": True}
 
 
@@ -229,6 +232,7 @@ def decline_game(game_id: int, user: dict = Depends(require_user)):
 @router.post("/api/games/{game_id}/cancel", dependencies=[Depends(same_origin)])
 def cancel_game(game_id: int, user: dict = Depends(require_user)):
     _run(duels.cancel, game_id, user["id"])
+    discord_webhooks.lobby_update(game_id)
     return {"ok": True}
 
 

@@ -35,7 +35,7 @@ from starlette.concurrency import run_in_threadpool
 import calculator
 import db
 from backend import characters, community, community_api, duels, tickets
-from backend.discord_webhooks import GOLD, _clip, _site
+from backend.discord_webhooks import GOLD, _clip, _md, _site
 
 router = APIRouter()
 
@@ -366,11 +366,6 @@ def _leaderboard(args: dict) -> dict:
     embed = {"title": "Duel leaderboard", "url": url, "color": GOLD, "description": "\n".join(lines),
              "footer": {"text": "Wins–draws–losses · powerscale.online"}}
     return {"embeds": [embed], "components": _link_button(url, "Play a duel")}
-
-
-def _md(text: str) -> str:
-    """Text shown as-is in Discord markdown: "tier_climber" stays un-italic."""
-    return re.sub(r"([\\_*~|`\[\]])", r"\\\1", text)
 
 
 def _recent_duels(user_id: int, limit: int = 3) -> str:

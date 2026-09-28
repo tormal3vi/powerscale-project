@@ -1,5 +1,15 @@
 [
   {
+    "id": "2026-09-28.4",
+    "date": "2026-09-28",
+    "title": "Find opponents on Discord, and 32 characters get their forms",
+    "changes": [
+      "Start a duel that's open to anyone and it's posted in the Discord's duels channel, so others can jump in. The post shows the seats left and disappears once the game is full or cancelled.",
+      "32 characters now have their real forms instead of one: Johnny Joestar's Tusk Act 1–4, Frieza, Gohan, Josuke, Nezuko, Lex Luthor, Billy Butcher and more.",
+      "Fixed finished duels sometimes being announced twice on Discord."
+    ]
+  },
+  {
     "id": "2026-09-28.3",
     "date": "2026-09-28",
     "title": "/profile on Discord",

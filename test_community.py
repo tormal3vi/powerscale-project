@@ -654,6 +654,42 @@ def test_update_notes_are_announced_once():
     assert len({n["id"] for n in real}) == len(real) and hooks.update_embed(real[0])["description"]
 
 
+def test_renamed_forms_carry_overrules_and_posts_along():
+    from backend import form_renames
+    (boss,) = _users("rename_boss")
+    johnny, other = 934, 116  # Johnny Joestar: "Base" became Act 1-4
+    forms, default = form_renames._forms(johnny)
+    assert "Base" not in forms and default in forms
+    community.set_override(other, johnny, "Base", "Base", johnny, "Tusk wins", boss["id"])
+    community.create_post(boss["id"], "Tusk wins", None, other, johnny, "Base", "Base", kind="overrule",
+                          ruling_winner=johnny)
+    community.claim_mark("form_renames", "")  # as on a site that never ran a batch
+    assert form_renames.apply() >= 2
+    assert community.get_override(other, johnny, "Base", "Base") is None
+    assert community.get_override(other, johnny, "Base", default)["winner_id"] == johnny
+    assert form_renames.apply() == 0  # once only
+
+
+def test_a_finished_duel_is_announced_once():
+    from backend import discord_webhooks
+    announced = []
+    real = discord_webhooks.duel_finished
+    discord_webhooks.duel_finished = announced.append
+    try:
+        ann, ben = _users("once_ann", "once_ben")
+        game_id = duels.create(ann["id"], "1v1", [], [])
+        duels.join(game_id, ben["id"])
+        stale = dict(duels.game(game_id)["games"][0])  # a page's view from before the end: still active
+        _play(game_id, ann["id"], right=True)
+        _play(game_id, ben["id"], right=False)  # the last pick finishes it
+        assert announced == [game_id]
+        with community.reader.connect() as conn:  # a second request settling the same game
+            duels._settle(conn, [stale], community._now())
+        assert announced == [game_id]
+    finally:
+        discord_webhooks.duel_finished = real
+
+
 def test_games_from_before_teams_get_players_and_outcomes():
     from sqlalchemy import insert
     old_a, old_b = _users("old_a", "old_b")

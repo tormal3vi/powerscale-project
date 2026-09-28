@@ -72,6 +72,7 @@ games = Table(
     Column("picked", Integer, nullable=True),  # how many rounds the creator chose (NULL on old rows)
     Column("excluded", String(1000), nullable=True),  # series left out of the random rounds, "|"-joined
     Column("mode", String(12), nullable=True),  # predict (NULL on old rows) | draft
+    Column("discord_msg", String(32), nullable=True),  # its "wants to duel" post on Discord, while open
 )
 game_players = Table(
     "game_players", metadata,
@@ -129,7 +130,7 @@ def _migrate() -> None:
         community.add_missing_columns(conn, "games", [
             ("teams", "INTEGER"), ("team_size", "INTEGER"), ("winning_team", "INTEGER"),
             ("picked", "INTEGER"), ("excluded", "VARCHAR(1000)")])
-        community.add_missing_columns(conn, "games", [("mode", "VARCHAR(12)")])
+        community.add_missing_columns(conn, "games", [("mode", "VARCHAR(12)"), ("discord_msg", "VARCHAR(32)")])
         community.add_missing_columns(conn, "game_players", [("score", "INTEGER"), ("seat", "INTEGER")])
         has_players = select(game_players.c.game_id).where(game_players.c.game_id == games.c.id).exists()
         old = conn.execute(select(games).where(~has_players)).mappings().all()
@@ -667,8 +668,10 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
     for g in gs:
         if g["status"] == "open" and now - _aware(g["created_at"]) > timedelta(days=OPEN_DAYS):
             g.update(status="expired", finished_at=now)
-            conn.execute(update(games).where(games.c.id == g["id"]).values(status="expired", finished_at=now))
-            _changed()
+            if conn.execute(update(games).where(and_(games.c.id == g["id"], games.c.status == "open"))
+                            .values(status="expired", finished_at=now)).rowcount:
+                _changed()
+                discord_webhooks.lobby_update(g["id"])
     active = [g for g in gs if g["status"] == "active"]
     if not active:
         return
@@ -720,10 +723,14 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
                                                          game_players.c.user_id == m["user_id"]))
                          .values(outcome=m["outcome"], score=m["score"]))
         g.update(status="done", finished_at=now, winning_team=winning)
-        conn.execute(update(games).where(games.c.id == g["id"]).values(status="done", finished_at=now,
-                                                                        winning_team=winning))
-        _changed()
-        discord_webhooks.duel_finished(g["id"])
+        # Two requests can settle the same game at once (the last pick, and
+        # someone's page checking for news): only the one that actually
+        # moves it from active to done announces it.
+        finished = conn.execute(update(games).where(and_(games.c.id == g["id"], games.c.status == "active"))
+                                .values(status="done", finished_at=now, winning_team=winning)).rowcount
+        if finished:
+            _changed()
+            discord_webhooks.duel_finished(g["id"])
 
 
 # --- reading ---------------------------------------------------------------------------------
