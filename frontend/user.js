@@ -90,6 +90,7 @@ async function render() {
   texts = [];
   const viewer = await currentUser();
   const canBan = viewer && viewer.is_admin && !p.is_admin;
+  const isMe = viewer && viewer.username.toLowerCase() === p.username.toLowerCase();
   document.title = `${p.username} — Powerscale`;
   setTopbarTitle(p.username);
   const rec = p.record || { wins: 0, draws: 0, losses: 0 };
@@ -111,6 +112,8 @@ async function render() {
           <span class="up-since">Member since ${monthYear(p.member_since)}${p.bio ? '' : ' · no bio yet'}</span>
         </div>
       </div>
+      ${isMe ? '' : `<a class="btn-gold up-challenge" href="duels.html?invite=${encodeURIComponent(p.username)}"
+        title="Invite them to a duel"><span aria-hidden="true">⚔️</span>Challenge</a>`}
     </header>
     <div class="up-stats">
       ${stat(p.post_count, 'Posts')}

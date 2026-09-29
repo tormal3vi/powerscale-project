@@ -661,7 +661,7 @@ async function challengeFriend(button) {
   button.textContent = 'Creating…';
   try {
     const g = await Api.createGame('1v1', [], [{ char_a: state.a.id, char_b: state.b.id,
-      form_a: activeForm('a').name, form_b: activeForm('b').name }], [], 'predict');
+      form_a: activeForm('a').name, form_b: activeForm('b').name }], [], 'predict', true);
     const url = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}duels.html?game=${g.id}`;
     let shared = false;
     if (navigator.share) {

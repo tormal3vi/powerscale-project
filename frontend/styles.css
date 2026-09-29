@@ -1778,8 +1778,6 @@ body.modal-open { overflow: hidden; }
 .duel-hint { font-size: 12px; color: var(--text-quaternary); line-height: 1.5; margin: 8px 0 0; }
 .duel-lbl { display: block; font: 600 11px var(--font-mono); color: var(--text-quaternary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
 .duel-field { margin-bottom: 18px; }
-.duel-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
-.duel-field-row .duel-field { margin: 0; }
 
 .duel-formats { display: flex; gap: 8px; flex-wrap: wrap; }
 .duel-fmt {
@@ -1793,6 +1791,7 @@ body.modal-open { overflow: hidden; }
   font: 600 13px var(--font-sans); cursor: pointer;
 }
 .duel-toggle button.active { background: var(--accent-gold); color: var(--bg); }
+.duel-toggle-3 { grid-template-columns: repeat(3, 1fr); }
 .duel-input {
   display: block; width: 100%; box-sizing: border-box; background: var(--pill-bg);
   border: 1px solid var(--control-border); border-radius: var(--radius-sm); padding: 10px 13px;
@@ -2038,7 +2037,8 @@ body.duel-playing { overflow: hidden; }
 }
 @media (max-width: 640px) {
   .duel-card { padding: 20px; }
-  .duel-field-row { grid-template-columns: 1fr; gap: 18px; }
+  .duel-toggle-3 { grid-template-columns: 1fr; }
+  .duel-toggle-3 button + button { border-top: 1px solid var(--control-border); }
   .duel-invites { grid-template-columns: 1fr; }
   .duel-actions .btn-gold { width: 100%; }
   .duel-row { flex-wrap: wrap; cursor: default; }
@@ -2154,6 +2154,7 @@ a.tk-title:hover, a.tk-row-title:hover { color: var(--accent-gold); }
 .up-bio { font-size: 14.5px; color: var(--text-secondary); line-height: 1.5; margin: 8px 0 0; max-width: 640px; overflow-wrap: anywhere; }
 .up-line { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 12px; }
 .up-since { font-size: 12.5px; color: var(--text-quaternary); }
+.up-challenge { flex-shrink: 0; white-space: nowrap; gap: 8px; }
 .up-fav { display: inline-flex; align-items: center; gap: 8px; padding: 4px 11px 4px 4px; border-radius: var(--radius-pill);
   background: var(--pill-bg); font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
 .up-fav:hover { color: var(--accent-gold); }
@@ -2210,6 +2211,7 @@ a.up-item:hover .up-item-main, a.up-item:hover .up-text { color: var(--accent-go
   .up-head { flex-wrap: wrap; padding: 18px; gap: 14px; }
   .up-avatar { width: 56px; height: 56px; font-size: 24px; border-radius: 14px; }
   .up-name { font-size: 21px; }
+  .up-challenge { width: 100%; }
   .up-stats { gap: 8px; }
   .up-stat { padding: 12px 6px; }
   .up-stat-value { font-size: 18px; }

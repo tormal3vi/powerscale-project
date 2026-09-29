@@ -430,7 +430,7 @@ def _set_message(game_id: int, message_id: Optional[str]) -> None:
 def _lobby_post(url: str, game_id: int) -> None:
     from backend import duels_api
     g = duels_api._one(game_id, None)
-    if g.status != "open" or g.private:
+    if g.status != "open" or g.private or g.link_only:
         return
     now = time.time()
     if now - _last_lobby_post.get(g.creator, 0) < LOBBY_EVERY:

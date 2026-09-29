@@ -23,6 +23,8 @@ let me = null;
 let games = { mine: [], open: [] };
 let series = []; // every series name, for "leave out" chips
 let openGameId = null; // the game page being shown, if any
+// ?invite=name, from a profile's Challenge button: prefills the new game once.
+let challengeName = (new URLSearchParams(location.search).get('invite') || '').trim().slice(0, 20);
 
 // --- small pieces ----------------------------------------------------------------
 
@@ -66,7 +68,7 @@ function statusText(g) {
   if (g.can_join) return `${gameTitle(g)} · ${g.seats_left} seat${g.seats_left === 1 ? '' : 's'} left`;
   const pending = g.status === 'open'
     ? (g.invited.length ? `waiting for ${g.invited.map((n) => `<b>${escapeHtml(n)}</b>`).join(', ')} to join`
-      : `${g.seats_left} seat${g.seats_left === 1 ? '' : 's'} left`)
+      : `${g.seats_left} seat${g.seats_left === 1 ? '' : 's'} left${g.link_only ? ' · link only' : ''}`)
     : null;
   if (g.can_play && g.my_played < g.total) return `${gameTitle(g)} · Your turn · ${g.my_played}/${g.total} played${pending ? ` · ${pending}` : ''}`;
   if (pending) return `${gameTitle(g)} · ${pending}`;
@@ -138,25 +140,25 @@ function renderNew() {
         ${FORMATS.map((f, i) => `<button type="button" class="duel-fmt${i ? '' : ' active'}" data-fmt="${f}" role="radio" aria-checked="${!i}">${f}</button>`).join('')}
       </div>
     </div>
-    <div class="duel-field-row">
-      <div class="duel-field">
-        <span class="duel-lbl" id="who-lbl">Who can join</span>
-        <div class="duel-toggle" role="radiogroup" aria-labelledby="who-lbl">
-          <button type="button" class="active" data-who="open" role="radio" aria-checked="true">Open to anyone</button>
-          <button type="button" data-who="invite" role="radio" aria-checked="false">Invite players</button>
-        </div>
+    <div class="duel-field">
+      <span class="duel-lbl" id="who-lbl">Who can join</span>
+      <div class="duel-toggle duel-toggle-3" role="radiogroup" aria-labelledby="who-lbl">
+        <button type="button" class="active" data-who="open" role="radio" aria-checked="true">Open to anyone</button>
+        <button type="button" data-who="link" role="radio" aria-checked="false">Friends with the link</button>
+        <button type="button" data-who="invite" role="radio" aria-checked="false">Invite by name</button>
       </div>
-      <div class="duel-field" id="mu-field">
-        <span class="duel-lbl" id="mu-lbl">Matchups</span>
-        <div class="duel-toggle" role="radiogroup" aria-labelledby="mu-lbl">
-          <button type="button" class="active" data-mu="random" role="radio" aria-checked="true">Random</button>
-          <button type="button" data-mu="pick" role="radio" aria-checked="false">Pick my own</button>
-        </div>
-      </div>
+      <p class="duel-hint" id="duel-who-hint"></p>
     </div>
     <div class="duel-field" id="invite-field" hidden>
       <span class="duel-lbl" id="invite-lbl"></span>
       <div class="duel-invites"></div>
+    </div>
+    <div class="duel-field" id="mu-field">
+      <span class="duel-lbl" id="mu-lbl">Matchups</span>
+      <div class="duel-toggle" role="radiogroup" aria-labelledby="mu-lbl">
+        <button type="button" class="active" data-mu="random" role="radio" aria-checked="true">Random</button>
+        <button type="button" data-mu="pick" role="radio" aria-checked="false">Pick my own</button>
+      </div>
     </div>
     <div class="duel-field" id="pick-field" hidden>
       <span class="duel-lbl">Matchups (up to 5)</span>
@@ -193,6 +195,7 @@ function renderNew() {
   const picked = new Map(); // picker element -> matchup or null
   const excluded = new Set();
   let format = '1v1';
+  let who = 'open'; // open | link | invite
   let inviting = false;
   let mode = 'random';
   let gameMode = 'predict';
@@ -206,6 +209,11 @@ function renderNew() {
   // One username box per seat to fill, keeping whatever was typed.
   const drawInvites = () => {
     inviteField.hidden = !inviting;
+    newBox.querySelector('#duel-who-hint').textContent = {
+      open: 'Listed under Open games and posted on our Discord, so anyone can join.',
+      link: "Not listed or posted anywhere: only people you send the link to can join. You'll get the link once it's created.",
+      invite: 'Only the players you name can join. It shows up on their Duels page.',
+    }[who];
     newBox.querySelector('#invite-lbl').textContent = `Invite seats (${seats()} open)`;
     const typed = [...invitesBox.querySelectorAll('input')].map((i) => i.value);
     invitesBox.innerHTML = Array.from({ length: seats() }, (_, i) => `
@@ -260,10 +268,14 @@ function renderNew() {
     setRadio('fmt', format);
     drawInvites();
   }));
-  newBox.querySelectorAll('[data-who]').forEach((b) => b.addEventListener('click', () => {
-    inviting = b.dataset.who === 'invite';
-    setRadio('who', b.dataset.who);
+  const setWho = (value) => {
+    who = value;
+    inviting = who === 'invite';
+    setRadio('who', who);
     drawInvites();
+  };
+  newBox.querySelectorAll('[data-who]').forEach((b) => b.addEventListener('click', () => {
+    setWho(b.dataset.who);
     if (inviting) invitesBox.querySelector('input')?.focus();
   }));
   newBox.querySelectorAll('[data-mu]').forEach((b) => b.addEventListener('click', () => {
@@ -293,18 +305,29 @@ function renderNew() {
   drawInvites();
   drawSeries();
   update();
+  // From a profile's Challenge button: that player, invited to a 1v1.
+  if (challengeName) {
+    setWho('invite');
+    invitesBox.querySelector('input').value = challengeName;
+    challengeName = '';
+    const url = new URL(location.href);
+    url.searchParams.delete('invite');
+    history.replaceState(history.state, '', url);
+    newBox.scrollIntoView({ block: 'start' });
+    newBox.querySelector('#duel-create').focus({ preventScroll: true });
+  }
 
   const createBtn = newBox.querySelector('#duel-create');
   createBtn.addEventListener('click', async () => {
     err.textContent = '';
     const invite = inviting ? [...invitesBox.querySelectorAll('input')].map((i) => i.value.trim()) : [];
-    if (invite.some((n) => !n)) { err.textContent = `Fill in all ${seats()} players, or open it to anyone.`; return; }
+    if (invite.some((n) => !n)) { err.textContent = `Fill in all ${seats()} players, or let anyone join.`; return; }
     const matchups = gameMode === 'predict' && mode === 'pick' ? [...picked.values()] : [];
     if (matchups.some((m) => !m)) { err.textContent = 'Finish each matchup, or remove it.'; return; }
     createBtn.disabled = true;
     createBtn.textContent = 'Creating…';
     try {
-      const g = await Api.createGame(format, invite, matchups, [...excluded], gameMode);
+      const g = await Api.createGame(format, invite, matchups, [...excluded], gameMode, who === 'link');
       renderNew(); // a fresh form
       showCreated(g);
       refresh(); // in the background: "Play now" needn't wait for the lists
@@ -322,14 +345,15 @@ function showCreated(g) {
   const box = document.createElement('div');
   box.className = 'duel-created';
   const who = g.private ? `${g.invited.map((n) => `<b>${escapeHtml(n)}</b>`).join(', ')} will see it on their Duels page.`
+    : g.link_only ? 'Send the link to whoever you want to play: only they can find it.'
     : 'Anyone can join it from the open games.';
+  // A link-only game fills only through its link: that comes first.
+  const playHtml = `<button type="button" class="${g.link_only ? 'pill-button' : 'btn-gold'}" data-act="play">Play now</button>`;
+  const copyHtml = `<button type="button" class="${g.link_only ? 'btn-gold' : 'pill-button'}" data-act="copy">Copy challenge link</button>`;
   box.innerHTML = `
     <div class="duel-created-title">${tagText(g)} created</div>
     <div class="duel-note">${who} Play your five rounds whenever you're ready.</div>
-    <div class="duel-created-row">
-      <button type="button" class="btn-gold" data-act="play">Play now</button>
-      <button type="button" class="pill-button" data-act="copy">Copy challenge link</button>
-    </div>`;
+    <div class="duel-created-row">${g.link_only ? copyHtml + playHtml : playHtml + copyHtml}</div>`;
   box.querySelector('[data-act="play"]').addEventListener('click', () => play(g.id, g));
   const copy = box.querySelector('[data-act="copy"]');
   copy.addEventListener('click', () => copyLink(g.id, copy));

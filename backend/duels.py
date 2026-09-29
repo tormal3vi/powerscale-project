@@ -73,6 +73,9 @@ games = Table(
     Column("excluded", String(1000), nullable=True),  # series left out of the random rounds, "|"-joined
     Column("mode", String(12), nullable=True),  # predict (NULL on old rows) | draft
     Column("discord_msg", String(32), nullable=True),  # its "wants to duel" post on Discord, while open
+    # Open, but only to whoever has its link (a challenge to a friend): not
+    # among the open games, not posted on Discord. NULL: listed.
+    Column("link_only", Boolean, nullable=True),
 )
 game_players = Table(
     "game_players", metadata,
@@ -130,7 +133,8 @@ def _migrate() -> None:
         community.add_missing_columns(conn, "games", [
             ("teams", "INTEGER"), ("team_size", "INTEGER"), ("winning_team", "INTEGER"),
             ("picked", "INTEGER"), ("excluded", "VARCHAR(1000)")])
-        community.add_missing_columns(conn, "games", [("mode", "VARCHAR(12)"), ("discord_msg", "VARCHAR(32)")])
+        community.add_missing_columns(conn, "games", [("mode", "VARCHAR(12)"), ("discord_msg", "VARCHAR(32)"),
+                                                      ("link_only", "BOOLEAN")])
         community.add_missing_columns(conn, "game_players", [("score", "INTEGER"), ("seat", "INTEGER")])
         has_players = select(game_players.c.game_id).where(game_players.c.game_id == games.c.id).exists()
         old = conn.execute(select(games).where(~has_players)).mappings().all()
@@ -325,9 +329,11 @@ def format_name(g: dict) -> str:
 
 
 def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exclude: List[str] = (),
-           mode: str = "predict") -> int:
+           mode: str = "predict", link_only: bool = False) -> int:
     """`exclude`: series whose characters the random rounds (or draft
-    hands) leave out - picked matchups are the creator's own choice."""
+    hands) leave out - picked matchups are the creator's own choice.
+    `link_only`: an open game only people with its link will find (a
+    private game is invite-only anyway)."""
     if fmt not in FORMATS:
         raise DuelError("Unknown format")
     if mode not in MODES:
@@ -383,6 +389,7 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exc
         game_id = conn.execute(insert(games).values(
             creator_id=creator_id, status="open", created_at=now, teams=teams, team_size=size,
             picked=n_picked, excluded="|".join(sorted(excluded)) or None, mode=mode,
+            link_only=True if link_only and not invitees else None,
         )).inserted_primary_key[0]
         conn.execute(insert(game_players).values(game_id=game_id, user_id=creator_id, team=1, joined_at=now,
                                                  seat=0 if mode == "draft" else None))
@@ -782,7 +789,7 @@ def overview(user_id: int) -> dict:
     invited = select(game_invites.c.game_id).where(game_invites.c.user_id == user_id)
     private = select(game_invites.c.game_id).where(game_invites.c.game_id == games.c.id).exists()
     mine_q = or_(games.c.id.in_(joined), games.c.id.in_(invited))
-    open_q = and_(games.c.status == "open", ~private, games.c.creator_id != user_id)
+    open_q = and_(games.c.status == "open", ~private, games.c.link_only.isnot(True), games.c.creator_id != user_id)
     with community.reader.connect() as conn:
         gs = [dict(g) for g in conn.execute(select(games, mine_q.label("is_mine")).where(or_(mine_q, open_q))
                                             .order_by(games.c.id.desc()).limit(80)).mappings()]

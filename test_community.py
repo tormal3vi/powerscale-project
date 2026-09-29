@@ -475,6 +475,29 @@ def test_duel_seats_invites_and_leaving():
     assert [m["user_id"] for m in duels.game(lobby)["members"][lobby]] == [dan["id"]]
 
 
+def test_link_only_games_are_joinable_but_not_listed_or_posted():
+    from backend import discord_webhooks, duels_api
+    gus, hal, ida = _users("link_gus", "link_hal", "link_ida")
+    listed = duels.create(gus["id"], "1v1", [], [])
+    friends = duels.create(gus["id"], "1v1", [], [], link_only=True)
+    private = duels.create(gus["id"], "1v1", ["link_hal"], [], link_only=True)  # invite-only anyway
+    assert [g["id"] for g in duels.overview(ida["id"])["open"] if g["creator_id"] == gus["id"]] == [listed]
+    assert duels_api._one(friends, gus["id"]).link_only and not duels_api._one(listed, gus["id"]).link_only
+    assert not duels_api._one(private, gus["id"]).link_only
+    posted = []
+    real, discord_webhooks._request = discord_webhooks._request, lambda *a, **k: posted.append(a) or None
+    try:
+        discord_webhooks._lobby_post("https://discord.invalid/webhook", friends)
+        assert posted == []  # a challenge to a friend isn't announced
+        discord_webhooks._last_lobby_post.pop("link_gus", None)
+        discord_webhooks._lobby_post("https://discord.invalid/webhook", listed)
+        assert len(posted) == 1
+    finally:
+        discord_webhooks._request = real
+    duels.join(friends, hal["id"])  # whoever has the link can join
+    assert duels.game(friends)["games"][0]["status"] == "active"
+
+
 def test_team_games_add_up_members_and_share_the_result():
     a1, a2, b1, b2 = _users("team_a1", "team_a2", "team_b1", "team_b2")
     game_id = duels.create(a1["id"], "2v2", [], [])

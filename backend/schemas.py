@@ -355,6 +355,7 @@ class DuelCreateIn(BaseModel):
     matchups: List[DuelMatchupIn] = Field([], max_length=5)  # picked ones; the rest are random
     exclude: List[str] = Field([], max_length=100)  # series left out of the random rounds
     mode: str = "predict"  # predict | draft
+    link_only: bool = False  # open, but not listed or posted: only people with the link join
 
 
 class DuelJoinIn(BaseModel):
@@ -451,6 +452,7 @@ class DuelOut(BaseModel):
     players: List[DuelPlayerOut]
     invited: List[str] = []  # invited players who haven't joined yet
     private: bool = False
+    link_only: bool = False  # open to whoever has the link, not listed
     seats_left: int = 0
     picked: Optional[int] = None  # rounds the creator chose; the rest are random (None: not recorded)
     excluded: List[str] = []  # series left out of the random rounds

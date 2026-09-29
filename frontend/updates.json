@@ -1,5 +1,15 @@
 [
   {
+    "id": "2026-09-29.11",
+    "date": "2026-09-29",
+    "title": "Challenge anyone",
+    "changes": [
+      "New game → Who can join → Friends with the link: a game only the people you send the link to can join, in any mode or format. It isn't listed under Open games or posted on Discord, so no stranger takes your friend's seat.",
+      "Challenge a friend from Compare works the same way now.",
+      "Every profile has a Challenge button: it sets up a 1v1 inviting that player, and it shows up on their Duels page."
+    ]
+  },
+  {
     "id": "2026-09-29.10",
     "date": "2026-09-29",
     "title": "A FAQ page",

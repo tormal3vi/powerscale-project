@@ -83,7 +83,8 @@ const Api = {
   pendingGames: () => apiGet('/api/games/pending'),
   getGame: (id) => apiGet(`/api/games/${id}`),
   gamesVersion: () => apiGet('/api/games/version'),
-  createGame: (format, invite, matchups, exclude, mode) => apiPost('/api/games', { format, invite, matchups, exclude, mode: mode || 'predict' }),
+  createGame: (format, invite, matchups, exclude, mode, linkOnly) => apiPost('/api/games', {
+    format, invite, matchups, exclude, mode: mode || 'predict', link_only: !!linkOnly }),
   joinGame: (id, team) => apiPost(`/api/games/${id}/join`, { team: team || null }),
   leaveGame: (id) => apiPost(`/api/games/${id}/leave`, {}),
   declineGame: (id) => apiPost(`/api/games/${id}/decline`, {}),
