@@ -588,7 +588,7 @@ function renderVerdict() {
         <div class="section-label">Who would win?</div>
         <div class="verdict-headline">${overruledHeadline || calcHeadline}</div>
       </div>
-      ${v.override ? '' : '<div class="verdict-disclaimer">Heuristic estimate from normalized stats — not a calibrated probability.</div>'}
+      ${v.override ? '' : '<div class="verdict-disclaimer">Heuristic estimate from normalized stats — not a calibrated probability. <a href="faq.html#verdict">How it\'s worked out</a></div>'}
     </div>
     ${overrideBannerHtml(v)}
     ${v.override ? `<div class="calc-estimate">Calculator's estimate: ${calcShort}</div>` : ''}
@@ -614,7 +614,7 @@ function abilityCalloutHtml(v) {
   return `
     <div class="verdict-callout">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;margin-top:2px;"><path d="M8 1.5 15 14H1L8 1.5Z" stroke="#D9A441" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 6.2v3.4M8 11.6v.1" stroke="#D9A441" stroke-width="1.3" stroke-linecap="round"/></svg>
-      <div class="verdict-callout-text">Ability flags — ${escapeHtml(summary)} — are shown above for context only. They aren't reflected in the score above.</div>
+      <div class="verdict-callout-text">Ability flags — ${escapeHtml(summary)} — are shown above for context only. They aren't reflected in the score above. <a href="faq.html#abilities">Why?</a></div>
     </div>
   `;
 }

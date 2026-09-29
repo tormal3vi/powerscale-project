@@ -11,7 +11,7 @@ const NAV_LINKS = [
 ];
 const PAGE_TITLES = {
   'browse.html': 'Characters', 'compare.html': 'Compare', 'character.html': 'Character',
-  'tournament.html': 'Tournament', 'board.html': 'Board', 'login.html': 'Log in',
+  'tournament.html': 'Tournament', 'board.html': 'Board', 'faq.html': 'FAQ', 'login.html': 'Log in',
   'profile.html': 'Profile settings', 'duels.html': 'Duels', 'tickets.html': 'Tickets', 'user.html': 'Profile',
 };
 
@@ -50,6 +50,7 @@ function renderTopbar(actions = [], { minimal = false, back = false } = {}) {
     <button class="topbar-menu-btn" aria-label="Menu" aria-expanded="false">${MENU_ICON}</button>
     ${back ? '<span class="topbar-back-spacer"></span>' : ''}
     <div class="topbar-right">
+      <a class="topbar-help${current === 'faq.html' ? ' active' : ''}" href="faq.html" aria-label="FAQ" title="FAQ"><span class="topbar-help-mark" aria-hidden="true">?</span><span class="topbar-help-label">FAQ</span></a>
       ${discordInvite() ? `<a class="topbar-discord" href="${escapeHtml(discordInvite())}" target="_blank" rel="noopener"
         aria-label="Join our Discord" title="Join our Discord">${DISCORD_ICON}<span class="topbar-discord-label">Join our Discord</span></a>` : ''}
       <div class="topbar-actions" id="topbar-actions"></div>
