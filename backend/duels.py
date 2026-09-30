@@ -37,17 +37,19 @@ from sqlalchemy import (
 
 from sqlalchemy.exc import IntegrityError
 
-from backend import characters, community, discord_webhooks, prewarm
+from backend import characters, community, discord_webhooks, gauntlet, prewarm
 from backend.community import _aware, _now, avatars, engine, metadata, users
 
 ROUNDS = 5
 ROUND_SECONDS = 20
+GAUNTLET_SECONDS = 30  # a gauntlet round has ten opponents to size up
 GRACE_SECONDS = 3  # network lag between the clock running out and the pick arriving
 OPEN_DAYS = 7  # a game that never fills expires after this
 FORFEIT_HOURS = 72  # once a game is full and someone's done, the rest have this long
 RANDOM_TIER_SPREAD = 3.0  # random rounds pair characters within this Tier distance (~one tier)
 HAND_SIZE = 4  # draft: characters dealt to each player per round (a 2x2 grid on phones)
-MODES = ("predict", "draft")
+MODES = ("predict", "draft", "gauntlet")
+GAUNTLET_SOURCES = ("random", "series", "custom")
 
 # (teams, players per team)
 FORMATS = {"1v1": (2, 1), "1v1v1": (3, 1), "1v1v1v1": (4, 1), "2v2": (2, 2), "2v2v2": (3, 2), "3v3": (2, 3)}
@@ -71,11 +73,14 @@ games = Table(
     Column("winning_team", Integer, nullable=True),  # NULL once done: a draw at the top
     Column("picked", Integer, nullable=True),  # how many rounds the creator chose (NULL on old rows)
     Column("excluded", String(1000), nullable=True),  # series left out of the random rounds, "|"-joined
-    Column("mode", String(12), nullable=True),  # predict (NULL on old rows) | draft
+    Column("mode", String(12), nullable=True),  # predict (NULL on old rows) | draft | gauntlet
     Column("discord_msg", String(32), nullable=True),  # its "wants to duel" post on Discord, while open
     # Open, but only to whoever has its link (a challenge to a friend): not
     # among the open games, not posted on Discord. NULL: listed.
     Column("link_only", Boolean, nullable=True),
+    # Gauntlet games: where the opponents come from - "random", "custom",
+    # or "series:<name>".
+    Column("gauntlet", String(200), nullable=True),
 )
 game_players = Table(
     "game_players", metadata,
@@ -122,6 +127,18 @@ game_picks = Table(
     Column("started_at", DateTime(timezone=True), nullable=False),
     Column("pick_id", Integer, nullable=True),
     Column("answered_at", DateTime(timezone=True), nullable=True),
+    Column("seconds", Integer, nullable=True),  # the round's length (NULL: ROUND_SECONDS)
+)
+# Gauntlet games: each round's ladder of opponents, lowest Tier first, and
+# how each fight went (a round's answer is how many the character beat).
+game_ladders = Table(
+    "game_ladders", metadata,
+    Column("game_id", Integer, ForeignKey("games.id"), primary_key=True),
+    Column("round_no", Integer, primary_key=True),
+    Column("rung", Integer, primary_key=True),
+    Column("char_id", Integer, nullable=False),
+    Column("outcome", String(8), nullable=False),  # win | loss | even (from the challenger's side)
+    Column("verdict", String(300), nullable=False),
 )
 
 
@@ -134,8 +151,9 @@ def _migrate() -> None:
             ("teams", "INTEGER"), ("team_size", "INTEGER"), ("winning_team", "INTEGER"),
             ("picked", "INTEGER"), ("excluded", "VARCHAR(1000)")])
         community.add_missing_columns(conn, "games", [("mode", "VARCHAR(12)"), ("discord_msg", "VARCHAR(32)"),
-                                                      ("link_only", "BOOLEAN")])
+                                                      ("link_only", "BOOLEAN"), ("gauntlet", "VARCHAR(200)")])
         community.add_missing_columns(conn, "game_players", [("score", "INTEGER"), ("seat", "INTEGER")])
+        community.add_missing_columns(conn, "game_picks", [("seconds", "INTEGER")])
         has_players = select(game_players.c.game_id).where(game_players.c.game_id == games.c.id).exists()
         old = conn.execute(select(games).where(~has_players)).mappings().all()
         for g in old:
@@ -255,6 +273,54 @@ def _deal(seats: int, excluded: frozenset) -> List[dict]:
     return rows
 
 
+def _gauntlet_rounds(opts: dict, excluded: frozenset) -> Tuple[List[dict], List[dict], str]:
+    """Five gauntlets: (game_rounds rows, game_ladders rows, source label).
+    A round's answer is how far its challenger climbs."""
+    source = opts.get("source") or "random"
+    if source not in GAUNTLET_SOURCES:
+        raise DuelError("Unknown opponent source")
+    series = (opts.get("series") or "").strip() or None
+    if source == "series" and not series:
+        raise DuelError("Pick the series to fight")
+    custom = [int(c) for c in (opts.get("opponents") or [])][:gauntlet.RUNGS]
+    if source == "custom" and len(custom) < 2:
+        raise DuelError("Pick at least two opponents")
+    chosen = [int(c) for c in (opts.get("challengers") or [])][:ROUNDS]
+    rounds, ladders, used = [], [], set()
+    for round_no in range(1, ROUNDS + 1):
+        picked = round_no <= len(chosen)
+        for _ in range(12):
+            char_id = chosen[round_no - 1] if picked else gauntlet.random_challenger(excluded=excluded)
+            if char_id in used and not picked:
+                continue
+            try:
+                opponents = gauntlet.ladder(char_id, source, series=series, custom=custom,
+                                            seed=random.randrange(1 << 30), excluded=excluded)
+            except gauntlet.GauntletError as exc:
+                if picked or source != "random":
+                    raise DuelError(str(exc)) from exc
+                continue
+            if len(opponents) >= 2:
+                break
+            if picked:
+                raise DuelError(f"Round {round_no}: too few opponents that character can be compared with")
+        else:
+            raise DuelError("Couldn't build the gauntlets - try again", 503)
+        used.add(char_id)
+        result = gauntlet.run(char_id, opponents)
+        rounds.append({"char_a": char_id, "char_b": 0, "form_a": "", "form_b": "", "answer_id": result["climbed"],
+                       "verdict": f"Climbed {result['climbed']} of {result['total']}", "picked": picked})
+        ladders += [{"round_no": round_no, "rung": f["rung"], "char_id": f["opponent"], "outcome": f["outcome"],
+                     "verdict": f["verdict"][:300]} for f in result["fights"]]
+    label = f"series:{series}" if source == "series" else source
+    return rounds, ladders, label
+
+
+def gauntlet_points(guess: Optional[int], answer: int) -> int:
+    """3 for the exact number of wins, 2 if one off, 1 if two off."""
+    return 0 if guess is None else max(0, 3 - abs(guess - answer))
+
+
 def _stronger(a: Optional[int], b: Optional[int], lean: bool = False) -> Optional[int]:
     """Draft: which of two picks wins - an admin overrule, else whoever the
     calculator favors. No pick loses to any pick; None when neither picked,
@@ -329,11 +395,14 @@ def format_name(g: dict) -> str:
 
 
 def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exclude: List[str] = (),
-           mode: str = "predict", link_only: bool = False) -> int:
+           mode: str = "predict", link_only: bool = False, gauntlet_opts: Optional[dict] = None) -> int:
     """`exclude`: series whose characters the random rounds (or draft
     hands) leave out - picked matchups are the creator's own choice.
     `link_only`: an open game only people with its link will find (a
-    private game is invite-only anyway)."""
+    private game is invite-only anyway). `gauntlet_opts`, gauntlet games
+    only: {"source": random | series | custom, "series": name,
+    "opponents": [ids], "challengers": [ids]} - up to five picked
+    challengers, the rest drawn."""
     if fmt not in FORMATS:
         raise DuelError("Unknown format")
     if mode not in MODES:
@@ -362,9 +431,14 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exc
             invitees.append(uid)
     rounds, taken = [], set()
     hands: List[dict] = []
+    ladders: List[dict] = []
+    gauntlet_label = None
     if mode == "draft":
         picked = []  # hands are dealt, never chosen
         hands = _deal(teams * size, excluded)
+    if mode == "gauntlet":
+        rounds, ladders, gauntlet_label = _gauntlet_rounds(gauntlet_opts or {}, excluded)
+        picked = []
     for i, m in enumerate(picked[:ROUNDS], start=1):
         if m["char_a"] == m["char_b"]:
             raise DuelError(f"Matchup {i} needs two different characters")
@@ -375,8 +449,10 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exc
             raise DuelError(f"Matchup {i} is already in this challenge")
         taken.add(frozenset((r["char_a"], r["char_b"])))
         rounds.append({**r, "picked": True})
-    n_picked = len(rounds)
-    if mode == "draft":
+    n_picked = sum(1 for r in rounds if r["picked"])
+    if mode == "gauntlet":
+        pass
+    elif mode == "draft":
         # Placeholder rounds: the clock and picks hang off them, the hands
         # live in game_hands.
         rounds = [{"char_a": 0, "char_b": 0, "form_a": "", "form_b": "", "answer_id": 0, "verdict": "", "picked": False}
@@ -389,12 +465,14 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exc
         game_id = conn.execute(insert(games).values(
             creator_id=creator_id, status="open", created_at=now, teams=teams, team_size=size,
             picked=n_picked, excluded="|".join(sorted(excluded)) or None, mode=mode,
-            link_only=True if link_only and not invitees else None,
+            link_only=True if link_only and not invitees else None, gauntlet=gauntlet_label,
         )).inserted_primary_key[0]
         conn.execute(insert(game_players).values(game_id=game_id, user_id=creator_id, team=1, joined_at=now,
                                                  seat=0 if mode == "draft" else None))
         if hands:
             conn.execute(insert(game_hands), [{"game_id": game_id, **h} for h in hands])
+        if ladders:
+            conn.execute(insert(game_ladders), [{"game_id": game_id, **l} for l in ladders])
         if invitees:
             conn.execute(insert(game_invites), [{"game_id": game_id, "user_id": u} for u in invitees])
         conn.execute(insert(game_rounds), [{"game_id": game_id, "round_no": i, **r}
@@ -525,18 +603,23 @@ def cancel(game_id: int, user_id: int) -> None:
 
 # --- playing ------------------------------------------------------------------------------
 
-def _deadline(started_at: datetime) -> datetime:
-    return _aware(started_at) + timedelta(seconds=ROUND_SECONDS)
+def _deadline(pick: dict) -> datetime:
+    """When a started round's clock runs out (gauntlet rounds are longer)."""
+    return _aware(pick["started_at"]) + timedelta(seconds=pick.get("seconds") or ROUND_SECONDS)
+
+
+def _seconds_for(mode: Optional[str]) -> Optional[int]:
+    return GAUNTLET_SECONDS if mode == "gauntlet" else None  # None: ROUND_SECONDS
 
 
 def _settled(pick: dict, now: datetime) -> bool:
     """Answered, or its clock has run out."""
-    return pick["answered_at"] is not None or now > _deadline(pick["started_at"]) + timedelta(seconds=GRACE_SECONDS)
+    return pick["answered_at"] is not None or now > _deadline(pick) + timedelta(seconds=GRACE_SECONDS)
 
 
 def _in_time(pick: Optional[dict]) -> bool:
     return bool(pick and pick["answered_at"] is not None
-                and _aware(pick["answered_at"]) <= _deadline(pick["started_at"]) + timedelta(seconds=GRACE_SECONDS))
+                and _aware(pick["answered_at"]) <= _deadline(pick) + timedelta(seconds=GRACE_SECONDS))
 
 
 def _correct(pick: Optional[dict], answer_id: int) -> bool:
@@ -558,7 +641,7 @@ def _state(conn, game_id: int, user_id: int) -> List[dict]:
         game_players.c.game_id == game_id, game_players.c.user_id == user_id)).scalar_subquery()
     rows = conn.execute(
         select(games.c.status, games.c.mode, game_rounds, game_picks.c.started_at, game_picks.c.pick_id,
-               game_picks.c.answered_at, member.label("member"), seat.label("seat"))
+               game_picks.c.answered_at, game_picks.c.seconds, member.label("member"), seat.label("seat"))
         .select_from(games.join(game_rounds, game_rounds.c.game_id == games.c.id).outerjoin(
             game_picks, and_(game_picks.c.game_id == game_rounds.c.game_id,
                              game_picks.c.round_no == game_rounds.c.round_no, game_picks.c.user_id == user_id)))
@@ -577,18 +660,19 @@ def _next(conn, state: List[dict], user_id: int, now: datetime) -> Optional[dict
         if r["started_at"] is None:
             try:
                 conn.execute(insert(game_picks).values(game_id=r["game_id"], round_no=r["round_no"],
-                                                       user_id=user_id, started_at=now))
+                                                       user_id=user_id, started_at=now,
+                                                       seconds=_seconds_for(r.get("mode"))))
             except IntegrityError:
                 # Started a moment ago by this player's other request (a
                 # double tap, two tabs): the clock that counts is that one.
-                started = conn.execute(select(game_picks.c.started_at).where(and_(
+                started = conn.execute(select(game_picks.c.started_at, game_picks.c.seconds).where(and_(
                     game_picks.c.game_id == r["game_id"], game_picks.c.round_no == r["round_no"],
-                    game_picks.c.user_id == user_id))).scalar()
-                r["started_at"] = started
+                    game_picks.c.user_id == user_id))).one()
+                r["started_at"], r["seconds"] = started
             else:
-                r["started_at"] = now
+                r["started_at"], r["seconds"] = now, _seconds_for(r.get("mode"))
                 _changed()
-        left = (_deadline(r["started_at"]) - now).total_seconds()
+        left = (_deadline(r) - now).total_seconds()
         return {**r, "seconds_left": max(0.0, left)}
     return None
 
@@ -602,9 +686,17 @@ def _hand(conn, game_id: int, round_no: int, seat: Optional[int]) -> List[int]:
         .order_by(game_hands.c.slot))]
 
 
+def _ladder(conn, game_id: int, round_no: int) -> List[dict]:
+    """A gauntlet round's opponents, lowest rung first."""
+    return [dict(r) for r in conn.execute(select(game_ladders).where(and_(
+        game_ladders.c.game_id == game_id, game_ladders.c.round_no == round_no)).order_by(game_ladders.c.rung)).mappings()]
+
+
 def _with_hand(conn, r: Optional[dict]) -> Optional[dict]:
     if r is not None and r.get("mode") == "draft":
         r["hand"] = _hand(conn, r["game_id"], r["round_no"], r["seat"])
+    if r is not None and r.get("mode") == "gauntlet":
+        r["ladder"] = [l["char_id"] for l in _ladder(conn, r["game_id"], r["round_no"])]
     return r
 
 
@@ -646,6 +738,9 @@ def pick(game_id: int, user_id: int, round_no: int, pick_id: int) -> Tuple[bool,
         if r["mode"] == "draft":
             if pick_id not in _hand(conn, game_id, round_no, r["seat"]):
                 raise DuelError("Pick one of the characters in your hand")
+        elif r["mode"] == "gauntlet":
+            if not 0 <= pick_id <= len(_ladder(conn, game_id, round_no)):
+                raise DuelError("Guess how many fights it wins")
         elif pick_id not in (r["char_a"], r["char_b"]):
             raise DuelError("Pick one of the two characters")
         if r["answered_at"] is not None:
@@ -658,7 +753,7 @@ def pick(game_id: int, user_id: int, round_no: int, pick_id: int) -> Tuple[bool,
             raise DuelError("You already answered this round", 409)
         _changed()
         r.update(pick_id=pick_id, answered_at=now)
-        in_time = now <= _deadline(r["started_at"]) + timedelta(seconds=GRACE_SECONDS)
+        in_time = now <= _deadline(r) + timedelta(seconds=GRACE_SECONDS)
         nxt = _next(conn, state, user_id, now) if state[0]["status"] in ("open", "active") else None
         if nxt is None:
             _finish_if_done(conn, game_id, now)
@@ -698,7 +793,7 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
         for m in members.get(g["id"], []):
             mine = [p for p in by_player.get((g["id"], m["user_id"]), []) if _settled(p, now)]
             if len(mine) == ROUNDS:
-                done_at.append(max(_aware(p["answered_at"]) if p["answered_at"] else _deadline(p["started_at"])
+                done_at.append(max(_aware(p["answered_at"]) if p["answered_at"] else _deadline(p)
                                    for p in mine))
         if len(done_at) < len(members.get(g["id"], [])):
             if not done_at or now - max(done_at + [_aware(g["accepted_at"])]) < timedelta(hours=FORFEIT_HOURS):
@@ -717,7 +812,13 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
             for m in members[g["id"]]:
                 m["score"] = sum(points.get((n, m["user_id"]), 0) for n in range(1, ROUNDS + 1))
                 team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
-        for m in members[g["id"]] if g.get("mode") != "draft" else []:
+        if g.get("mode") == "gauntlet":
+            for m in members[g["id"]]:
+                mine = {p["round_no"]: p for p in by_player.get((g["id"], m["user_id"]), [])}
+                m["score"] = sum(gauntlet_points(mine[n]["pick_id"] if _in_time(mine.get(n)) else None, answers[(g["id"], n)])
+                                 for n in range(1, ROUNDS + 1))
+                team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
+        for m in members[g["id"]] if g.get("mode") not in ("draft", "gauntlet") else []:
             m["score"] = sum(_correct(next((p for p in by_player.get((g["id"], m["user_id"]), []) if p["round_no"] == n), None),
                                       answers[(g["id"], n)]) for n in range(1, ROUNDS + 1))
             team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
@@ -777,8 +878,14 @@ def _load(conn, gs: List[dict], now: datetime, rounds_for_done: bool) -> dict:
         for h in conn.execute(select(game_hands).where(game_hands.c.game_id.in_(draft_done))
                               .order_by(game_hands.c.slot)).mappings():
             hands.setdefault(h["game_id"], {}).setdefault((h["round_no"], h["seat"]), []).append(h["char_id"])
+    ladders: Dict[int, Dict[int, List[dict]]] = {}
+    gauntlet_done = [gid for gid in want_rounds if next(g for g in gs if g["id"] == gid).get("mode") == "gauntlet"]
+    if gauntlet_done:
+        for l in conn.execute(select(game_ladders).where(game_ladders.c.game_id.in_(gauntlet_done))
+                              .order_by(game_ladders.c.rung)).mappings():
+            ladders.setdefault(l["game_id"], {}).setdefault(l["round_no"], []).append(dict(l))
     return {"games": gs, "members": members, "invites": invites, "picks": picks, "rounds": rounds,
-            "hands": hands, "people": people, "now": now}
+            "hands": hands, "ladders": ladders, "people": people, "now": now}
 
 
 def overview(user_id: int) -> dict:
@@ -866,7 +973,7 @@ def pending_count(user_id: int) -> int:
     live = games.c.status.in_(["open", "active"])
     member = select(game_players.c.game_id).where(and_(
         game_players.c.game_id == games.c.id, game_players.c.user_id == user_id)).exists()
-    cutoff = _now() - timedelta(seconds=ROUND_SECONDS + GRACE_SECONDS)
+    cutoff = _now() - timedelta(seconds=max(ROUND_SECONDS, GAUNTLET_SECONDS) + GRACE_SECONDS)
     my_done = (select(func.count()).select_from(game_picks).where(and_(
         game_picks.c.game_id == games.c.id, game_picks.c.user_id == user_id,
         or_(game_picks.c.answered_at.isnot(None), game_picks.c.started_at < cutoff))).scalar_subquery())
@@ -944,7 +1051,7 @@ def delete_user_games(user_id: int) -> None:
         ids |= {r[0] for r in conn.execute(select(games.c.id).where(or_(
             games.c.creator_id == user_id, games.c.opponent_id == user_id, games.c.invited_id == user_id)))}
         if ids:
-            for table in (game_picks, game_hands, game_rounds, game_players, game_invites):
+            for table in (game_picks, game_hands, game_ladders, game_rounds, game_players, game_invites):
                 conn.execute(delete(table).where(table.c.game_id.in_(ids)))
             conn.execute(delete(games).where(games.c.id.in_(ids)))
     _changed()

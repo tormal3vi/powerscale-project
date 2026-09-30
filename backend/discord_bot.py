@@ -77,8 +77,9 @@ COMMANDS = [
     {"name": "duel", "description": "Start a duel on Powerscale and post it here for someone to join.", **EVERYWHERE,
      "options": [
          {"type": STRING, "name": "mode", "required": False,
-          "description": "Prediction (call the site's verdicts) or Draft (pick your fighters)",
-          "choices": [{"name": "Prediction", "value": "predict"}, {"name": "Draft", "value": "draft"}]},
+          "description": "Prediction (call the verdicts), Draft (pick fighters) or Gauntlet (guess how far they climb)",
+          "choices": [{"name": "Prediction", "value": "predict"}, {"name": "Draft", "value": "draft"},
+                      {"name": "Gauntlet", "value": "gauntlet"}]},
          {"type": STRING, "name": "format", "description": "Players and teams (default 1v1)", "required": False,
           "choices": [{"name": f, "value": f} for f in duels.FORMATS]},
          {"type": USER, "name": "opponent", "description": "Challenge someone (1v1; they need a linked account)",
@@ -400,7 +401,7 @@ def _recent_duels(user_id: int, limit: int = 3) -> str:
         score = (f"{scores[mine - 1]}–{scores[2 - mine]}" if d.teams == 2 and mine and len(scores) == 2
                  else " · ".join(str(x) for x in scores))
         rivals = ", ".join(p.username for p in d.players if p.team != mine)
-        kind = ("Draft · " if d.mode == "draft" else "") + d.format
+        kind = {"draft": "Draft · ", "gauntlet": "Gauntlet · "}.get(d.mode, "") + d.format
         lines.append(f"[{word} {score}]({_site()}/duels.html?game={d.id}) vs {_md(rivals)} · {kind}")
     return "\n".join(lines)
 

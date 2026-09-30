@@ -83,8 +83,11 @@ const Api = {
   pendingGames: () => apiGet('/api/games/pending'),
   getGame: (id) => apiGet(`/api/games/${id}`),
   gamesVersion: () => apiGet('/api/games/version'),
-  createGame: (format, invite, matchups, exclude, mode, linkOnly) => apiPost('/api/games', {
-    format, invite, matchups, exclude, mode: mode || 'predict', link_only: !!linkOnly }),
+  createGame: (format, invite, matchups, exclude, mode, linkOnly, gauntlet = {}) => apiPost('/api/games', {
+    format, invite, matchups, exclude, mode: mode || 'predict', link_only: !!linkOnly,
+    gauntlet_source: gauntlet.source || 'random', gauntlet_series: gauntlet.series || null,
+    gauntlet_opponents: gauntlet.opponents || [], challengers: gauntlet.challengers || [] }),
+  runGauntlet: (params) => apiGet(`/api/gauntlet?${new URLSearchParams(params)}`),
   joinGame: (id, team) => apiPost(`/api/games/${id}/join`, { team: team || null }),
   leaveGame: (id) => apiPost(`/api/games/${id}/leave`, {}),
   declineGame: (id) => apiPost(`/api/games/${id}/decline`, {}),
@@ -344,6 +347,66 @@ function searchRoster(all, q, excludeId, limit = 8) {
   }
   hits.sort((x, y) => x[0] - y[0] || x[1].name.localeCompare(y[1].name));
   return hits.slice(0, limit).map((h) => h[1]);
+}
+
+// A search box that picks one character: type, then click or Enter.
+// onChoose(character) gets the roster entry (id, name, image_url...).
+function characterSearchEl({ placeholder = 'Search characters…', label = 'Search characters', onChoose, exclude = () => [] }) {
+  const el = document.createElement('div');
+  el.className = 'fav-search';
+  el.innerHTML = `
+    <label class="fav-search-box">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="#7A7264" stroke-width="1.4"/><path d="m11 11 3.5 3.5" stroke="#7A7264" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <input type="text" autocomplete="off" spellcheck="false">
+    </label>
+    <div class="fav-results" role="listbox"></div>`;
+  const input = el.querySelector('input');
+  input.placeholder = placeholder;
+  input.setAttribute('aria-label', label);
+  const results = el.querySelector('.fav-results');
+  let items = [];
+  let active = 0;
+  const paint = () => results.querySelectorAll('.fav-result').forEach((b, i) => b.classList.toggle('active', i === active));
+  const choose = (c) => {
+    input.value = '';
+    results.innerHTML = '';
+    items = [];
+    onChoose(c);
+  };
+  input.addEventListener('focus', () => roster());
+  input.addEventListener('input', async () => {
+    const q = fold(input.value.trim());
+    if (!q) { results.innerHTML = ''; items = []; return; }
+    const all = await roster();
+    if (fold(input.value.trim()) !== q) return;
+    const skip = new Set(exclude());
+    items = searchRoster(all, q, null, 12).filter((c) => !skip.has(c.id)).slice(0, 6);
+    active = 0;
+    results.innerHTML = items.length
+      ? items.map((c, i) => `
+          <button type="button" class="fav-result" role="option" data-i="${i}">
+            <span class="fav-result-tile${c.image_url ? ' has-pic' : ''}" style="background:${accentFor(c.id)}">${characterTileInner(c.name, c.image_url, 64)}</span>
+            <span class="fav-result-text"><span class="fav-result-name">${escapeHtml(shortName(c.name))}</span><span class="fav-result-cat">${escapeHtml(seriesLabel(c))}</span></span>
+          </button>`).join('')
+      : '<div class="fav-empty">No characters match that.</div>';
+    paint();
+  });
+  input.addEventListener('keydown', (e) => {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && items.length) {
+      e.preventDefault();
+      active = (active + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+      paint();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (items[active]) choose(items[active]);
+    }
+  });
+  results.addEventListener('click', (e) => {
+    const b = e.target.closest('.fav-result');
+    if (b) choose(items[Number(b.dataset.i)]);
+  });
+  el.focus = () => input.focus();
+  return el;
 }
 
 // --- character pictures ------------------------------------------------------

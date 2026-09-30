@@ -510,6 +510,44 @@ def test_link_only_games_are_joinable_but_not_listed_or_posted():
     assert duels.game(friends)["games"][0]["status"] == "active"
 
 
+def test_gauntlet_runs_end_at_the_first_loss_or_draw():
+    from backend import gauntlet
+    real = gauntlet.fight
+    outcomes = iter(["win", "win", "even", "win", "loss"])
+    gauntlet.fight = lambda c, o, form=None: {"outcome": next(outcomes), "verdict": "", "form": None}
+    try:
+        r = gauntlet.run(1, [11, 12, 13, 14, 15])
+    finally:
+        gauntlet.fight = real
+    assert r["climbed"] == 2 and r["total"] == 5
+    assert [f["reached"] for f in r["fights"]] == [True, True, True, False, False]
+    assert [duels.gauntlet_points(g, 4) for g in (4, 5, 2, 7, None)] == [3, 2, 1, 0, 0]
+
+
+def test_gauntlet_duels_score_guesses_by_distance():
+    ann, ben = _users("gd_ann", "gd_ben")
+    game_id = duels.create(ann["id"], "1v1", [], [], [], "gauntlet", gauntlet_opts={"source": "random"})
+    duels.join(game_id, ben["id"])
+    rounds = {}
+    for uid, off in ((ann["id"], 0), (ben["id"], 1)):
+        r = duels.next_round(game_id, uid)
+        assert r["seconds"] == duels.GAUNTLET_SECONDS and r["seconds_left"] > duels.ROUND_SECONDS
+        while r is not None:
+            rounds[r["round_no"]] = r["answer_id"]
+            assert len(r["ladder"]) >= 2
+            guess = r["answer_id"] + off if r["answer_id"] + off <= len(r["ladder"]) else r["answer_id"] - off
+            _, r = duels.pick(game_id, uid, r["round_no"], guess)
+    g = duels.game(game_id)
+    assert g["games"][0]["status"] == "done"
+    scores = {m["user_id"]: m["score"] for m in g["members"][game_id]}
+    assert scores == {ann["id"]: 15, ben["id"]: 10}  # exact every round; one off every round
+    assert len(g["ladders"][game_id]) == 5
+    duels.delete_user_games(ann["id"])
+    with community.reader.connect() as conn:
+        from sqlalchemy import select
+        assert not conn.execute(select(duels.game_ladders).where(duels.game_ladders.c.game_id == game_id)).first()
+
+
 def test_team_games_add_up_members_and_share_the_result():
     a1, a2, b1, b2 = _users("team_a1", "team_a2", "team_b1", "team_b2")
     game_id = duels.create(a1["id"], "2v2", [], [])

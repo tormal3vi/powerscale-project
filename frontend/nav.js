@@ -11,7 +11,7 @@ const NAV_LINKS = [
 ];
 const PAGE_TITLES = {
   'browse.html': 'Characters', 'compare.html': 'Compare', 'character.html': 'Character',
-  'tournament.html': 'Tournament', 'board.html': 'Board', 'faq.html': 'FAQ', 'terms.html': 'Terms', 'privacy.html': 'Privacy', 'login.html': 'Log in',
+  'tournament.html': 'Tournament', 'board.html': 'Board', 'faq.html': 'FAQ', 'gauntlet.html': 'Gauntlet', 'terms.html': 'Terms', 'privacy.html': 'Privacy', 'login.html': 'Log in',
   'profile.html': 'Profile settings', 'duels.html': 'Duels', 'tickets.html': 'Tickets', 'user.html': 'Profile',
 };
 

@@ -33,7 +33,8 @@ const isTeamGame = (g) => g.team_size > 1;
 const isFreeForAll = (g) => g.team_size === 1 && g.teams > 2;
 const teamLabel = (g, t) => (isTeamGame(g) ? `Team ${t}` : `Player ${t}`);
 const names = (list) => list.map((p) => `<b>${escapeHtml(p.username)}</b>`).join(', ');
-const tagText = (g) => `${g.mode === 'draft' ? 'Draft · ' : ''}${g.format}`;
+const tagText = (g) => `${g.mode === 'draft' ? 'Draft · ' : g.mode === 'gauntlet' ? 'Gauntlet · ' : ''}${g.format}`;
+const MODE_NAME = { predict: 'Prediction', draft: 'Draft', gauntlet: 'Gauntlet' };
 const findGame = (id) => [...games.mine, ...games.open].find((g) => g.id === id) || null;
 
 // "vs duel_bob" / "with alice · vs bob, carl" from where you sit;
@@ -129,9 +130,10 @@ function renderNew() {
     <h2 class="duel-card-title" id="new-title">New game</h2>
     <div class="duel-field">
       <span class="duel-lbl" id="gm-lbl">Game</span>
-      <div class="duel-toggle duel-modes" role="radiogroup" aria-labelledby="gm-lbl">
+      <div class="duel-toggle duel-toggle-3 duel-modes" role="radiogroup" aria-labelledby="gm-lbl">
         <button type="button" class="active" data-gm="predict" role="radio" aria-checked="true">Call the winner</button>
         <button type="button" data-gm="draft" role="radio" aria-checked="false">Draft</button>
+        <button type="button" data-gm="gauntlet" role="radio" aria-checked="false">Gauntlet</button>
       </div>
     </div>
     <div class="duel-field">
@@ -159,6 +161,19 @@ function renderNew() {
         <button type="button" class="active" data-mu="random" role="radio" aria-checked="true">Random</button>
         <button type="button" data-mu="pick" role="radio" aria-checked="false">Pick my own</button>
       </div>
+    </div>
+    <div class="duel-field" id="gd-field" hidden>
+      <span class="duel-lbl" id="gd-lbl">Opponents</span>
+      <div class="duel-toggle duel-toggle-3" role="radiogroup" aria-labelledby="gd-lbl">
+        <button type="button" class="active" data-gsrc="random" role="radio" aria-checked="true">From the whole roster</button>
+        <button type="button" data-gsrc="series" role="radio" aria-checked="false">A series' best known</button>
+        <button type="button" data-gsrc="custom" role="radio" aria-checked="false">My own picks</button>
+      </div>
+      <select class="duel-input gl-series" id="gd-series" aria-label="Series" hidden></select>
+      <div id="gd-custom" hidden><div class="gl-picks" id="gd-picks"></div><div id="gd-custom-search"></div></div>
+      <span class="duel-lbl gd-chars-lbl">Characters (optional)</span>
+      <div class="gl-picks" id="gd-chars"></div>
+      <div id="gd-chars-search"></div>
     </div>
     <div class="duel-field" id="pick-field" hidden>
       <span class="duel-lbl">Matchups (up to 5)</span>
@@ -199,6 +214,25 @@ function renderNew() {
   let inviting = false;
   let mode = 'random';
   let gameMode = 'predict';
+  // Gauntlet: where the opponents come from, and characters picked to run it.
+  const gd = { source: 'random', series: '', opponents: [], chars: [] };
+  const gdChips = (list, key) => list.map((c, i) => `
+    <span class="fav-chip gl-pick"><span class="fav-chip-tile${c.image_url ? ' has-pic' : ''}" style="background:${accentFor(c.id)}">${characterTileInner(c.name, c.image_url, 52)}</span>
+      <span class="fav-chip-name">${escapeHtml(shortName(c.name))}</span>
+      <button type="button" class="fav-chip-clear" data-${key}="${i}" aria-label="Remove">×</button></span>`).join('');
+  const drawGauntlet = () => {
+    newBox.querySelectorAll('[data-gsrc]').forEach((b) => {
+      const on = b.dataset.gsrc === gd.source;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', String(on));
+    });
+    newBox.querySelector('#gd-series').hidden = gd.source !== 'series';
+    newBox.querySelector('#gd-custom').hidden = gd.source !== 'custom';
+    newBox.querySelector('#gd-picks').innerHTML = gdChips(gd.opponents, 'opp');
+    newBox.querySelector('#gd-custom-search').hidden = gd.opponents.length >= 10;
+    newBox.querySelector('#gd-chars').innerHTML = gdChips(gd.chars, 'chr');
+    newBox.querySelector('#gd-chars-search').hidden = gd.chars.length >= 5;
+  };
 
   const setRadio = (attr, value) => newBox.querySelectorAll(`[data-${attr}]`).forEach((b) => {
     const on = b.dataset[attr] === value;
@@ -234,10 +268,16 @@ function renderNew() {
   const update = () => {
     const n = picked.size;
     const draft = gameMode === 'draft';
-    newBox.querySelector('#mu-field').hidden = draft;
-    pickField.hidden = draft || mode !== 'pick';
-    addBtn.hidden = draft || mode !== 'pick' || n >= 5;
-    seriesField.hidden = !draft && mode === 'pick' && n >= 5; // nothing random left to draw
+    const gauntletMode = gameMode === 'gauntlet';
+    newBox.querySelector('#mu-field').hidden = draft || gauntletMode;
+    newBox.querySelector('#gd-field').hidden = !gauntletMode;
+    pickField.hidden = draft || gauntletMode || mode !== 'pick';
+    addBtn.hidden = draft || gauntletMode || mode !== 'pick' || n >= 5;
+    seriesField.hidden = !draft && !gauntletMode && mode === 'pick' && n >= 5; // nothing random left to draw
+    if (gauntletMode) {
+      hint.textContent = "Each round shows a character and its ladder of opponents, weakest first. Guess how many it beats before its first loss: 3 points for the exact number, 2 if you're one off, 1 if two off. 30 seconds a round. Characters you don't pick are drawn at random.";
+      return;
+    }
     if (draft) {
       hint.textContent = 'Each round everyone is dealt 4 characters of similar tiers and picks the one they think is strongest. Picks then go head to head: each win is a point, and dead-even picks go to whoever locked in faster.';
       return;
@@ -285,6 +325,26 @@ function renderNew() {
     update();
   }));
   addBtn.addEventListener('click', addPicker);
+  const gdSeries = newBox.querySelector('#gd-series');
+  gdSeries.innerHTML = '<option value="">Pick a series…</option>' + series.map((x) => `<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('');
+  gdSeries.addEventListener('change', () => { gd.series = gdSeries.value; });
+  newBox.querySelectorAll('[data-gsrc]').forEach((b) => b.addEventListener('click', () => { gd.source = b.dataset.gsrc; drawGauntlet(); }));
+  newBox.querySelector('#gd-field').addEventListener('click', (e) => {
+    const x = e.target.closest('[data-opp], [data-chr]');
+    if (!x) return;
+    if (x.dataset.opp !== undefined) gd.opponents.splice(Number(x.dataset.opp), 1);
+    else gd.chars.splice(Number(x.dataset.chr), 1);
+    drawGauntlet();
+  });
+  newBox.querySelector('#gd-custom-search').appendChild(characterSearchEl({
+    placeholder: 'Add an opponent…', label: 'Add an opponent', exclude: () => gd.opponents.map((c) => c.id),
+    onChoose: (c) => { if (gd.opponents.length < 10) gd.opponents.push(c); drawGauntlet(); },
+  }));
+  newBox.querySelector('#gd-chars-search').appendChild(characterSearchEl({
+    placeholder: 'Pick a character to run it (up to 5)…', label: 'Pick a character', exclude: () => gd.chars.map((c) => c.id),
+    onChoose: (c) => { if (gd.chars.length < 5) gd.chars.push(c); drawGauntlet(); },
+  }));
+  drawGauntlet();
   outBox.addEventListener('click', (e) => {
     const keep = e.target.closest('[data-keep]');
     if (keep) excluded.delete(keep.dataset.keep);
@@ -324,10 +384,14 @@ function renderNew() {
     if (invite.some((n) => !n)) { err.textContent = `Fill in all ${seats()} players, or let anyone join.`; return; }
     const matchups = gameMode === 'predict' && mode === 'pick' ? [...picked.values()] : [];
     if (matchups.some((m) => !m)) { err.textContent = 'Finish each matchup, or remove it.'; return; }
+    if (gameMode === 'gauntlet' && gd.source === 'series' && !gd.series) { err.textContent = 'Pick the series to fight.'; return; }
+    if (gameMode === 'gauntlet' && gd.source === 'custom' && gd.opponents.length < 2) { err.textContent = 'Add at least two opponents.'; return; }
     createBtn.disabled = true;
     createBtn.textContent = 'Creating…';
     try {
-      const g = await Api.createGame(format, invite, matchups, [...excluded], gameMode, who === 'link');
+      const g = await Api.createGame(format, invite, matchups, [...excluded], gameMode, who === 'link', gameMode === 'gauntlet' ? {
+        source: gd.source, series: gd.series, opponents: gd.opponents.map((c) => c.id), challengers: gd.chars.map((c) => c.id),
+      } : {});
       renderNew(); // a fresh form
       showCreated(g);
       refresh(); // in the background: "Play now" needn't wait for the lists
@@ -595,7 +659,19 @@ function seatingHtml(g) {
   return `<div class="duel-teams">${teams.join('<span class="duel-teams-vs">vs</span>')}</div>`;
 }
 
+function gauntletSource(g) {
+  const src = g.gauntlet || 'random';
+  return src.startsWith('series:') ? `${src.slice(7)}'s best known` : src === 'custom' ? 'Opponents picked by the creator' : 'Opponents from the whole roster';
+}
+
 function infoHtml(g) {
+  if (g.mode === 'gauntlet') {
+    return `<div class="duel-info">
+      <div class="duel-info-row"><span class="duel-lbl" style="margin:0">Gauntlet</span><span class="duel-info-pill">${escapeHtml(gauntletSource(g))} · 5 rounds</span>
+        <span>Each ladder appears only when its round's 30 seconds start.</span></div>
+      ${g.excluded.length ? `<div class="duel-info-row">Random picks leave out: ${g.excluded.map(escapeHtml).join(', ')}</div>` : ''}
+    </div>`;
+  }
   if (g.mode === 'draft') {
     return `<div class="duel-info">
       <div class="duel-info-row"><span class="duel-lbl" style="margin:0">Draft</span><span class="duel-info-pill">4 characters each · 5 rounds</span>
@@ -652,9 +728,10 @@ function renderGame(g) {
 // get them in - straight to round 1, or to log in and come back here.
 function challengeHtml(g) {
   if (g.status !== 'open' || g.players.some((p) => p.me)) return '';
-  const kind = g.mode === 'draft' ? `Draft duel · ${g.format}` : `Prediction duel · ${g.format}`;
+  const kind = `${MODE_NAME[g.mode] || 'Prediction'} duel · ${g.format}`;
   const how = g.mode === 'draft' ? 'Five rounds: pick the strongest from a hand of four.'
-    : "Five matchups, 20 seconds each: call who the site says wins.";
+    : g.mode === 'gauntlet' ? 'Five characters, each against a ladder of ever-stronger opponents: guess how far each one climbs.'
+      : "Five matchups, 20 seconds each: call who the site says wins.";
   let action;
   if (!me) {
     const next = encodeURIComponent(`duels.html?game=${g.id}`);
@@ -679,7 +756,7 @@ function wireResultShare(container, g) {
   attachShareMenu(btn, () => {
     const mine = g.players.find((p) => p.me);
     const scores = g.teams === 2 && g.my_team === 2 ? [...g.team_scores].reverse() : g.team_scores;
-    const kind = `${g.mode === 'draft' ? 'Draft' : 'Prediction'} duel (${g.format})`;
+    const kind = `${MODE_NAME[g.mode] || 'Prediction'} duel (${g.format})`;
     const text = mine
       ? `${{ win: 'I won', loss: 'I lost', draw: 'I drew' }[g.outcome] || 'I played'} a ${kind} on Powerscale, ${scores.join('–')}. Think you can call who wins?`
       : `A ${kind} on Powerscale: ${g.players.map((p) => p.username).join(' vs ')}, ${g.team_scores.join('–')}.`;
@@ -740,6 +817,40 @@ function resultsHtml(g) {
         : !b.winner && b.a && b.b ? '<span class="dr-bout-note">even</span>' : ''}`;
     return b.compare_url ? `<a class="dr-bout" href="${escapeHtml(b.compare_url)}">${inner}</a>` : `<span class="dr-bout">${inner}</span>`;
   };
+  if (g.mode === 'gauntlet') {
+    const MARK = { win: 'W', loss: 'L', even: '=', none: '–' };
+    const guessRow = (r, p) => {
+      const player = byName[p.username] || { username: p.username };
+      return `<div class="gd-guess-row${p.pick_id == null ? ' missed' : ''}">
+        ${avatar(player, `duel-pick-avatar${player.me ? ' me' : ''}`)}
+        <span class="gd-guess-name${player.me ? ' me' : ''}">${escapeHtml(player.me ? 'you' : p.username)}</span>
+        <span class="gd-guess-said">${p.pick_id == null ? 'no guess' : `guessed <b>${p.pick_id}</b>`}</span>
+        <span class="dr-points ${p.points === 3 ? 'max' : p.points ? 'some' : ''}">+${p.points}</span></div>`;
+    };
+    return `
+    <div class="duel-result-head ${outcome}">
+      <div class="duel-result-kicker">${tagText(g)} · Finished</div>
+      <button type="button" class="duel-result-share pill-button btn-sm">Share ▾</button>
+      <div class="duel-result-title">${title}</div>
+      <div class="duel-result-score">${score}</div>
+      <div class="duel-result-people">${people}</div>
+    </div>
+    ${g.rounds.map((r) => `
+      <section class="dr-round">
+        <h2 class="dr-round-title">Round ${r.round_no}</h2>
+        <div class="dr-round-card">
+          <a class="gd-result-hero" href="${escapeHtml(r.compare_url)}">${sideTileHtml(r.a, 160)}<span class="gd-hero-text">
+            <span class="gd-hero-name">${escapeHtml(shortName(r.a.name))}${r.picked ? ' <span class="duel-picked">picked</span>' : ''}</span>
+            <span class="gd-hero-sub">Climbed <b>${r.answer_id}</b> of ${r.fights.length}</span></span></a>
+          <div class="gd-result-ladder">${r.fights.map((f) => `
+            <a class="gd-result-rung ${f.reached ? f.outcome : 'unreached'}" href="${escapeHtml(f.compare_url)}"
+              title="${f.rung}. ${escapeHtml(shortName(f.opponent.name))}: ${escapeHtml(f.reached ? f.verdict : 'not reached')}">
+              ${sideTileHtml(f.opponent, 80)}<span class="gd-result-mark">${f.reached ? MARK[f.outcome] : ''}</span></a>`).join('')}</div>
+          ${r.picks.map((p) => guessRow(r, p)).join('')}
+        </div>
+      </section>`).join('')}
+    <p class="dr-legend">Each ladder runs weakest to strongest; the run ends at the first loss or draw. 3 points for the exact number, 2 if one off, 1 if two off. Tap an opponent to open that matchup.</p>`;
+  }
   if (g.mode === 'draft') {
     return `
     <div class="duel-result-head ${outcome}">
@@ -858,15 +969,32 @@ async function play(gameId, game = null) {
   }
 }
 
+function gauntletRoundHtml(r) {
+  const c = r.a;
+  return `<div class="gd-play">
+    <div class="gd-hero">${sideTileHtml(c, 240)}<div class="gd-hero-text">
+      <div class="gd-hero-name">${escapeHtml(shortName(c.name))}</div>
+      <div class="gd-hero-sub">${escapeHtml(c.series)}${c.form ? ` · ${escapeHtml(c.form)}` : ''}</div></div></div>
+    <ol class="gd-ladder">${r.ladder.map((s, i) => `
+      <li class="gd-rung"><span class="gd-rung-no">${i + 1}</span>${sideTileHtml(s, 96)}
+        <span class="gd-rung-text"><span class="gd-rung-name">${escapeHtml(shortName(s.name))}</span>
+        <span class="gd-rung-sub">${escapeHtml(s.series)}</span></span></li>`).join('')}</ol>
+    <div class="gd-prompt">How many does it beat before its first loss?</div>
+    <div class="gd-guesses">${Array.from({ length: r.ladder.length + 1 }, (_, n) => `
+      <button type="button" class="gd-num" data-pick="${n}">${n}</button>`).join('')}</div>
+  </div>`;
+}
+
 function showRound(r) {
   const dots = Array.from({ length: r.total }, (_, i) => `<span class="duel-dot${i + 1 < r.round_no ? ' done' : i + 1 === r.round_no ? ' now' : ''}"></span>`).join('');
+  const roundLength = r.mode === 'gauntlet' ? 30 : 20;
   playFrame(`
-    <div class="duel-play-round" id="play-title">Round ${r.round_no} of ${r.total}${r.mode === 'draft' ? ' — pick your fighter' : ''}</div>
+    <div class="duel-play-round" id="play-title">Round ${r.round_no} of ${r.total}${r.mode === 'draft' ? ' — pick your fighter' : r.mode === 'gauntlet' ? ' — how far does it climb?' : ''}</div>
     <div class="duel-play-sub">${playTitle()}</div>
     <div class="duel-dots" aria-hidden="true">${dots}</div>
     <div class="duel-clock"><span class="duel-clock-num" aria-live="off"></span><div class="duel-clock-track"><div class="duel-clock-bar"></div></div></div>
     ${r.mode === 'draft' ? `<div class="dr-prompt">Your pick fights each opponent's: take the strongest of your ${r.hand.length}</div>` : ''}
-    <div class="duel-choices${r.mode === 'draft' ? ' dr-hand-grid' : ''}">
+    ${r.mode === 'gauntlet' ? gauntletRoundHtml(r) : `<div class="duel-choices${r.mode === 'draft' ? ' dr-hand-grid' : ''}">
       ${(r.mode === 'draft' ? r.hand : [r.a, r.b]).map((s) => `
         <button type="button" class="duel-choice" data-pick="${s.id}">
           <span class="duel-choice-check">${CHECK(18)}</span>
@@ -875,7 +1003,7 @@ function showRound(r) {
           ${s.form ? `<span class="duel-choice-form">${escapeHtml(s.form)}</span>` : ''}
           <span class="duel-choice-series">${escapeHtml(s.series)}</span>
         </button>`).join(r.mode === 'draft' ? '' : '<span class="duel-choice-vs">vs</span>')}
-    </div>
+    </div>`}
     <div class="duel-play-status" aria-live="polite"></div>`);
   playBox.querySelectorAll('.duel-choice-check').forEach((c) => { c.style.color = 'var(--accent-gold)'; });
   const bar = playBox.querySelector('.duel-clock-bar');
@@ -886,13 +1014,13 @@ function showRound(r) {
   const lock = () => {
     locked = true;
     clearInterval(timer);
-    playBox.querySelectorAll('.duel-choice').forEach((b) => { b.disabled = true; });
+    playBox.querySelectorAll('[data-pick]').forEach((b) => { b.disabled = true; });
   };
   const next = (res) => (res && res.next ? showRound(res.next) : showFinished(r.game_id));
 
   const tick = () => {
     const left = Math.max(0, (endAt - performance.now()) / 1000);
-    bar.style.transform = `scaleX(${left / 20})`;
+    bar.style.transform = `scaleX(${left / roundLength})`;
     bar.classList.toggle('urgent', left <= 5);
     num.classList.toggle('urgent', left <= 5);
     num.textContent = Math.ceil(left);
@@ -907,11 +1035,12 @@ function showRound(r) {
   timer = setInterval(tick, 100);
   tick();
 
-  playBox.querySelectorAll('.duel-choice').forEach((btn) => btn.addEventListener('click', async () => {
+  playBox.querySelectorAll('[data-pick]').forEach((btn) => btn.addEventListener('click', async () => {
     if (locked) return;
     lock();
     btn.classList.add('chosen');
-    const who = r.mode === 'draft' ? `${btn.querySelector('.duel-choice-name').textContent} locked in` : 'Locked in';
+    const who = r.mode === 'draft' ? `${btn.querySelector('.duel-choice-name').textContent} locked in`
+      : r.mode === 'gauntlet' ? `${btn.dataset.pick} locked in` : 'Locked in';
     status.textContent = r.round_no < r.total ? who : `${who} — that was the last one`;
     try {
       const res = await Api.pickRound(r.game_id, r.round_no, Number(btn.dataset.pick));
@@ -951,7 +1080,7 @@ async function showFinished(gameId) {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !playBox.hidden && !playBox.querySelector('.duel-choice:not(:disabled)')) closePlay();
+  if (e.key === 'Escape' && !playBox.hidden && !playBox.querySelector('[data-pick]:not(:disabled)')) closePlay();
 });
 
 // --- start -----------------------------------------------------------------------------

@@ -144,7 +144,7 @@ def duel_finished(game_id: int) -> None:
             teams.append((" & ".join(names), g.team_scores[t - 1] if g.team_scores else 0,
                           any(p.outcome == "win" for p in g.players if p.team == t)))
         winners = [t for t in teams if t[2]]
-        kind = f"{'draft' if g.mode == 'draft' else 'prediction'} duel · {g.format}"
+        kind = f"{_MODE_WORD.get(g.mode, 'prediction')} duel · {g.format}"
         title = f"{winners[0][0]} won a {kind}" if winners else f"A {kind} ended in a draw"
         ranked = sorted(teams, key=lambda t: -t[1])
         embed = {"title": _clip(title, 250), "color": GOLD if winners else 0x7A7264,
@@ -403,10 +403,14 @@ def _message_url(webhook: str, message_id: str) -> str:
     return f"{base}/messages/{message_id}" + (f"?{query}" if query else "")
 
 
+_MODE_WORD = {"predict": "prediction", "draft": "draft", "gauntlet": "gauntlet"}
+_MODE_HOW = {"draft": "Everyone is dealt 4 characters and picks the strongest, five rounds.",
+             "gauntlet": "Five characters against ladders of ever-stronger opponents: guess how far each one climbs."}
+
+
 def lobby_embed(g) -> dict:
-    kind = f"{'Draft' if g.mode == 'draft' else 'Prediction'} duel · {g.format}"
-    how = ("Everyone is dealt 4 characters and picks the strongest, five rounds."
-           if g.mode == "draft" else "Five matchups, 20 seconds each: call who the site says wins.")
+    kind = f"{_MODE_WORD.get(g.mode, 'prediction').capitalize()} duel · {g.format}"
+    how = _MODE_HOW.get(g.mode, "Five matchups, 20 seconds each: call who the site says wins.")
     joined = [_md(p.username) for p in g.players]
     lines = [f"**{kind}** · {g.seats_left} seat{'s' if g.seats_left != 1 else ''} left", how]
     if len(joined) > 1:

@@ -361,6 +361,11 @@ class DuelCreateIn(BaseModel):
     exclude: List[str] = Field([], max_length=100)  # series left out of the random rounds
     mode: str = "predict"  # predict | draft
     link_only: bool = False  # open, but not listed or posted: only people with the link join
+    # Gauntlet games: where opponents come from, and up to five challengers.
+    gauntlet_source: str = "random"  # random | series | custom
+    gauntlet_series: Optional[str] = Field(None, max_length=120)
+    gauntlet_opponents: List[int] = Field([], max_length=10)
+    challengers: List[int] = Field([], max_length=5)
 
 
 class DuelJoinIn(BaseModel):
@@ -397,6 +402,7 @@ class DuelRoundOut(BaseModel):
     a: Optional[DuelSideOut] = None
     b: Optional[DuelSideOut] = None
     hand: List[DuelSideOut] = []
+    ladder: List[DuelSideOut] = []  # gauntlet: the opponents, lowest rung first (a is the challenger)
 
 
 class DuelPickIn(BaseModel):
@@ -433,6 +439,26 @@ class DuelBoutOut(BaseModel):
     compare_url: Optional[str] = None
 
 
+class GauntletFightOut(BaseModel):
+    rung: int
+    opponent: DuelSideOut
+    outcome: str  # win | loss | even (too close to call) | none (not enough stats)
+    verdict: str
+    reached: bool = True  # False: after the run had already ended
+    compare_url: str = ""
+
+
+class GauntletOut(BaseModel):
+    """A solo gauntlet run (see backend/gauntlet.py)."""
+    character: DuelSideOut
+    source: str
+    series: Optional[str] = None
+    seed: Optional[int] = None  # random ladders: the same seed draws the same ladder
+    climbed: int
+    total: int
+    fights: List[GauntletFightOut]
+
+
 class DuelResultRoundOut(BaseModel):
     round_no: int
     a: Optional[DuelSideOut] = None  # predict rounds only
@@ -443,6 +469,7 @@ class DuelResultRoundOut(BaseModel):
     picks: List[DuelRoundPickOut]
     compare_url: str
     bouts: List[DuelBoutOut] = []  # draft rounds only
+    fights: List[GauntletFightOut] = []  # gauntlet rounds only (a is the challenger, answer_id its wins)
 
 
 class DuelOut(BaseModel):
@@ -458,6 +485,7 @@ class DuelOut(BaseModel):
     invited: List[str] = []  # invited players who haven't joined yet
     private: bool = False
     link_only: bool = False  # open to whoever has the link, not listed
+    gauntlet: Optional[str] = None  # gauntlet games: "random", "custom" or "series:<name>"
     seats_left: int = 0
     picked: Optional[int] = None  # rounds the creator chose; the rest are random (None: not recorded)
     excluded: List[str] = []  # series left out of the random rounds

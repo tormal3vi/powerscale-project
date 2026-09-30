@@ -1,18 +1,20 @@
 """HTTP endpoints for prediction duels (rules and storage: duels.py)."""
 
 import json
+import random
 from typing import Dict, List, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 import calculator
 import db
-from backend import characters, community, discord_webhooks, duels
+from backend import characters, community, discord_webhooks, duels, gauntlet
 from backend.community_api import (
     avatar_url, character_image_url, current_user, post_limit, require_user, same_origin,
 )
 from backend.schemas import (
-    DuelBoutOut, DuelCreateIn, DuelJoinIn, DuelListOut, DuelOut, DuelPickIn, DuelPickOut, DuelPlayerOut,
+    DuelBoutOut, DuelCreateIn, GauntletFightOut, GauntletOut, DuelJoinIn, DuelListOut, DuelOut, DuelPickIn, DuelPickOut, DuelPlayerOut,
     DuelResultRoundOut, DuelRoundOut, DuelRoundPickOut, DuelSideOut, LeaderboardOut, LeaderboardRowOut,
 )
 
@@ -51,6 +53,10 @@ def _round_out(game_id: int, r: dict) -> DuelRoundOut:
     if r.get("mode") == "draft":
         out.mode = "draft"
         out.hand = [_side(cid, None, cache) for cid in r.get("hand", [])]
+    elif r.get("mode") == "gauntlet":
+        out.mode = "gauntlet"
+        out.a = _side(r["char_a"], r["form_a"] or None, cache)
+        out.ladder = [_side(cid, None, cache) for cid in r.get("ladder", [])]
     else:
         out.a, out.b = _side(r["char_a"], r["form_a"], cache), _side(r["char_b"], r["form_b"], cache)
     return out
@@ -98,7 +104,7 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
         mode=g.get("mode") or "predict",
         teams=teams, team_size=size, creator=person(g["creator_id"])[0], players=out_players,
         invited=[person(u)[0] for u in invited if u not in member_ids], private=bool(invited),
-        link_only=bool(g.get("link_only")),
+        link_only=bool(g.get("link_only")), gauntlet=g.get("gauntlet"),
         seats_left=teams * size - len(members) if g["status"] == "open" else 0,
         picked=g.get("picked"), excluded=[s for s in (g.get("excluded") or "").split("|") if s],
         my_team=mine["team"] if mine else None,
@@ -128,6 +134,8 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
                     break
             hands = data.get("hands", {}).get(g["id"], {})
             tier = _tier_of()
+        if g.get("mode") == "gauntlet":
+            guesses = duels.picks_in_time(g["id"], picks, members)  # late guesses score nothing
         for r in rounds:
             round_picks = []
             for m in sorted(members, key=lambda m: (m["team"], m["joined_at"])):
@@ -143,6 +151,23 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
                 pick_id, ok = duels.pick_of(picks, g["id"], m["user_id"], r["round_no"], r["answer_id"])
                 round_picks.append(DuelRoundPickOut(username=person(m["user_id"])[0], team=m["team"],
                                                     pick_id=pick_id, correct=ok))
+            if g.get("mode") == "gauntlet":
+                ladder = data.get("ladders", {}).get(g["id"], {}).get(r["round_no"], [])
+                alive, fights = True, []
+                for l in ladder:
+                    fights.append(GauntletFightOut(
+                        rung=l["rung"], opponent=_side(l["char_id"], None, cache), outcome=l["outcome"],
+                        verdict=l["verdict"], reached=alive, compare_url=f"compare.html?a={r['char_a']}&b={l['char_id']}"))
+                    alive = alive and l["outcome"] == "win"
+                out.rounds.append(DuelResultRoundOut(
+                    round_no=r["round_no"], a=_side(r["char_a"], r["form_a"] or None, cache), answer_id=r["answer_id"],
+                    verdict=r["verdict"], picked=r["picked"], compare_url=f"character.html?id={r['char_a']}",
+                    fights=fights, picks=[DuelRoundPickOut(
+                        username=person(m["user_id"])[0], team=m["team"], pick_id=guesses.get((r["round_no"], m["user_id"])),
+                        correct=guesses.get((r["round_no"], m["user_id"])) == r["answer_id"],
+                        points=duels.gauntlet_points(guesses.get((r["round_no"], m["user_id"])), r["answer_id"]))
+                        for m in sorted(members, key=lambda m: (m["team"], m["joined_at"]))]))
+                continue
             if draft:
                 round_bouts = []
                 for bout in (b for b in bouts if b["round_no"] == r["round_no"]):
@@ -207,7 +232,9 @@ def create_game(payload: DuelCreateIn, user: dict = Depends(require_user)):
             if db.get_character_by_id(cid) is None:
                 raise HTTPException(status_code=404, detail=f"No character with id {cid}")
     game_id = _run(duels.create, user["id"], payload.format, payload.invite, [m.model_dump() for m in payload.matchups],
-                   payload.exclude, payload.mode, payload.link_only)
+                   payload.exclude, payload.mode, payload.link_only,
+                   {"source": payload.gauntlet_source, "series": payload.gauntlet_series,
+                    "opponents": payload.gauntlet_opponents, "challengers": payload.challengers})
     discord_webhooks.lobby_open(game_id)  # open to anyone (not private or link only): "wants to duel" on Discord
     return _one(game_id, user["id"])
 
@@ -253,6 +280,39 @@ def pick(game_id: int, payload: DuelPickIn, user: dict = Depends(require_user)):
     same response: one round trip between rounds instead of two."""
     in_time, nxt = _run(duels.pick, game_id, user["id"], payload.round_no, payload.pick_id)
     return DuelPickOut(in_time=in_time, next=_round_out(game_id, nxt) if nxt else None)
+
+
+@router.get("/api/gauntlet", response_model=GauntletOut)
+def run_gauntlet(char: Optional[int] = None, form: Optional[str] = None, source: str = "random",
+                 series: Optional[str] = None, opponents: str = "", seed: Optional[int] = None):
+    """How far a character climbs (no char: a random well-known one).
+    Everything that shapes the run is in the query, so a link replays it."""
+    if seed is None:
+        seed = random.randrange(1, 1 << 30)
+    if char is None:
+        char = gauntlet.random_challenger(seed)
+    if db.get_character_by_id(char) is None:
+        raise HTTPException(status_code=404, detail=f"No character with id {char}")
+    try:
+        custom = [int(x) for x in opponents.split(",") if x.strip()][:gauntlet.RUNGS]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Opponents must be character ids") from None
+    try:
+        ladder = gauntlet.ladder(char, source, series=series, custom=custom, seed=seed, form=form)
+    except gauntlet.GauntletError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:  # a form the character doesn't have
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result = gauntlet.run(char, ladder, form)
+    cache: dict = {}
+    return GauntletOut(
+        character=_side(char, form, cache), source=source, series=series if source == "series" else None,
+        seed=seed if source == "random" else None, climbed=result["climbed"], total=result["total"],
+        fights=[GauntletFightOut(rung=f["rung"], opponent=_side(f["opponent"], None, cache), outcome=f["outcome"],
+                                 verdict=f["verdict"], reached=f["reached"],
+                                 compare_url=f"compare.html?a={char}&b={f['opponent']}"
+                                             + (f"&fa={quote(form)}" if form else ""))
+                for f in result["fights"]])
 
 
 @router.get("/api/leaderboard", response_model=LeaderboardOut)

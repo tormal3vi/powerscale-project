@@ -1,5 +1,16 @@
 [
   {
+    "id": "2026-09-30.4",
+    "date": "2026-09-30",
+    "title": "The Gauntlet",
+    "changes": [
+      "New Gauntlet page: pick any character (or a random one) and watch how far it climbs a ladder of ever-stronger opponents. It stops at its first loss.",
+      "Opponents can come from the whole roster (rung 1 is among the weakest characters on the site, rung 10 among the strongest), from one series' best-known characters, or from your own picks.",
+      "Gauntlet duels: guess how far each of five characters climbs. 3 points for the exact number, 2 if you're one off, 1 if two off. Also on Discord with /duel.",
+      "Every character page has a Gauntlet button, and each run has a link you can share."
+    ]
+  },
+  {
     "id": "2026-09-30.3",
     "date": "2026-09-30",
     "title": "Stat fixes: Ultimate Hulk and 14 more",

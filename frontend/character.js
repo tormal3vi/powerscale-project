@@ -135,6 +135,7 @@ function render() {
               <div class="char-sub" title="${escapeHtml(subtitle)}">${escapeHtml(subtitle)}</div>
               <div class="char-actions">
                 <a class="btn-gold" href="browse.html?with=${c.id}">Compare with…</a>
+                <a class="pill-button" href="gauntlet.html?char=${c.id}">Gauntlet</a>
                 ${wikiLink}
               </div>
             </div>
@@ -145,6 +146,7 @@ function render() {
           </div>
           <div class="char-actions char-actions-phone">
             <a class="btn-gold" href="browse.html?with=${c.id}">Compare with…</a>
+                <a class="pill-button" href="gauntlet.html?char=${c.id}">Gauntlet</a>
             ${wikiLink}
           </div>
           ${c.forms.length > 1 ? `

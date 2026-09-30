@@ -2375,3 +2375,116 @@ a.dr-mini-wrap.picked:hover .dr-mini { box-shadow: 0 0 0 2px var(--accent-gold);
 .verdict-disclaimer a, .verdict-callout-text a { color: var(--accent-gold); border-bottom: 1px solid rgba(217, 164, 65, 0.4); white-space: nowrap; }
 .duel-how-more { font-size: 13px; color: var(--text-tertiary); margin: 12px 0 0; }
 .duel-how-more a { color: var(--accent-gold); font-weight: 600; }
+
+/* --- Gauntlet ------------------------------------------------------------ */
+.gl { max-width: 860px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+.gl-head { margin-bottom: 22px; }
+.gl-card { background: var(--card); border: 1px solid var(--card-border); border-radius: 18px; padding: 22px; margin-bottom: 22px; }
+.gl-char-row { display: flex; gap: 10px; align-items: flex-start; }
+.gl-char-slot { flex: 1; min-width: 0; }
+.gl-char-row > .pill-button { flex-shrink: 0; margin-top: 4px; }
+.gl-series { margin-top: 10px; max-width: 360px; }
+.gl-series[hidden], .gl-card [hidden] { display: none; }
+.gl-picks { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.gl-picks:empty { margin: 4px 0; }
+.gl-tile {
+  width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  font: 700 15px var(--font-serif); color: var(--bg); overflow: hidden;
+}
+.gl-tile img { width: 100%; height: 100%; object-fit: cover; }
+.gl-result { scroll-margin-top: 80px; }
+.gl-hero { display: flex; align-items: center; gap: 18px; background: var(--card); border: 1px solid var(--card-border);
+  border-radius: 18px; padding: 20px; margin-bottom: 14px; }
+.gl-hero-tile { width: 84px; height: 84px; border-radius: 18px; font-size: 32px; }
+.gl-hero-text { flex: 1; min-width: 0; }
+.gl-hero-name { font: 700 24px var(--font-serif); color: var(--text-primary); overflow-wrap: anywhere; }
+.gl-hero-name:hover { color: var(--accent-gold); }
+.gl-hero-sub { font-size: 13px; color: var(--text-tertiary); margin-top: 2px; }
+.gl-score { margin-top: 10px; font: 600 15px var(--font-sans); color: var(--text-secondary); }
+.gl-score b { font: 700 22px var(--font-mono); color: var(--accent-gold); }
+.gl-hero.cleared { border-color: var(--accent-gold); }
+.gl-hero-actions { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.gl-ladder { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.gl-rung { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--card-border);
+  border-radius: 14px; padding: 10px 14px; transition: opacity 0.35s, transform 0.35s, border-color 0.35s; }
+.gl-rung.pending { opacity: 0.25; transform: translateY(4px); }
+.gl-rung.pending .gl-rung-result { visibility: hidden; }
+.gl-rung-no { width: 24px; flex-shrink: 0; text-align: center; font: 700 14px var(--font-mono); color: var(--text-quaternary); }
+.gl-rung-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gl-rung-name { font-size: 14.5px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-rung-sub { font-size: 12px; color: var(--text-quaternary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-rung-result { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; max-width: 46%; text-align: right; }
+.gl-badge { font: 700 11.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; padding: 4px 9px;
+  border-radius: var(--radius-pill); background: var(--pill-bg); color: var(--text-tertiary); }
+.gl-verdict { font-size: 11.5px; color: var(--text-quaternary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.gl-rung-result:hover .gl-verdict { color: var(--text-secondary); }
+.gl-rung.win:not(.unreached) { border-color: rgba(143, 191, 107, 0.45); }
+.gl-rung.win:not(.unreached) .gl-badge { background: rgba(143, 191, 107, 0.16); color: #8FBF6B; }
+.gl-rung.loss:not(.unreached) { border-color: rgba(225, 82, 82, 0.5); }
+.gl-rung.loss:not(.unreached) .gl-badge { background: rgba(225, 82, 82, 0.16); color: #E19999; }
+.gl-rung.even:not(.unreached) { border-color: rgba(217, 164, 65, 0.5); }
+.gl-rung.even:not(.unreached) .gl-badge { background: rgba(217, 164, 65, 0.16); color: var(--accent-gold); }
+.gl-rung.unreached:not(.pending) { opacity: 0.45; }
+@media (max-width: 640px) {
+  .gl-card, .gl-hero { padding: 16px; }
+  .gl-hero { flex-wrap: wrap; }
+  .gl-hero-tile { width: 64px; height: 64px; font-size: 24px; }
+  .gl-hero-name { font-size: 20px; }
+  .gl-hero-actions { flex-direction: row; width: 100%; }
+  .gl-hero-actions .pill-button { flex: 1; }
+  .gl-rung { padding: 9px 10px; gap: 9px; }
+  .gl-rung .gl-tile { width: 34px; height: 34px; }
+  .gl-verdict { display: none; }
+}
+
+/* Gauntlet duels: the round (character, ladder, number buttons) and results. */
+.gd-chars-lbl { margin-top: 16px; }
+.gd-play { max-width: 720px; margin: 0 auto; }
+.gd-hero, .gd-result-hero { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.gd-hero .duel-tile { width: 72px; height: 72px; border-radius: 16px; flex-shrink: 0; }
+.gd-hero-text { display: flex; flex-direction: column; min-width: 0; }
+.gd-hero-name { font: 700 21px var(--font-serif); color: var(--text-primary); }
+.gd-hero-sub { font-size: 13px; color: var(--text-tertiary); }
+.gd-hero-sub b { font: 700 16px var(--font-mono); color: var(--accent-gold); }
+.gd-ladder { list-style: none; margin: 0 0 14px; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.gd-rung { display: flex; align-items: center; gap: 9px; padding: 6px 8px; background: var(--pill-bg); border-radius: 10px; min-width: 0; }
+.gd-rung .duel-tile { width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; }
+.gd-rung-no { width: 18px; flex-shrink: 0; text-align: center; font: 700 12px var(--font-mono); color: var(--text-quaternary); }
+.gd-rung-text { display: flex; flex-direction: column; min-width: 0; }
+.gd-rung-name { font-size: 13px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-rung-sub { font-size: 11px; color: var(--text-quaternary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-prompt { font: 600 14px var(--font-sans); color: var(--accent-gold); text-align: center; margin: 4px 0 10px; }
+.gd-guesses { display: grid; grid-template-columns: repeat(auto-fit, minmax(44px, 1fr)); gap: 6px; }
+.gd-num { height: 46px; border-radius: 10px; border: 1px solid var(--control-border); background: var(--card);
+  color: var(--text-primary); font: 700 17px var(--font-mono); cursor: pointer; }
+.gd-num:hover:not(:disabled) { border-color: var(--accent-gold); color: var(--accent-gold); }
+.gd-num.chosen { background: var(--accent-gold); border-color: var(--accent-gold); color: var(--bg); }
+.gd-num:disabled:not(.chosen) { opacity: 0.4; cursor: default; }
+.gd-result-hero { color: inherit; }
+.gd-result-hero .duel-tile { width: 52px; height: 52px; border-radius: 12px; flex-shrink: 0; }
+.gd-result-hero:hover .gd-hero-name { color: var(--accent-gold); }
+.gd-result-hero .gd-hero-name { font-size: 17px; }
+.gd-result-ladder { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.gd-result-rung { position: relative; display: block; border-radius: 9px; box-shadow: 0 0 0 2px var(--card-border); }
+.gd-result-rung .duel-tile { width: 38px; height: 38px; border-radius: 9px; }
+.gd-result-rung.win { box-shadow: 0 0 0 2px #8FBF6B; }
+.gd-result-rung.loss { box-shadow: 0 0 0 2px #E15252; }
+.gd-result-rung.even { box-shadow: 0 0 0 2px var(--accent-gold); }
+.gd-result-rung.unreached { opacity: 0.35; }
+.gd-result-mark { position: absolute; right: -4px; bottom: -4px; min-width: 15px; height: 15px; border-radius: 8px; padding: 0 3px;
+  font: 700 10px/15px var(--font-mono); text-align: center; background: var(--bg); color: var(--text-secondary); }
+.gd-result-mark:empty { display: none; }
+.gd-guess-row { display: flex; align-items: center; gap: 9px; padding: 7px 0; border-top: 1px solid var(--divider); }
+.gd-guess-row.missed { opacity: 0.6; }
+.gd-guess-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+.gd-guess-name.me { color: var(--accent-gold); }
+.gd-guess-said { flex: 1; font-size: 13px; color: var(--text-tertiary); }
+.gd-guess-said b { font-family: var(--font-mono); color: var(--text-primary); }
+@media (max-width: 640px) {
+  .gd-ladder { grid-template-columns: 1fr; gap: 4px; }
+  .gd-rung { padding: 4px 8px; }
+  .gd-rung .duel-tile { width: 26px; height: 26px; }
+  .gd-rung-sub { display: none; }
+  .gd-hero .duel-tile { width: 54px; height: 54px; }
+  .gd-guesses { grid-template-columns: repeat(6, 1fr); }
+}
