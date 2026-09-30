@@ -354,7 +354,10 @@ function showCreated(g) {
     <div class="duel-created-title">${tagText(g)} created</div>
     <div class="duel-note">${who} Play your five rounds whenever you're ready.</div>
     <div class="duel-created-row">${g.link_only ? copyHtml + playHtml : playHtml + copyHtml}</div>`;
-  box.querySelector('[data-act="play"]').addEventListener('click', () => play(g.id, g));
+  box.querySelector('[data-act="play"]').addEventListener('click', () => {
+    box.remove(); // done with it: the game is in Your games from here
+    play(g.id, g);
+  });
   const copy = box.querySelector('[data-act="copy"]');
   copy.addEventListener('click', () => copyLink(g.id, copy));
   newBox.prepend(box);

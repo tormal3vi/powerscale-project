@@ -750,12 +750,12 @@ def _segments_for_forms(flat_value: Optional[str], n: int) -> List[Optional[str]
     """One value per form from a flat, possibly '|'-split field. Handled
     per field, independently - a page can vary one field across forms
     (e.g. just Speed) without every other field following the same
-    split. n segments map to forms in order. Exactly one (unsplit) value
+    split. n segments map to forms in order (more than n: the last form
+    takes the extras). Exactly one (unsplit) value
     is the wiki's shorthand for "same for every form" - e.g. Bambietta
     Basterbine's Speed, "Massively Hypersonic" with no '|' at all - so
-    it's shared rather than dropped. Any other count (2+ but not n -
-    Goku GT lists 5 Attack Potency values for 4 forms) can't be matched
-    to forms, so every form gets the WHOLE field instead: the normalizer
+    it's shared rather than dropped. Fewer than n (but 2+) can't be
+    matched to forms, so every form gets the WHOLE field instead: the normalizer
     then scores it as the character's full range across all listed
     values. Approximate, but it used to be left unscored, which cost ~30
     characters a stat and Goku GT any verdict at all (user decision)."""
@@ -764,6 +764,13 @@ def _segments_for_forms(flat_value: Optional[str], n: int) -> List[Optional[str]
         return segments
     if len(segments) == 1:
         return segments * n
+    if len(segments) > n:
+        # More values than forms: an extra variant listed after the rest
+        # ("Human level | At least Mountain level | ... (Same as before)"
+        # for Ultimate Hulk's Banner and Hulk). In order, the last form
+        # taking the extras - not the whole field for every form, which
+        # scored Hulk from Banner's Human level.
+        return segments[:n - 1] + [" | ".join(segments[n - 1:])]
     if segments:
         return [flat_value] * n
     return [None] * n

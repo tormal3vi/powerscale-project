@@ -597,6 +597,16 @@ def test_colon_less_field_names_count_only_the_first_time():
     guevara = parse_character(_load("JunGuevaru"))
     assert guevara.speed.startswith("At least Subsonic")
 
+def test_extra_values_go_to_the_last_form():
+    from parser import _segments_for_forms
+    # Ultimate Hulk: two forms (Banner, Hulk), three Attack Potency values.
+    ap = "Human level | At least Mountain level | At least Mountain level (Same as before)"
+    assert _segments_for_forms(ap, 2) == ["Human level", "At least Mountain level | At least Mountain level (Same as before)"]
+    assert _segments_for_forms("A | B", 2) == ["A", "B"]
+    assert _segments_for_forms("Same", 3) == ["Same"] * 3
+    assert _segments_for_forms("A | B", 3) == ["A | B"] * 3  # too few: the whole field for each
+
+
 if __name__ == "__main__":
     import sys
 

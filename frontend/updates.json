@@ -1,5 +1,15 @@
 [
   {
+    "id": "2026-09-30.3",
+    "date": "2026-09-30",
+    "title": "Stat fixes: Ultimate Hulk and 14 more",
+    "changes": [
+      "Ultimate Hulk's Hulk form was scored at Banner's Human level. It's Mountain level now.",
+      "The same fix gives 14 more characters their real stats per form, among them Simon the Digger's final form, Captain Atom, Orion, Highfather and the Spectre.",
+      "Duels: after creating a game, the \"created\" box goes away once you press Play now."
+    ]
+  },
+  {
     "id": "2026-09-30.2",
     "date": "2026-09-30",
     "title": "Nintendo: Mario, Zelda, Kirby and Metroid",
