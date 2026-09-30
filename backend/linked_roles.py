@@ -97,16 +97,27 @@ def _open(sealed: str) -> Optional[str]:
 
 # --- Discord calls ------------------------------------------------------------------------
 
+_registration: dict = {"status": "not tried yet"}  # what Discord said, for /discord/linked-role/status
+
+
 def register_metadata() -> None:
     """Tells Discord which numbers roles can check (on startup; idempotent)."""
     app_id, token = _setting("DISCORD_APPLICATION_ID"), _setting("DISCORD_BOT_TOKEN")
-    if not enabled() or not token:
+    if not enabled():
+        return
+    if not token:
+        _registration.update(status="no DISCORD_BOT_TOKEN set")
         return
     try:
-        requests.put(f"{API}/applications/{app_id}/role-connections/metadata", json=METADATA, timeout=15,
-                     headers={"Authorization": f"Bot {token}", "User-Agent": USER_AGENT})
-    except requests.RequestException:
-        pass  # tried again on the next start
+        r = requests.put(f"{API}/applications/{app_id}/role-connections/metadata", json=METADATA, timeout=15,
+                         headers={"Authorization": f"Bot {token}", "User-Agent": USER_AGENT})
+    except requests.RequestException as exc:
+        _registration.update(status=f"couldn't reach Discord ({type(exc).__name__})")
+        return
+    if r.ok:
+        _registration.update(status="registered", fields=[m["key"] for m in r.json()])
+    else:  # Discord's error says why (no secrets in it)
+        _registration.update(status=f"Discord said {r.status_code}", detail=r.text[:500])
 
 
 def _token_request(data: dict) -> Optional[dict]:
@@ -221,6 +232,12 @@ def _page(title: str, text: str, status: int = 200) -> HTMLResponse:
 <meta name="robots" content="noindex"></head><body><div class="page"><main class="page-content lr-page">
 <div class="lr-card"><img src="/favicon.svg?v=2" alt="" width="48" height="48"><h1 class="lr-title">{escape(title)}</h1>
 <p class="lr-text">{text}</p><a class="btn-gold" href="/">Go to Powerscale</a></div></main></div></body></html>""")
+
+
+@router.get("/discord/linked-role/status", include_in_schema=False)
+def status():
+    """Whether Linked Roles is on and Discord took the stats it can check."""
+    return {"enabled": enabled(), "metadata": _registration}
 
 
 @router.get("/discord/linked-role", include_in_schema=False)
