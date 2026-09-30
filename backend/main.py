@@ -12,6 +12,7 @@ hand, or http://localhost:8000/ once frontend/ exists.
 import json
 import os
 import re
+from urllib.parse import urlencode
 import unicodedata
 import urllib.request
 from collections import OrderedDict
@@ -445,8 +446,32 @@ def _base_url(request: Request) -> str:
     return f"{proto}://{request.headers.get('host', request.url.netloc)}"
 
 
+# The query parameters that make each page what it is: kept in canonical
+# links, so ?d=123 or a tracker's tag doesn't look like another page.
+_CANONICAL_PARAMS = {"compare.html": ("a", "b", "fa", "fb"), "character.html": ("id",), "user.html": ("u",),
+                     "duels.html": ("game",), "tournament.html": ("ids",),
+                     "gauntlet.html": ("char", "source", "series", "opponents", "seed")}
+
+
+def _structured_data(base: str, about: Optional[list], page_name: str, url: str) -> str:
+    """JSON-LD: what the site is (a fan site about fictional characters -
+    not Dell's PowerScale storage or ABB's power supplies), and what a
+    page is about when it's one or two characters."""
+    graph = [{"@type": "WebSite", "@id": f"{base}/#site", "name": "Powerscale",
+              "alternateName": ["Powerscale.online", "Powerscale: who would win"], "url": f"{base}/",
+              "description": SITE_DESCRIPTION,
+              "about": {"@type": "Thing", "name": "Fictional character power scaling (VS Battles)"}}]
+    if about:
+        graph.append({"@type": "WebPage", "name": page_name, "url": url, "isPartOf": {"@id": f"{base}/#site"},
+                      "about": [{"@type": "Thing", "name": name, "description": desc} for name, desc in about]})
+    # "</" can't appear inside a <script>: a name like "</script>" would end it.
+    data = json.dumps({"@context": "https://schema.org", "@graph": graph}, ensure_ascii=False).replace("</", "<\\/")
+    return f'<script type="application/ld+json">{data}</script>\n'
+
+
 def _page_with_preview(request: Request, filename: str, title: Optional[str], description: Optional[str],
-                       image: Optional[str] = None) -> HTMLResponse:
+                       image: Optional[str] = None, about: Optional[list] = None) -> HTMLResponse:
+    """`about`: [(character name, description)] for the structured data."""
     html = (FRONTEND_DIR / filename).read_text(encoding="utf-8")
     base = _base_url(request)
     t = html_escape(title or PAGE_TITLES.get(filename, "Powerscale"))
@@ -455,6 +480,10 @@ def _page_with_preview(request: Request, filename: str, title: Optional[str], de
     if image.startswith("/"):
         image = base + image
     url = base + request.url.path + (f"?{request.url.query}" if request.url.query else "")
+    keep = [(k, v) for k, v in request.query_params.multi_items() if k in _CANONICAL_PARAMS.get(filename, ())]
+    canonical = base + request.url.path + (f"?{urlencode(keep)}" if keep else "")
+    if title:  # the page's own <title> too: search results show that, not og:title
+        html = re.sub(r"<title>.*?</title>", f"<title>{t}</title>", html, count=1, flags=re.S)
     tags = (
         f'<meta property="og:title" content="{t}">\n'
         f'<meta property="og:description" content="{d}">\n'
@@ -465,7 +494,8 @@ def _page_with_preview(request: Request, filename: str, title: Optional[str], de
         f'<meta name="twitter:card" content="summary">\n'
         f'<meta name="theme-color" content="#D9A441">\n'
         f'<meta name="description" content="{d}">\n'
-    )
+        f'<link rel="canonical" href="{html_escape(canonical)}">\n'
+    ) + _structured_data(base, about, title or PAGE_TITLES.get(filename, "Powerscale"), canonical)
     invite = _discord_invite()
     if invite:  # nav.js turns it into the "Join our Discord" button
         tags += f'<meta name="discord-invite" content="{html_escape(invite)}">\n'
@@ -485,12 +515,13 @@ def _int_param(value: Optional[str]) -> Optional[int]:
 def _compare_preview(a: Optional[str], b: Optional[str], fa: Optional[str], fb: Optional[str]):
     char_a, char_b = _int_param(a), _int_param(b)
     if char_a is None or char_b is None:
-        return None, None, None
+        return None, None, None, None, None
     try:
         v = characters.run_compare(char_a, char_b, fa or None, fb or None)
     except ValueError:
-        return None, None, None
-    title = f"{characters.short_name(v.character_a)} vs {characters.short_name(v.character_b)} — Powerscale"
+        return None, None, None, None
+    name_a, name_b = characters.short_name(v.character_a), characters.short_name(v.character_b)
+    title = f"{name_a} vs {name_b}: who would win? — Powerscale"
     ov = community.get_override(char_a, char_b, v.form_a, v.form_b)
     # The preview shows whoever the card says wins; A when it's a toss-up.
     pictured = char_a
@@ -510,21 +541,29 @@ def _compare_preview(a: Optional[str], b: Optional[str], fa: Optional[str], fb: 
     else:
         verdict = v.label
     pictured_form = v.form_a if pictured == char_a else v.form_b
-    return title, f"{verdict}. {v.form_a} vs {v.form_b}.", _preview_image(pictured, pictured_form)
+    series = {cid: (db.get_character_by_id(cid) or {}).get("category") or "" for cid in (char_a, char_b)}
+    about = [(name_a, f"Fictional character from {series[char_a]}"), (name_b, f"Fictional character from {series[char_b]}")]
+    desc = (f"{verdict}. {name_a} ({v.form_a}) vs {name_b} ({v.form_b}), compared on tier, attack potency, "
+            f"speed and durability from the VS Battles Wiki.")
+    return title, desc, _preview_image(pictured, pictured_form), about
 
 
 def _character_preview(char_id: Optional[str]):
     cid = _int_param(char_id)
     row = db.get_character_by_id(cid) if cid is not None else None
     if row is None:
-        return None, None, None
+        return None, None, None, None
     with db.connect() as conn:
         name = characters.display_name(row["name"], row["source_url"], characters.all_collisions())
     normalized = json.loads(row["normalized_json"])
     tier = _tier_badge(normalized)
     forms = len(normalized.get("forms") or [])
-    desc = f"{row['category']}" + (f" · Tier {tier}" if tier else "") + (f" · {forms} forms" if forms > 1 else "")
-    return f"{characters.short_name(name)} — Powerscale", desc, _preview_image(cid)
+    short = characters.short_name(name)
+    desc = (f"{short} ({row['category']})" + (f": Tier {tier}" if tier else "") + (f", {forms} forms" if forms > 1 else "")
+            + ". Attack potency, speed and durability from the VS Battles Wiki - see who they beat.")
+    shown = short if row["category"].lower() in short.lower() else f"{short} ({row['category']})"  # not "Kirby (Kirby)"
+    return (f"{shown} — Powerscale", desc, _preview_image(cid),
+            [(short, f"Fictional character from {row['category']}")])
 
 
 def _names(people: List[str]) -> str:
@@ -539,7 +578,7 @@ def _duel_preview(game: Optional[str]):
         g = duels_api._one(gid, None)
     except HTTPException:
         return None, None, None
-    kind = f"{'Draft' if g.mode == 'draft' else 'Prediction'} duel · {g.format}"
+    kind = f"{ {'draft': 'Draft', 'gauntlet': 'Gauntlet'}.get(g.mode, 'Prediction')} duel · {g.format}"
     sides = [_names([p.username for p in g.players if p.team == t]) for t in range(1, g.teams + 1)]
     sides = [x for x in sides if x]
     title = (" vs ".join(sides) if len(sides) > 1 else f"{g.creator}'s duel") + " — Powerscale"
@@ -600,6 +639,12 @@ def _sitemap(request: Request) -> Response:
     with db.connect() as conn:
         for row in conn.execute("SELECT id, last_scraped_at FROM characters ORDER BY id"):
             urls.append((f"{base}/character.html?id={row[0]}", (row[1] or "")[:10] or None))
+    # The matchups people actually talk about - a few hundred real pages,
+    # not every possible pair (thin pages search engines ignore anyway).
+    try:
+        urls += [(f"{base}/compare.html?a={a}&b={b}", None) for a, b in community.discussed_matchups()]
+    except Exception:  # noqa: BLE001 - the community database is down: characters only
+        pass
     body = "".join(f"<url><loc>{html_escape(loc)}</loc>{f'<lastmod>{day}</lastmod>' if day else ''}</url>"
                    for loc, day in urls)
     xml = f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{body}</urlset>'

@@ -683,9 +683,18 @@ async function challengeFriend(button) {
   }
 }
 
-async function saveMatchupImage() {
+// Square for posts, or 9:16 (story) for TikTok, Shorts, Reels and stories:
+// the same card, with the two characters stacked instead of side by side.
+async function saveMatchupImage({ story = false } = {}) {
   const W = 1080;
-  const H = 1080;
+  const H = story ? 1920 : 1080;
+  const L = story ? {
+    head: 175, S: 430, tiles: [[W / 2, 250], [W / 2, 950]], nameDy: 490, vs: [W / 2, 905], textMax: 900,
+    glow: [[W / 2, 470], [W / 2, 1170]], verdict: 1630, second: 1680, meter: 1724, logo: 1800,
+  } : {
+    head: 110, S: 380, tiles: [[270, 170], [W - 270, 170]], nameDy: 450, vs: [W / 2, 380], textMax: 440,
+    glow: [[0, 420], [W, 420]], verdict: 800, second: 846, meter: 884, logo: 972,
+  };
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -706,8 +715,8 @@ async function saveMatchupImage() {
 
   x.fillStyle = '#14120F';
   x.fillRect(0, 0, W, H);
-  for (const [cx, color] of [[0, accentA], [W, accentB]]) {  // a soft glow from each side
-    const glow = x.createRadialGradient(cx, 420, 0, cx, 420, 620);
+  for (const [[cx, cy], color] of [[L.glow[0], accentA], [L.glow[1], accentB]]) {  // a soft glow behind each side
+    const glow = x.createRadialGradient(cx, cy, 0, cx, cy, 620);
     glow.addColorStop(0, color);
     glow.addColorStop(1, 'transparent');
     x.globalAlpha = 0.16;
@@ -727,13 +736,12 @@ async function saveMatchupImage() {
     x.fillText(str, cx, y);
     if ('letterSpacing' in x) x.letterSpacing = '0px';
   };
-  text('WHO WOULD WIN?', 28, W / 2, 110, { font: '"IBM Plex Mono"', color: '#D9A441', max: 900, spacing: 6 });
+  text('WHO WOULD WIN?', story ? 40 : 28, W / 2, L.head, { font: '"IBM Plex Mono"', color: '#D9A441', max: 900, spacing: 6 });
 
-  const S = 380;
-  const sides = [['a', imgA, accentA, 270], ['b', imgB, accentB, W - 270]];
-  for (const [side, img, color, cx] of sides) {
+  const S = L.S;
+  const sides = [['a', imgA, accentA, ...L.tiles[0]], ['b', imgB, accentB, ...L.tiles[1]]];
+  for (const [side, img, color, cx, top] of sides) {
     const left = cx - S / 2;
-    const top = 170;
     x.save();
     x.beginPath();
     x.roundRect(left, top, S, S, 36);
@@ -750,49 +758,50 @@ async function saveMatchupImage() {
     x.stroke();
     const form = activeForm(side);
     const character = state[side];
-    text(shortName(character.name), 42, cx, 620, { font: 'Fraunces', weight: 700, max: 440 });
+    const nameY = top + L.nameDy;
+    text(shortName(character.name), story ? 52 : 42, cx, nameY, { font: 'Fraunces', weight: 700, max: L.textMax });
     const series = character.subseries ? `${character.category} · ${character.subseries}` : character.category;
-    text(series, 22, cx, 660, { font: '"IBM Plex Mono"', color: '#A69C8C', max: 440 });
+    text(series, story ? 26 : 22, cx, nameY + 40, { font: '"IBM Plex Mono"', color: '#A69C8C', max: L.textMax });
     const detail = [character.forms.length > 1 ? form.name : null, prettifyLabel(form.tier.baseline_label) ? `Tier ${prettifyLabel(form.tier.baseline_label)}` : null]
       .filter(Boolean).join(' · ');
-    if (detail) text(detail, 22, cx, 696, { color: color, max: 440 });
+    if (detail) text(detail, story ? 26 : 22, cx, nameY + 76, { color: color, max: L.textMax });
   }
-  text('VS', 60, W / 2, 380, { font: 'Fraunces', weight: 700, color: '#D9A441' });
+  text('VS', story ? 72 : 60, L.vs[0], L.vs[1], { font: 'Fraunces', weight: 700, color: '#D9A441' });
 
   const v = state.verdict;
   const [first, second] = verdictLines(v);
-  text(first, 54, W / 2, 800, { font: 'Fraunces', weight: 700, max: 960 });
-  if (second) text(second, 28, W / 2, 846, { color: '#D8D0C0', max: 960 });
+  text(first, story ? 60 : 54, W / 2, L.verdict, { font: 'Fraunces', weight: 700, max: 960 });
+  if (second) text(second, story ? 32 : 28, W / 2, L.second, { color: '#D8D0C0', max: 960 });
   // The verdict meter, as on the page: from the middle toward whoever leads.
   const trackW = 760;
   const trackX = (W - trackW) / 2;
   x.fillStyle = '#2B2720';
   x.beginPath();
-  x.roundRect(trackX, 884, trackW, 14, 7);
+  x.roundRect(trackX, L.meter, trackW, 14, 7);
   x.fill();
   const lean = v.override ? (v.override.winner_id === state.a.id ? 1 : -1) : Math.max(-1, Math.min(1, v.composite || 0));
   if (lean) {
     const w = Math.abs(lean) * trackW / 2;
     x.fillStyle = lean > 0 ? accentA : accentB;
     x.beginPath();
-    x.roundRect(lean > 0 ? W / 2 - w : W / 2, 884, w, 14, 7);
+    x.roundRect(lean > 0 ? W / 2 - w : W / 2, L.meter, w, 14, 7);
     x.fill();
   }
   x.fillStyle = '#F3EEE4';
-  x.fillRect(W / 2 - 1.5, 878, 3, 26);
+  x.fillRect(W / 2 - 1.5, L.meter - 6, 3, 26);
 
   // The logo, then the address, centered together.
   x.font = '600 30px "IBM Plex Mono", monospace';
   const site = 'powerscale.online';
   const start = (W - (44 + 16 + x.measureText(site).width)) / 2;
-  if (logo) x.drawImage(logo, start, 972, 44, 44);
+  if (logo) x.drawImage(logo, start, L.logo, 44, 44);
   x.fillStyle = '#A69C8C';
   x.textAlign = 'left';
-  x.fillText(site, start + 60, 1004);
+  x.fillText(site, start + 60, L.logo + 32);
 
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
   const slug = (str) => str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'character';
-  const name = `${slug(shortName(state.a.name))}-vs-${slug(shortName(state.b.name))}.png`;
+  const name = `${slug(shortName(state.a.name))}-vs-${slug(shortName(state.b.name))}${story ? '-story' : ''}.png`;
   const file = new File([blob], name, { type: 'image/png' });
   if (matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: shareInfo().title }); return; } catch { /* dismissed: download instead */ }
@@ -818,6 +827,11 @@ attachShareMenu(shareMenuBtn, shareInfo, [
     b.textContent = 'Drawing…';
     try { await saveMatchupImage(); close(); } catch { b.textContent = "Couldn't make the image"; }
     setTimeout(() => { b.textContent = 'Save as image'; }, 1500);
+  } },
+  { label: 'Save for TikTok / stories (9:16)', quiet: true, onClick: async (b, close) => {
+    b.textContent = 'Drawing…';
+    try { await saveMatchupImage({ story: true }); close(); } catch { b.textContent = "Couldn't make the image"; }
+    setTimeout(() => { b.textContent = 'Save for TikTok / stories (9:16)'; }, 1500);
   } },
 ]);
 

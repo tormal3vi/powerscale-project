@@ -18,7 +18,7 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import exc as exc_mod
 from sqlalchemy import (
@@ -232,6 +232,32 @@ def init() -> None:
             add_missing_columns(conn, table, columns)
     for hook in _init_hooks:
         hook()
+
+
+def discussed_matchups(limit: int = 500) -> List[Tuple[int, int]]:
+    """(low id, high id) of the matchups people engaged with - overrules,
+    Board posts, matchup comments, past matchups of the day - most
+    engaged first. What the sitemap lists: real pages, not every pair."""
+    counts: Dict[Tuple[int, int], int] = {}
+
+    def add(a, b, n=1):
+        if a and b and a != b:
+            key = (min(a, b), max(a, b))
+            counts[key] = counts.get(key, 0) + n
+    with reader.connect() as conn:
+        for a, b in conn.execute(select(overrides.c.char_low, overrides.c.char_high)):
+            add(a, b, 3)
+        for a, b, n in conn.execute(select(posts.c.char_a, posts.c.char_b, func.count()).where(
+                posts.c.char_a.isnot(None)).group_by(posts.c.char_a, posts.c.char_b)):
+            add(a, b, n)
+        for a, b, n in conn.execute(select(matchup_comments.c.char_low, matchup_comments.c.char_high, func.count())
+                                    .group_by(matchup_comments.c.char_low, matchup_comments.c.char_high)):
+            add(a, b, n)
+        for (value,) in conn.execute(select(site_marks.c.value).where(site_marks.c.key.like("daily:%"))):
+            a, _, b = (value or "").partition("|")
+            if a.isdigit() and b.isdigit():
+                add(int(a), int(b))
+    return [k for k, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
 
 
 def get_mark(key: str) -> Optional[str]:
