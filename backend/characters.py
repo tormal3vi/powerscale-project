@@ -49,8 +49,22 @@ def base_name(name: str, source_url: str) -> str:
     if name_words and title_words:
         if not (name_words & title_words):
             return bare
-        return bare if _title_is_better_known(name, title, bare) else name
+        return bare if _title_is_better_known(name, title, bare) else _drop_lead_notes(name)
     return bare if name_key(name) != name_key(bare) else name
+
+
+def _drop_lead_notes(name: str) -> str:
+    """Notes in brackets on the name shown first: "President Max Proffit
+    Haltmann (English name)", "Bowser Koopa (Simply called Koopa in
+    Japan)", "Mr. Bright (The sun-like character) & Mr. Shine (...)"."""
+    m = re.match(r"([^,;/]*)(.*)", name, re.S)
+    first, rest = m.group(1), m.group(2)
+    if first.count("(") != first.count(")"):
+        return name
+    cleaned = " ".join(re.sub(r"\([^)]*\)", "", first).split())
+    if not cleaned or cleaned == " ".join(first.split()):
+        return name  # no notes (or nothing but notes)
+    return f"{cleaned} {rest}" if rest.startswith("/") else cleaned + rest
 
 
 def _title_is_better_known(name: str, title: str, bare: str) -> bool:
@@ -65,15 +79,17 @@ def _title_is_better_known(name: str, title: str, bare: str) -> bool:
     first = re.split(r"[,;/]", name, maxsplit=1)[0]
     lead = _name_words(first)
     title_words = _name_words(bare)
+    if re.match(r"\s*(?:(?:real|true|birth) name\s+(?:is\s+)?)?unknown\b|\s*(?:has\s+)?no\s+(?:actual\s+|real\s+|true\s+)?name\b",
+                name, re.I):
+        # "Unknown, impersonated Captain Tennille", "Unknown (Only known as
+        # "Flam·Rouge" ...)", "Real name unknown. Referred as Prometheus",
+        # "Has no actual name but is referred to as Demise"
+        return True
     if first.count("(") > first.count(")"):
         # The first alias split mid-note: "Mistral (Her codename, true name
         # is unknown)", "Raiden (雷電?) (Birth name unknown, but ...",
         # "The Weatherheads (Hail-O-Pods, ..." on a page titled "Weatherheads".
         return _name_words(re.sub(r"\(.*", "", first)) - {"the"} == title_words - {"the"}
-    if re.match(r"\s*(?:(?:real|true|birth) name\s+(?:is\s+)?)?unknown\b", name, re.I):
-        # "Unknown, impersonated Captain Tennille", "Unknown. Aliases include
-        # the Phantom Stranger", "Real name unknown. Referred as Prometheus"
-        return True
     note = re.search(r"\(([^)]*)\)", first)
     if note and re.search(r"\b(unknown|real name|true name)\b", note.group(1), re.I):
         # "Joker (Real name is unknown)"; "Grey Cloud (real name), Nightwolf"
@@ -142,7 +158,8 @@ def display_name_for_id(char_id: int, colliding: Optional[set] = None) -> Option
 
 
 def short_name(name: str) -> str:
-    return re.split(r";|,\s", name, maxsplit=1)[0].strip()  # not "170,000 ..." -> "170"
+    # Not "170,000 ..." -> "170"; "Team Kirby / ...", but "Ocelot/Revolver Ocelot" stays whole.
+    return re.split(r";|,\s|\s/|/\s", name, maxsplit=1)[0].strip()
 
 
 # Character data only changes on a deploy (a new powerscale.db) or when a

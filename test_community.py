@@ -354,6 +354,18 @@ def test_display_names_prefer_the_page_title_over_a_real_name_lead():
         ("Asa Mitaka, War Devil (Yoru)", "War_Fiend", "Asa Mitaka, War Devil (Yoru)"),
     ]
     assert [C.base_name(n, wiki + t) for n, t, _ in cases] == [want for _, _, want in cases]
+    shown = [  # what the site shows: the short name
+        ('Unknown (Only known as "Flam·Rouge" some time after being adopted), Flamberge', "Flamberge", "Flamberge"),
+        ("Has no actual name but is referred to as Demise or Tyrannical Being", "Demise", "Demise"),
+        ("President Max Proffit Haltmann (English name), Gains Income Haltmann", "President_Haltmann",
+         "President Max Proffit Haltmann"),
+        ("Mr. Bright (The sun-like character) & Mr. Shine (The moon-like character)", "Mr._Bright_and_Mr._Shine",
+         "Mr. Bright & Mr. Shine"),
+        ('Grand Doomer (American name)/"Grand Lowper"', "Grand_Doomer", "Grand Doomer"),
+        ('Team Kirby / "Kirby Hunters"', "Team_Kirby", "Team Kirby"),
+        ("Ocelot/Revolver Ocelot", "Ocelot", "Ocelot/Revolver Ocelot"),  # a slash inside a name stays
+    ]
+    assert [C.short_name(C.base_name(n, wiki + t)) for n, t, _ in shown] == [want for _, _, want in shown]
 
 
 def test_board_version_moves_on_every_board_write():

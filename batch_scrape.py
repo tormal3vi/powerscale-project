@@ -99,6 +99,15 @@ SUBSERIES = {
     ]),
     "Mortal Kombat": ("Second Timeline", []),
     "Street Fighter": ("Games", []),
+    # Nintendo: spin-off series share one category on the wiki. The RPGs,
+    # Donkey Kong and Wario rate their casts on their own feats; the anime,
+    # manga, films and comics are separate continuities.
+    "Super Mario Bros": ("Games", [
+        ("Donkey Kong", ["Category:Donkey Kong"]),
+        ("Wario", ["Category:Wario Land"]),
+    ]),
+    "The Legend of Zelda": ("Games", [("Hyrule Warriors", ["Category:Hyrule Warriors"])]),
+    "Kirby": ("Games", []),
 }
 
 # Parts only the page titles tell apart: "Omni-Man (TV Series)", "Goku
@@ -128,6 +137,18 @@ SUBSERIES_BY_QUALIFIER = {
                "Lego": "Games", "FANT4STIC": "Fox films", "Spider-Verse": "Animated"},  # Sony's animated films
     "Street Fighter": {"Udon Comics": "Other Media", "Street Fighter: The Movie": "Other Media",
                        "Power Rangers": "Other Media", "Asura's Wrath": "Other Media"},
+    "Super Mario Bros": {"1993 Movie": "Other Media", "Anime Film": "Other Media", "Captain Lou Albano": "Other Media",
+                         "Super Mario Adventures": "Other Media", "Valiant Comics": "Other Media",
+                         "Super Smash Bros.": "Smash Bros.", "Paper Mario": "Paper Mario",
+                         "Super Paper Mario": "Paper Mario", "Paper Mario: Color Splash": "Paper Mario",
+                         "Wario: Master of Disguise": "Wario"},
+    "The Legend of Zelda": {"Hyrule Warriors": "Hyrule Warriors", "Animated Series": "Other Media", "CD-i": "Other Media",
+                            "DIC": "Other Media", "Zelda's Adventure": "Other Media", "Game & Watch": "Other Media",
+                            "Soul Calibur": "Other Media",
+                            "The Legend of Zelda: Majora's Mask": "Other Media"},  # the manga's Traveler
+    "Kirby": {"Kirby: Right Back at Ya!": "Anime", "Kirby of the Stars! Crazy Pupupu Hour!": "Manga",
+              "Hoshi no Kirby Mo-retsu Pupupu Hour!": "Manga", "Kirby of the Stars 3": "Manga",
+              "Super Smash Bros.": "Smash Bros."},
 }
 
 
@@ -135,6 +156,21 @@ SUBSERIES_BY_QUALIFIER = {
 # the character or a one-page category named like the page itself, which
 # category_fetcher drops as the series' own page).
 SUBSERIES_BY_TITLE = {
+    # Paper Mario's casts, by the page's origin (titles rarely say).
+    "Super Mario Bros": {**{t: "Paper Mario" for t in (
+        "Beldam (Mario Bros)", "Bonetail", "Brobot (Super Paper Mario)", "Colored Pencils", "Cortez", "Count Bleck",
+        "Dimentio", "Doopliss", "Grubba", "Jr. Troopa", "King Olly", "Lord Crump", "Marilyn (Paper Mario)",
+        "Mimi (Mario Bros)", "Mizzter Blizzard", "Olivia (Mario Bros)", "Paper Bowser Jr.", "Paper Iggy", "Paper Kamek",
+        "Paper Ludwig", "Paper Morton", "Pixl Queen", "Rawk Hawk", "Sir Grodus", "Shadow Queen", "Vivian (Paper Mario)",
+        "Watt (Paper Mario)", "Crystal King", "Lava Piranha", "Huff N. Puff", "Tubba Blubba")},
+        # Donkey Kong's, not in its wiki category...
+        **{t: "Donkey Kong" for t in ("Ghastly King", "Kalypso", "Kass", "Kip", "Kludge", "Kopter", "Mugly", "Thugly",
+                                      "Wizpig", "Karate Kong")},
+        # ...and WarioWare's.
+        **{t: "Wario" for t in ("Ashley & Red", "Kat and Ana", "Terrormisu")}},
+    "The Legend of Zelda": {"The Traveler (The Legend of Zelda: Majora's Mask)": "Other Media",
+                            "Toon Zelda": "Hyrule Warriors"},
+    "Kirby": {"Sirica": "Anime"},
     "Marvel": {"Spider-Society": "Animated"},  # the Spider-Verse films' team
     # Other franchises' characters as they are in the Mortal Kombat games.
     "Mortal Kombat": {**{t: "Guests" for t in (
@@ -210,6 +246,17 @@ EXCLUDED_TITLES = {
     # Items, and a page about a comic crossover rather than a character.
     "Mortal Kombat": {"Amulet of Shinnok", "Kamidogu", "The Hourglass (Mortal Kombat)"},
     "Street Fighter": {"Street Fighter/Darkstalkers (Udon Comics)"},
+    # Items, artifacts, ships and places, and overview pages.
+    "Super Mario Bros": {"Chaos Heart", "Pure Hearts", "Power Star", "Star Rod (Paper Mario)", "Wonder Flower",
+                         "Reset Rocket", "Super Mario Bros."},
+    "The Legend of Zelda": {"Four Sword", "Hylian Shield", "Ice Arrows", "Lokomo Sword", "Mage's Cap", "Master Sword",
+                            "Phantom Sword", "The Fire Rod", "The Tri Suit", "The Triforce", "Fused Shadow",
+                            "Light Force", "Skyloft",
+                            "Wart"},  # Mario's: a cameo in Link's Awakening, filed under Super Mario Bros
+    "Kirby": {"Kirby (Series)", "Kirby: Canon explanation page", "Kirby: General Explanations", "Halberd",
+              "Halberd (Kirby: Right Back at Ya!)", "Lor Starcutter", "Master Crown", "Robobot Armor", "Warp Star",
+              "Ribbon's Shard Gun", "Galaxia", "Galaxia (Kirby: Right Back at Ya!)", "Jamba Heart"},
+    "Metroid": {"Samus' Gunship", "Phazon"},
     "Tekken": {"Tekken Verse Universal Abilities",
                "Pandora (Street Fighter X Tekken)"},  # listed under Street Fighter too: filed there
 }
@@ -356,7 +403,7 @@ def run_batch(
             db.upsert_character(
                 name=titled_name(title, stats.name) if series in TITLE_NAMED_SERIES else (stats.name or title),
                 source_url=url,
-                category=series or category,
+                category=series or category.replace("Category:", "").strip(),
                 raw=stats.to_dict(),
                 normalized=normalized.to_dict(),
                 subseries=subseries_of(title) if series else None,
