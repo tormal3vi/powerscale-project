@@ -8,6 +8,8 @@ const MAX_PICKS = 10;
 const params = new URLSearchParams(location.search);
 const state = {
   char: null, // {id, name, image_url, ...} from the roster, or null: random
+  forms: [], // the chosen character's form names (2+: a picker shows)
+  form: params.get('form') || '',
   source: ['random', 'series', 'custom'].includes(params.get('source')) ? params.get('source') : 'random',
   series: params.get('series') || '',
   picks: [], // custom opponents
@@ -24,20 +26,40 @@ function tile(c, px, cls = '') {
 
 // --- setup -----------------------------------------------------------------------
 
+// A character with several forms fights in its strongest unless you pick one.
+async function loadForms() {
+  const select = $('gl-form');
+  select.hidden = true;
+  state.forms = [];
+  if (!state.char) { state.form = ''; return; }
+  const id = state.char.id;
+  try {
+    const c = await Api.getCharacter(id);
+    if (!state.char || state.char.id !== id) return;
+    state.forms = c.forms.map((f) => f.name);
+    const strongest = c.forms[defaultFormIndex(c.forms)].name;
+    if (!state.forms.includes(state.form)) state.form = strongest;
+    select.innerHTML = c.forms.map((f) => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name)}${f.name === strongest ? ' (strongest)' : ''}</option>`).join('');
+    select.value = state.form;
+    select.hidden = c.forms.length < 2;
+  } catch { /* the run uses the strongest form */ }
+}
+
 function renderChar() {
   const slot = $('gl-char');
+  loadForms();
   if (state.char) {
     slot.innerHTML = `<span class="fav-chip">${tile(state.char, 52, 'fav-chip-tile')}<span class="fav-chip-name"></span>
       <button type="button" class="fav-chip-clear" aria-label="Change character">×</button></span>`;
     slot.querySelector('.fav-chip-name').textContent = shortName(state.char.name);
-    slot.querySelector('.fav-chip-clear').addEventListener('click', () => { state.char = null; renderChar(); slot.querySelector('input').focus(); });
+    slot.querySelector('.fav-chip-clear').addEventListener('click', () => { state.char = null; state.form = ''; renderChar(); slot.querySelector('input').focus(); });
     return;
   }
   slot.innerHTML = '';
   slot.appendChild(characterSearchEl({
     placeholder: 'Any character… (or leave it to chance)',
     label: 'Character',
-    onChoose: (c) => { state.char = c; renderChar(); },
+    onChoose: (c) => { state.char = c; state.form = ''; renderChar(); },
   }));
 }
 
@@ -64,6 +86,7 @@ document.querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click
   renderSource();
 }));
 $('gl-series').addEventListener('change', (e) => { state.series = e.target.value; });
+$('gl-form').addEventListener('change', (e) => { state.form = e.target.value; });
 $('gl-picks').addEventListener('click', (e) => {
   const x = e.target.closest('[data-i]');
   if (!x) return;
@@ -76,7 +99,7 @@ $('gl-custom-search').appendChild(characterSearchEl({
   exclude: () => state.picks.map((c) => c.id),
   onChoose: (c) => { if (state.picks.length < MAX_PICKS) state.picks.push(c); renderPicks(); },
 }));
-$('gl-random-char').addEventListener('click', () => { state.char = null; renderChar(); run({ fresh: true }); });
+$('gl-random-char').addEventListener('click', () => { state.char = null; state.form = ''; renderChar(); run({ fresh: true }); });
 $('gl-run').addEventListener('click', () => run({ fresh: true }));
 
 // --- running ------------------------------------------------------------------------
@@ -87,6 +110,7 @@ async function run({ fresh = false, seed = null } = {}) {
   $('gl-error').textContent = '';
   const q = { source: state.source };
   if (state.char) q.char = state.char.id;
+  if (state.char && state.form && state.forms.length !== 1) q.form = state.form; // (a shared link's form counts before the list loads)
   if (state.source === 'series') {
     if (!state.series) { $('gl-error').textContent = 'Pick a series.'; return; }
     q.series = state.series;
@@ -104,10 +128,16 @@ async function run({ fresh = false, seed = null } = {}) {
     // The URL replays this exact run: the character and, for a random
     // ladder, the seed that drew it.
     const url = new URLSearchParams({ char: r.character.id, source: r.source });
+    if (q.form) url.set('form', q.form);
     if (r.series) url.set('series', r.series);
     if (q.opponents) url.set('opponents', q.opponents);
     if (r.seed) url.set('seed', r.seed);
     history.replaceState(null, '', `gauntlet.html?${url}`);
+    // A random character: now it's the chosen one (so "Run again" and the form picker work).
+    if (!state.char || state.char.id !== r.character.id) {
+      state.char = (await roster()).find((c) => c.id === r.character.id) || null;
+      renderChar();
+    }
     showResult(r);
   } catch (e) {
     $('gl-error').textContent = e.message;
@@ -118,42 +148,58 @@ async function run({ fresh = false, seed = null } = {}) {
 }
 
 const OUTCOME = { win: 'Win', loss: 'Loss', even: 'Too close', none: 'No verdict' };
+let lastRun = null;
+
+// "Kirby favored — Clear favorite" -> "Clear favorite" (the badge says who won);
+// "X wins — overruled by admins" -> "Overruled by admins".
+function shortVerdict(v) {
+  const tail = v.split(' — ').pop();
+  return tail.charAt(0).toUpperCase() + tail.slice(1);
+}
+
+function nameWithForm(side) {
+  return `${escapeHtml(shortName(side.name))}${side.form ? `<span class="gl-form-tag"> · ${escapeHtml(side.form)}</span>` : ''}`;
+}
 
 function showResult(r) {
+  lastRun = r;
   clearTimeout(revealTimer);
   const box = $('gl-result');
   const c = r.character;
-  const name = shortName(c.name);
   box.hidden = false;
   box.innerHTML = `
     <div class="gl-hero">
-      ${tile(c, 160, 'gl-hero-tile')}
-      <div class="gl-hero-text">
-        <a class="gl-hero-name" href="character.html?id=${c.id}"></a>
-        <div class="gl-hero-sub">${escapeHtml(c.series)}${c.form ? ` · ${escapeHtml(c.form)}` : ''}</div>
+      <div class="gl-hero-id">
+        ${tile(c, 160, 'gl-hero-tile')}
+        <div class="gl-hero-text">
+          <a class="gl-hero-name" href="character.html?id=${c.id}"></a>
+          <div class="gl-hero-sub">${escapeHtml(c.series)}${c.form ? ` · ${escapeHtml(c.form)}` : ''}</div>
+        </div>
+      </div>
+      <div class="gl-hero-score">
+        <div class="gl-lbl gl-score-lbl">Result</div>
         <div class="gl-score" id="gl-score">Climbing…</div>
       </div>
-      <div class="gl-hero-actions">
-        <button type="button" class="pill-button" id="gl-again">${r.source === 'random' ? 'New ladder' : 'Run again'}</button>
-        <button type="button" class="pill-button" id="gl-share">Copy link</button>
-      </div>
     </div>
-    <ol class="gl-ladder">${r.fights.map((f) => `
-      <li class="gl-rung pending ${f.outcome}${f.reached ? '' : ' unreached'}">
+    <ol class="gl-ladder">${r.fights.map((f, i) => `
+      <li class="gl-rung pending ${f.outcome}${f.reached ? '' : ' unreached'}${f.reached && f.outcome !== 'win' ? ' stop' : ''}">
         <span class="gl-rung-no">${f.rung}</span>
-        ${tile(f.opponent, 96)}
-        <span class="gl-rung-text">
-          <span class="gl-rung-name">${escapeHtml(shortName(f.opponent.name))}</span>
-          <span class="gl-rung-sub">${escapeHtml(f.opponent.series)}</span>
-        </span>
-        <a class="gl-rung-result" href="${escapeHtml(f.compare_url)}" title="${escapeHtml(f.verdict)}">
-          <span class="gl-badge">${f.reached ? OUTCOME[f.outcome] : 'Not reached'}</span>
-          <span class="gl-verdict">${escapeHtml(f.verdict)}</span>
+        ${tile(f.opponent, 64)}
+        <a class="gl-rung-text" href="${escapeHtml(f.compare_url)}" title="Open ${escapeHtml(shortName(c.name))} vs ${escapeHtml(shortName(f.opponent.name))}">
+          <span class="gl-rung-name">${nameWithForm(f.opponent)}</span><span class="gl-rung-sub"> · ${escapeHtml(f.opponent.series)}</span>
         </a>
+        <span class="gl-verdict" title="${escapeHtml(f.verdict)}">${f.reached ? escapeHtml(shortVerdict(f.verdict)) : ''}</span>
+        <span class="gl-badge">${f.reached ? OUTCOME[f.outcome] : 'Not reached'}</span>
       </li>`).join('')}
-    </ol>`;
-  box.querySelector('.gl-hero-name').textContent = name;
-  box.querySelector('#gl-again').addEventListener('click', () => run({ fresh: true }));
+    </ol>
+    <div class="gl-actions">
+      <button type="button" class="btn-gold" id="gl-again">Run again</button>
+      ${r.source === 'random' ? '<button type="button" class="gl-btn" id="gl-new">New ladder</button>' : ''}
+      <button type="button" class="gl-btn" id="gl-share">Copy link</button>
+    </div>`;
+  box.querySelector('.gl-hero-name').textContent = shortName(c.name);
+  box.querySelector('#gl-again').addEventListener('click', () => showResult(lastRun)); // the same fights, climbed again
+  box.querySelector('#gl-new')?.addEventListener('click', () => run({ fresh: true }));
   const share = box.querySelector('#gl-share');
   share.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(location.href); share.textContent = 'Link copied'; } catch { share.textContent = 'Copy failed'; }
@@ -163,8 +209,8 @@ function showResult(r) {
 
   // One fight at a time, up to where the run ended; then the rest at once.
   const rungs = [...box.querySelectorAll('.gl-rung')];
-  const lastReached = rungs.findIndex((el) => el.classList.contains('unreached'));
-  const stop = lastReached < 0 ? rungs.length : lastReached;
+  const firstUnreached = rungs.findIndex((el) => el.classList.contains('unreached'));
+  const stop = firstUnreached < 0 ? rungs.length : firstUnreached;
   let i = 0;
   const step = () => {
     if (i < stop) {
@@ -175,9 +221,7 @@ function showResult(r) {
     }
     rungs.slice(stop).forEach((el) => el.classList.remove('pending'));
     const all = r.climbed === r.total;
-    box.querySelector('#gl-score').innerHTML = all
-      ? `Cleared all <b>${r.total}</b>`
-      : `Climbed <b>${r.climbed}</b> of ${r.total}`;
+    box.querySelector('#gl-score').textContent = all ? `Cleared all ${r.total}` : `Climbed ${r.climbed} of ${r.total}`;
     box.querySelector('.gl-hero').classList.add(all ? 'cleared' : 'done');
   };
   step();

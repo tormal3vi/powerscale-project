@@ -386,24 +386,33 @@ function renderDiscordState() {
 // pick, or none. Saved as soon as it's picked.
 function renderTitleSetting() {
   if (!profile.titles.length) return;
-  $('title-field').hidden = false;
+  $('title-card').hidden = false;
   const select = $('f-title');
-  const rarest = profile.titles[0];
-  select.innerHTML = `<option value="">Automatic: your rarest (${escapeHtml(rarest.name)})</option>`
-    + profile.titles.map((t) => `<option value="${escapeHtml(t.key)}">${escapeHtml(t.name)}</option>`).join('')
-    + '<option value="none">None</option>';
-  select.value = profile.title_choice && (profile.title_choice === 'none' || profile.titles.some((t) => t.key === profile.title_choice))
-    ? profile.title_choice : '';
-  select.addEventListener('change', async () => {
-    const before = profile.title_choice || '';
+  const radios = [...document.querySelectorAll('input[name="title-mode"]')];
+  $('title-auto-sub').textContent = `Always shows your rarest title (now ${profile.titles[0].name})`;
+  select.innerHTML = profile.titles.map((t) => `<option value="${escapeHtml(t.key)}">${escapeHtml(t.name)}</option>`).join('');
+  const choice = profile.title_choice;
+  const mode = choice === 'none' ? 'none' : choice && profile.titles.some((t) => t.key === choice) ? 'pick' : 'auto';
+  if (mode === 'pick') select.value = choice;
+  const paint = (m) => radios.forEach((r) => { r.checked = r.value === m; r.closest('.title-opt').classList.toggle('on', r.value === m); });
+  paint(mode);
+  const save = async (m) => {
+    const key = m === 'none' ? 'none' : m === 'pick' ? select.value : null;
+    const before = profile.title_choice;
+    $('title-error').hidden = true;
     try {
-      await Api.chooseTitle(select.value || null);
-      profile.title_choice = select.value || null;
+      await Api.chooseTitle(key);
+      profile.title_choice = key;
+      paint(m);
     } catch (e) {
-      select.value = before;
-      alert(e.message);
+      profile.title_choice = before;
+      $('title-error').textContent = e.message;
+      $('title-error').hidden = false;
     }
-  });
+  };
+  radios.forEach((r) => r.addEventListener('change', () => save(r.value)));
+  select.addEventListener('change', () => save('pick'));
+  select.addEventListener('click', (e) => e.stopPropagation()); // opening the list isn't choosing yet
 }
 
 // Saved as soon as it's ticked, like the Discord setting.

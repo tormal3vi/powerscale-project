@@ -559,12 +559,17 @@ def test_titles_come_from_wins_and_can_be_picked_or_hidden():
     titles.forget()
     s = titles.summary("TITLE_KIM")  # any case
     keys = [t["key"] for t in s["earned"]]
-    assert "duels:1" in keys and "duels:5" in keys and "duels:10" not in keys
+    assert "duels:5" in keys and "duels:1" not in keys  # Challenger replaced Rookie
     assert s["next"][0]["name"] == "Contender" and s["next"][0]["have"] == 5
     founder = "founder" in keys  # the test database's first 100 accounts
     assert titles.shown("title_kim")["name"] == ("Challenger" if not founder or titles._RANK["duels:5"] > titles._RANK["founder"] else "Founder")
-    titles.choose(kim["id"], "duels:1")
-    assert titles.shown("title_kim")["name"] == "Rookie"
+    titles.choose(kim["id"], "duels:5")
+    assert titles.shown("title_kim")["name"] == "Challenger"
+    try:
+        titles.choose(kim["id"], "duels:1")
+        assert False, "a replaced title can't be picked"
+    except ValueError:
+        pass
     titles.choose(kim["id"], titles.HIDDEN)
     assert titles.shown("title_kim") is None
     try:
@@ -575,6 +580,16 @@ def test_titles_come_from_wins_and_can_be_picked_or_hidden():
     titles.choose(kim["id"], None)
     assert titles.shown("title_kim")["key"] == max(keys, key=lambda k: titles._RANK[k])
     assert titles.shown("nobody_at_all") is None
+    # Admins make overrules: no overrule titles, and no progress towards them.
+    existing = community.get_profile(username="other_admin")  # an admin (ADMIN_USERNAMES)
+    boss = existing or community.create_user("other_admin", "password123")
+    with community.engine.begin() as conn:
+        conn.execute(community.posts.insert().values(user_id=boss["id"], body="x", created_at=community._now(),
+                                                    credit_user_id=boss["id"]))
+    titles.forget()
+    s = titles.summary("other_admin")
+    assert not [t for t in s["earned"] if t["key"].startswith("overrules")]
+    assert [t["what"] for t in s["next"]] == ["wins"]
 
 
 def test_linked_roles_push_numbers_and_forget_revoked_tokens():

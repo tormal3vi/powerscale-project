@@ -63,11 +63,6 @@
           <span class="lbl" id="fav-label">Favorite character</span>
           <div id="fav-slot"></div>
         </div>
-        <div class="field" id="title-field" hidden>
-          <span class="lbl" id="title-lbl">Title next to your name</span>
-          <select id="f-title" class="duel-input" aria-labelledby="title-lbl"></select>
-          <span class="settings-hint field-hint">Saved as soon as you pick. Earn more by winning duels and getting overrule suggestions approved.</span>
-        </div>
         <label class="settings-check"><input type="checkbox" id="f-challenge">
           Show a Challenge button on my profile, so people can invite me to a duel from it</label>
         <span class="field-error" id="challenge-error" hidden></span>
@@ -77,6 +72,20 @@
         </div>
         <span class="field-error" id="details-error" hidden></span>
       </form>
+    </section>
+
+    <section class="settings-card" id="title-card" aria-labelledby="title-title" hidden>
+      <h2 class="settings-card-title" id="title-title">Displayed title</h2>
+      <p class="settings-text">Shown next to your name on the Board, in comments and in duels. Saved as soon as you pick.</p>
+      <div class="title-picker" role="radiogroup" aria-labelledby="title-title">
+        <label class="title-opt"><input type="radio" name="title-mode" value="auto">
+          <span class="title-opt-text"><span class="title-opt-name">Automatic<span class="title-opt-sub" id="title-auto-sub">Always shows your rarest title</span></span></span></label>
+        <label class="title-opt"><input type="radio" name="title-mode" value="pick">
+          <span class="title-opt-text"><span class="title-opt-name">Specific title</span><select id="f-title" aria-label="Title"></select></span></label>
+        <label class="title-opt"><input type="radio" name="title-mode" value="none">
+          <span class="title-opt-text"><span class="title-opt-name">None</span></span></label>
+      </div>
+      <span class="field-error" id="title-error" hidden></span>
     </section>
 
     <section class="settings-card" aria-labelledby="password-title">

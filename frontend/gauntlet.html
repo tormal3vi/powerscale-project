@@ -15,40 +15,34 @@
 <div class="page">
   <div id="topbar"></div>
   <main class="page-content gl">
-    <header class="gl-head">
-      <h1 class="page-title">Gauntlet</h1>
-      <p class="page-subtitle">How far would a character climb against ever-stronger opponents? It fights them in order and stops at its first loss.</p>
-    </header>
-
-    <section class="gl-card" aria-label="Set up a gauntlet">
-      <div class="duel-field">
-        <span class="duel-lbl" id="gl-char-lbl">Character</span>
-        <div class="gl-char-row">
-          <div id="gl-char" class="gl-char-slot"></div>
-          <button type="button" class="pill-button" id="gl-random-char">Random</button>
-        </div>
+    <section class="gl-card" aria-labelledby="gl-title">
+      <h1 class="gl-title" id="gl-title">Gauntlet</h1>
+      <p class="gl-sub">How far would a character climb against ever-stronger opponents? It fights them in order and stops at its first loss.</p>
+      <span class="gl-lbl" id="gl-char-lbl">Character</span>
+      <div class="gl-char-row">
+        <div id="gl-char" class="gl-char-slot"></div>
+        <select class="gl-select gl-form" id="gl-form" aria-label="Form" hidden></select>
+        <button type="button" class="gl-btn" id="gl-random-char">Random</button>
       </div>
-      <div class="duel-field">
-        <span class="duel-lbl" id="gl-src-lbl">Opponents</span>
-        <div class="duel-toggle duel-toggle-3" role="radiogroup" aria-labelledby="gl-src-lbl">
-          <button type="button" class="active" data-src="random" role="radio" aria-checked="true">From the whole roster</button>
-          <button type="button" data-src="series" role="radio" aria-checked="false">A series' best known</button>
-          <button type="button" data-src="custom" role="radio" aria-checked="false">My own picks</button>
-        </div>
-        <p class="duel-hint" id="gl-src-hint"></p>
-        <select class="duel-input gl-series" id="gl-series" aria-label="Series" hidden></select>
-        <div id="gl-custom" hidden>
-          <div class="gl-picks" id="gl-picks"></div>
-          <div id="gl-custom-search"></div>
-        </div>
+      <span class="gl-lbl" id="gl-src-lbl">Where opponents come from</span>
+      <div class="gl-sources" role="radiogroup" aria-labelledby="gl-src-lbl">
+        <button type="button" class="gl-btn active" data-src="random" role="radio" aria-checked="true">Whole roster</button>
+        <button type="button" class="gl-btn" data-src="series" role="radio" aria-checked="false">A series' best known</button>
+        <button type="button" class="gl-btn" data-src="custom" role="radio" aria-checked="false">My own picks</button>
       </div>
-      <div class="duel-actions">
-        <button type="button" class="btn-gold" id="gl-run">Run the gauntlet</button>
+      <p class="gl-hint" id="gl-src-hint"></p>
+      <select class="gl-select gl-series" id="gl-series" aria-label="Series" hidden></select>
+      <div id="gl-custom" hidden>
+        <div class="gl-picks" id="gl-picks"></div>
+        <div id="gl-custom-search"></div>
+      </div>
+      <div class="gl-run-row">
+        <button type="button" class="btn-gold gl-run" id="gl-run">Run the gauntlet</button>
         <span class="form-error" id="gl-error"></span>
       </div>
     </section>
 
-    <section id="gl-result" class="gl-result" aria-live="polite" hidden></section>
+    <section id="gl-result" class="gl-card gl-result" aria-live="polite" hidden></section>
   </main>
 </div>
 

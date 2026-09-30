@@ -1,5 +1,16 @@
 [
   {
+    "id": "2026-09-30.8",
+    "date": "2026-09-30",
+    "title": "A fresh look for the Gauntlet and titles",
+    "changes": [
+      "The Gauntlet shows every character's form, and you can pick which form your character fights in.",
+      "Redesigned Gauntlet page, gauntlet duel rounds and results, and the 9:16 story image.",
+      "Titles now replace each other as you climb: reach Veteran and it replaces Fighter. New colors and badges, a crown for the Weekly Champion, and a simpler title picker in Profile settings.",
+      "Admins no longer earn titles for overrule suggestions."
+    ]
+  },
+  {
     "id": "2026-09-30.7",
     "date": "2026-09-30",
     "title": "Discord roles from your Powerscale stats",

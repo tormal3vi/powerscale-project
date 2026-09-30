@@ -2,7 +2,9 @@
 
 - Duel wins: Rookie (1) up to Legend (1,000).
 - Approved overrule suggestions (a ticket that led to an overrule):
-  Scout (1) up to Oracle (30).
+  Scout (1) up to Oracle (30). Not for admins: they make the overrules.
+Within each ladder a new title replaces the one before: someone with 60
+wins is a Veteran, not also a Rookie, Challenger, Contender and Fighter.
 - Weekly Champion: last week's #1 on the duel leaderboard (the week the
   Monday Discord post covers), held until the next one.
 - Founder: one of the site's first 100 accounts.
@@ -22,12 +24,13 @@ from sqlalchemy import func, select, update
 from backend import community
 
 # (needed, name, color); rarer ones last.
+# The color is a CSS class suffix (t-<color> in styles.css).
 DUEL_TITLES = [
-    (1, "Rookie", "slate"), (5, "Challenger", "green"), (10, "Contender", "teal"), (25, "Fighter", "sky"),
-    (50, "Veteran", "blue"), (100, "Champion", "violet"), (200, "Elite", "purple"), (300, "Master", "pink"),
-    (500, "Grandmaster", "orange"), (750, "Mythic", "red"), (1000, "Legend", "legend"),
+    (1, "Rookie", "rookie"), (5, "Challenger", "challenger"), (10, "Contender", "contender"), (25, "Fighter", "fighter"),
+    (50, "Veteran", "veteran"), (100, "Champion", "champion"), (200, "Elite", "elite"), (300, "Master", "master"),
+    (500, "Grandmaster", "grandmaster"), (750, "Mythic", "mythic"), (1000, "Legend", "legend"),
 ]
-OVERRULE_TITLES = [(1, "Scout", "teal"), (5, "Analyst", "blue"), (15, "Arbiter", "purple"), (30, "Oracle", "gold")]
+OVERRULE_TITLES = [(1, "Scout", "scout"), (5, "Analyst", "analyst"), (15, "Arbiter", "arbiter"), (30, "Oracle", "oracle")]
 FOUNDERS = 100
 
 # How rare each title is, for picking the one shown by default.
@@ -36,7 +39,7 @@ _RANK.update({"overrules:1": 25, "overrules:5": 55, "overrules:15": 85, "overrul
               "founder": 45, "champion": 95})
 _NAMES = {f"duels:{n}": (name, color) for n, name, color in DUEL_TITLES}
 _NAMES.update({f"overrules:{n}": (name, color) for n, name, color in OVERRULE_TITLES})
-_NAMES.update({"founder": ("Founder", "founder"), "champion": ("Weekly Champion", "gold")})
+_NAMES.update({"founder": ("Founder", "founder"), "champion": ("Weekly Champion", "weekly")})
 HIDDEN = "none"  # chosen: show no title
 
 _lock = threading.Lock()
@@ -75,15 +78,17 @@ def _compute() -> Dict[str, dict]:
     out = {}
     for uid, p in people.items():
         wins = records.get(uid, {}).get("wins", 0)
-        overrules = credits.get(uid, 0)
-        earned = [f"duels:{n}" for n, _, _ in DUEL_TITLES if wins >= n]
-        earned += [f"overrules:{n}" for n, _, _ in OVERRULE_TITLES if overrules >= n]
+        admin = community.is_admin(p["username"])
+        overrules = 0 if admin else credits.get(uid, 0)
+        # Only the highest of each ladder: a new title replaces the last.
+        earned = [f"duels:{n}" for n, _, _ in DUEL_TITLES if wins >= n][-1:]
+        earned += [f"overrules:{n}" for n, _, _ in OVERRULE_TITLES if overrules >= n][-1:]
         if uid in founders:
             earned.append("founder")
         if champion and p["username"] == champion:
             earned.append("champion")
         out[p["username"].lower()] = {"id": uid, "earned": earned, "chosen": p["title"],
-                                      "wins": wins, "overrules": overrules}
+                                      "wins": wins, "overrules": overrules, "admin": admin}
     return out
 
 
@@ -128,8 +133,10 @@ def summary(username: str) -> dict:
     if u is None:
         return {"shown": None, "earned": [], "next": [], "chosen": None}
     upcoming = []
-    for kind, ladder, have, word in (("duels", DUEL_TITLES, u["wins"], "duel wins"),
-                                     ("overrules", OVERRULE_TITLES, u["overrules"], "approved overrule suggestions")):
+    ladders = [("duels", DUEL_TITLES, u["wins"], "wins")]
+    if not u.get("admin"):  # admins make overrules: no titles for suggesting them
+        ladders.append(("overrules", OVERRULE_TITLES, u["overrules"], "overrules"))
+    for kind, ladder, have, word in ladders:
         nxt = next(((n, name, color) for n, name, color in ladder if have < n), None)
         if nxt:
             upcoming.append({**title(f"{kind}:{nxt[0]}"), "have": have, "need": nxt[0], "what": word})

@@ -81,14 +81,16 @@ function ticketLine(t) {
 function titlesCardHtml(p) {
   if (!p.titles.length && !p.next_titles.length) return '';
   const next = p.next_titles.map((t) => `
-    <div class="up-next">
-      <div class="up-next-head">${titleHtml(t)}<span class="up-next-count">${t.have.toLocaleString('en')} / ${t.need.toLocaleString('en')} ${escapeHtml(t.what)}</span></div>
+    <div class="up-next t-${escapeHtml(t.color)}">
+      <div class="up-next-head"><span class="up-next-name">${escapeHtml(t.name)}</span>
+        <span class="up-next-count">${t.have.toLocaleString('en')} / ${t.need.toLocaleString('en')} ${escapeHtml(t.what)}</span></div>
       <div class="up-next-bar"><span style="width:${Math.min(100, Math.round((100 * t.have) / t.need))}%"></span></div>
     </div>`).join('');
   return `<section class="up-card up-titles">
     <h2 class="up-card-title">Titles</h2>
-    ${p.titles.length ? `<div class="up-title-list">${p.titles.map((t) => titleHtml(t)).join('')}</div>` : '<div class="up-empty-line">None yet: win duels or get an overrule suggestion approved.</div>'}
-    ${next ? `<div class="up-next-list">${next}</div>` : ''}
+    ${p.titles.length ? `<div class="up-sublbl">Earned</div><div class="up-title-list">${p.titles.map((t) => titleHtml(t)).join('')}</div>`
+      : '<div class="up-empty-line" style="margin-bottom:18px">None yet: win duels to earn the first.</div>'}
+    ${next ? `<div class="up-sublbl">Next up</div><div class="up-next-list">${next}</div>` : ''}
   </section>`;
 }
 

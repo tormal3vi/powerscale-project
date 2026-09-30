@@ -683,6 +683,105 @@ async function challengeFriend(button) {
   }
 }
 
+// The 9:16 card: the two characters stacked, the verdict in a panel, the
+// wordmark at the bottom.
+function drawStory(x, W, H, text, { imgA, imgB, logo, accentA, accentB }) {
+  text('WHO WOULD WIN?', 34, W / 2, 150, { font: '"IBM Plex Mono"', weight: 700, color: '#D9A441', max: 900, spacing: 3.4 });
+  const S = 300;
+  const side = (key, img, color, top) => {
+    const left = (W - S) / 2;
+    x.save();
+    x.beginPath();
+    x.roundRect(left, top, S, S, 40);
+    x.clip();
+    x.fillStyle = color;
+    x.fillRect(left, top, S, S);
+    if (img) x.drawImage(img, left, top, S, S);
+    else text(initialFor(state[key].name), 120, W / 2, top + S / 2 + 42, { font: 'Fraunces', weight: 700, color: '#14120F' });
+    x.restore();
+    const character = state[key];
+    const form = activeForm(key);
+    text(shortName(character.name), 56, W / 2, top + S + 78, { font: 'Fraunces', weight: 700, max: 900 });
+    const series = character.subseries ? `${character.category} · ${character.subseries}` : character.category;
+    const formPart = character.forms.length > 1 ? ` · ${form.name}` : '';
+    text(series + formPart, 26, W / 2, top + S + 122, { color: '#A69C8C', max: 900 });
+    const tier = prettifyLabel(form.tier.baseline_label);
+    if (tier) text(`Tier ${tier}`, 24, W / 2, top + S + 162, { font: '"IBM Plex Mono"', weight: 700, color, max: 900 });
+  };
+  side('a', imgA, accentA, 214);
+  x.font = 'italic 600 48px Fraunces, serif';
+  x.fillStyle = '#D9A441';
+  x.textAlign = 'center';
+  x.fillText('vs', W / 2, 748);
+  side('b', imgB, accentB, 800);
+
+  // The verdict panel, with the meter leaning toward the favorite.
+  const v = state.verdict;
+  const [first, second] = verdictLines(v);
+  const px = 150;
+  const pw = W - 300;
+  const top = 1330;
+  x.fillStyle = '#1D1A15';
+  x.strokeStyle = '#2E291F';
+  x.lineWidth = 2;
+  x.beginPath();
+  x.roundRect(px, top, pw, 290, 32);
+  x.fill();
+  x.stroke();
+  text(first, 44, W / 2, top + 92, { font: 'Fraunces', weight: 700, max: pw - 96 });
+  if (second) text(second, 24, W / 2, top + 138, { font: '"IBM Plex Mono"', color: '#A69C8C', max: pw - 96 });
+  const mx = px + 48;
+  const mw = pw - 96;
+  const my = top + 176;
+  x.fillStyle = '#26221C';
+  x.beginPath();
+  x.roundRect(mx, my, mw, 18, 9);
+  x.fill();
+  const lean = v.override ? (v.override.winner_id === state.a.id ? 1 : -1) : Math.max(-1, Math.min(1, v.composite || 0));
+  if (lean) {
+    const w = (Math.abs(lean) * mw) / 2;
+    x.fillStyle = lean > 0 ? accentA : accentB;
+    x.beginPath();
+    x.roundRect(lean > 0 ? W / 2 - w : W / 2, my, w, 18, 9);
+    x.fill();
+  }
+  x.fillStyle = '#F3EEE4';
+  x.fillRect(W / 2 - 1.5, my - 6, 3, 30);
+  x.font = '500 20px "IBM Plex Mono", monospace';
+  x.fillStyle = '#7A7264';
+  x.textAlign = 'left';
+  x.fillText(shortName(state.a.name).slice(0, 28), mx, my + 52);
+  x.textAlign = 'right';
+  x.fillText(shortName(state.b.name).slice(0, 28), mx + mw, my + 52);
+
+  // Logo · POWERSCALE | powerscale.online
+  x.font = '600 22px "IBM Plex Mono", monospace';
+  const brand = 'POWERSCALE';
+  if ('letterSpacing' in x) x.letterSpacing = '2px';
+  const bw = x.measureText(brand).width;
+  if ('letterSpacing' in x) x.letterSpacing = '0px';
+  x.font = '500 20px "IBM Plex Mono", monospace';
+  const sw = x.measureText('powerscale.online').width;
+  const total = 40 + 16 + bw + 16 + 1 + 16 + sw;
+  let cx = (W - total) / 2;
+  const y = H - 110;
+  if (logo) x.drawImage(logo, cx, y, 40, 40);
+  cx += 56;
+  x.font = '600 22px "IBM Plex Mono", monospace';
+  if ('letterSpacing' in x) x.letterSpacing = '2px';
+  x.fillStyle = '#F3EEE4';
+  x.textAlign = 'left';
+  x.fillText(brand, cx, y + 28);
+  if ('letterSpacing' in x) x.letterSpacing = '0px';
+  cx += bw + 16;
+  x.fillStyle = '#3A352C';
+  x.fillRect(cx, y + 8, 1, 24);
+  cx += 17;
+  x.font = '500 20px "IBM Plex Mono", monospace';
+  x.fillStyle = '#7A7264';
+  x.fillText('powerscale.online', cx, y + 27);
+}
+
 // Square for posts, or 9:16 (story) for TikTok, Shorts, Reels and stories:
 // the same card, with the two characters stacked instead of side by side.
 async function saveMatchupImage({ story = false } = {}) {
@@ -736,6 +835,9 @@ async function saveMatchupImage({ story = false } = {}) {
     x.fillText(str, cx, y);
     if ('letterSpacing' in x) x.letterSpacing = '0px';
   };
+  if (story) {
+    drawStory(x, W, H, text, { imgA, imgB, logo, accentA, accentB });
+  } else {
   text('WHO WOULD WIN?', story ? 40 : 28, W / 2, L.head, { font: '"IBM Plex Mono"', color: '#D9A441', max: 900, spacing: 6 });
 
   const S = L.S;
@@ -798,6 +900,7 @@ async function saveMatchupImage({ story = false } = {}) {
   x.fillStyle = '#A69C8C';
   x.textAlign = 'left';
   x.fillText(site, start + 60, L.logo + 32);
+  }
 
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
   const slug = (str) => str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'character';

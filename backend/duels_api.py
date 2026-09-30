@@ -42,7 +42,9 @@ def _side(char_id: int, form: str, cache: dict) -> DuelSideOut:
             series += f" · {row['subseries']}"
         cache[key] = DuelSideOut(
             id=char_id, name=characters.display_name_for_id(char_id) or "Removed character", series=series,
-            form=form or default, image_url=replaced or characters.form_picture(char_id, form or default),
+            # Only worth naming when there's more than one ("Base" says nothing).
+            form=(form or default) if len(normalized.get("forms") or []) > 1 else None,
+            image_url=replaced or characters.form_picture(char_id, form or default),
         )
     return cache[key]
 

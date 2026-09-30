@@ -483,7 +483,9 @@ function userColor(name) {
 // An earned title (see backend/titles.py), next to a name.
 function titleHtml(t, cls = '') {
   if (!t) return '';
-  return `<span class="utitle t-${escapeHtml(t.color)} ${cls}" title="${escapeHtml(t.name)}: a title earned on Powerscale">${escapeHtml(t.name)}</span>`;
+  const crown = t.key === 'champion'
+    ? '<svg width="9" height="9" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5l3 2 3-4 3 4 3-2-1 7H3L2 5Z" fill="currentColor"/></svg>' : '';
+  return `<span class="utitle t-${escapeHtml(t.color)} ${cls}" title="${escapeHtml(t.name)}: a title earned on Powerscale">${crown}${escapeHtml(t.name)}</span>`;
 }
 
 function adminBadgeHtml({ solid = false } = {}) {

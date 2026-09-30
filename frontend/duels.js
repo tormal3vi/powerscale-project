@@ -819,14 +819,14 @@ function resultsHtml(g) {
     return b.compare_url ? `<a class="dr-bout" href="${escapeHtml(b.compare_url)}">${inner}</a>` : `<span class="dr-bout">${inner}</span>`;
   };
   if (g.mode === 'gauntlet') {
-    const MARK = { win: 'W', loss: 'L', even: '=', none: '–' };
-    const guessRow = (r, p) => {
+    const guessRow = (p) => {
       const player = byName[p.username] || { username: p.username };
+      const pts = p.pick_id == null ? 'none' : ['none', 'one', 'two', 'three'][p.points];
       return `<div class="gd-guess-row${p.pick_id == null ? ' missed' : ''}">
-        ${avatar(player, `duel-pick-avatar${player.me ? ' me' : ''}`)}
-        <span class="gd-guess-name${player.me ? ' me' : ''}">${escapeHtml(player.me ? 'you' : p.username)}</span>
-        <span class="gd-guess-said">${p.pick_id == null ? 'no guess' : `guessed <b>${p.pick_id}</b>`}</span>
-        <span class="dr-points ${p.points === 3 ? 'max' : p.points ? 'some' : ''}">+${p.points}</span></div>`;
+        <span class="gd-guess-who">${avatar(player, `duel-pick-avatar${player.me ? ' me' : ''}`)}
+          <span class="gd-guess-name${player.me ? ' me' : ''}">${escapeHtml(player.me ? 'you' : p.username)}</span></span>
+        <span class="gd-guess-said">${p.pick_id == null ? 'No guess' : `Guessed ${p.pick_id}`}</span>
+        <span class="gd-points ${pts}">+${p.points}</span></div>`;
     };
     return `
     <div class="duel-result-head ${outcome}">
@@ -837,18 +837,21 @@ function resultsHtml(g) {
       <div class="duel-result-people">${people}</div>
     </div>
     ${g.rounds.map((r) => `
-      <section class="dr-round">
-        <h2 class="dr-round-title">Round ${r.round_no}</h2>
-        <div class="dr-round-card">
-          <a class="gd-result-hero" href="${escapeHtml(r.compare_url)}">${sideTileHtml(r.a, 160)}<span class="gd-hero-text">
-            <span class="gd-hero-name">${escapeHtml(shortName(r.a.name))}${r.picked ? ' <span class="duel-picked">picked</span>' : ''}</span>
-            <span class="gd-hero-sub">Climbed <b>${r.answer_id}</b> of ${r.fights.length}</span></span></a>
+      <section class="gd-round">
+        <h2 class="gd-lbl gd-round-title">Round ${r.round_no}</h2>
+        <div class="gd-result-card">
+          <div class="gd-result-head">
+            <a class="gd-result-hero" href="${escapeHtml(r.compare_url)}">${sideTileHtml(r.a, 160)}<span class="gd-hero-text">
+              <span class="gd-hero-name">${escapeHtml(shortName(r.a.name))}${r.picked ? ' <span class="duel-picked">picked</span>' : ''}</span>
+              <span class="gd-hero-sub">${escapeHtml(r.a.series)}${r.a.form ? ` · ${escapeHtml(r.a.form)}` : ''}</span></span></a>
+            <span class="gd-climbed">Climbed ${r.answer_id} of ${r.fights.length}</span>
+          </div>
           <div class="gd-result-ladder">${r.fights.map((f) => `
             <a class="gd-result-rung ${f.reached ? f.outcome : 'unreached'}" href="${escapeHtml(f.compare_url)}"
-              title="${f.rung}. ${escapeHtml(shortName(f.opponent.name))}: ${escapeHtml(f.reached ? f.verdict : 'not reached')}">
-              ${sideTileHtml(f.opponent, 80)}<span class="gd-result-mark">${f.reached ? MARK[f.outcome] : ''}</span></a>`).join('')}</div>
-          ${r.picks.map((p) => guessRow(r, p)).join('')}
+              title="${f.rung}. ${escapeHtml(shortName(f.opponent.name))}${f.opponent.form ? ` (${escapeHtml(f.opponent.form)})` : ''}: ${escapeHtml(f.reached ? f.verdict : 'not reached')}">
+              ${sideTileHtml(f.opponent, 80)}</a>`).join('')}</div>
         </div>
+        <div class="gd-guess-card">${r.picks.map(guessRow).join('')}</div>
       </section>`).join('')}
     <p class="dr-legend">Each ladder runs weakest to strongest; the run ends at the first loss or draw. 3 points for the exact number, 2 if one off, 1 if two off. Tap an opponent to open that matchup.</p>`;
   }
@@ -972,15 +975,20 @@ async function play(gameId, game = null) {
 
 function gauntletRoundHtml(r) {
   const c = r.a;
+  const form = (x) => (x.form ? `<span class="gd-rung-form"> · ${escapeHtml(x.form)}</span>` : '');
   return `<div class="gd-play">
-    <div class="gd-hero">${sideTileHtml(c, 240)}<div class="gd-hero-text">
-      <div class="gd-hero-name">${escapeHtml(shortName(c.name))}</div>
-      <div class="gd-hero-sub">${escapeHtml(c.series)}${c.form ? ` · ${escapeHtml(c.form)}` : ''}</div></div></div>
-    <ol class="gd-ladder">${r.ladder.map((s, i) => `
-      <li class="gd-rung"><span class="gd-rung-no">${i + 1}</span>${sideTileHtml(s, 96)}
-        <span class="gd-rung-text"><span class="gd-rung-name">${escapeHtml(shortName(s.name))}</span>
-        <span class="gd-rung-sub">${escapeHtml(s.series)}</span></span></li>`).join('')}</ol>
-    <div class="gd-prompt">How many does it beat before its first loss?</div>
+    <div class="gd-top">
+      <div class="gd-hero">${sideTileHtml(c, 320)}<div class="gd-hero-text">
+        <div class="gd-hero-name">${escapeHtml(shortName(c.name))}</div>
+        <div class="gd-hero-sub">${escapeHtml(c.series)}${c.form ? ` · ${escapeHtml(c.form)}` : ''}</div></div></div>
+      <div class="gd-ladder-col">
+        <div class="gd-lbl">The ladder</div>
+        <ol class="gd-ladder" style="--rows:${Math.ceil(r.ladder.length / 2)}">${r.ladder.map((x, i) => `
+          <li class="gd-rung"><span class="gd-rung-no">${i + 1}</span>${sideTileHtml(x, 64)}
+            <span class="gd-rung-name">${escapeHtml(shortName(x.name))}${form(x)}</span></li>`).join('')}</ol>
+      </div>
+    </div>
+    <div class="gd-lbl gd-prompt">How many does it beat before its first loss?</div>
     <div class="gd-guesses">${Array.from({ length: r.ladder.length + 1 }, (_, n) => `
       <button type="button" class="gd-num" data-pick="${n}">${n}</button>`).join('')}</div>
   </div>`;

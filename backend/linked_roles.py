@@ -223,15 +223,28 @@ def start() -> None:
 
 # --- the verification URL ------------------------------------------------------------------
 
-def _page(title: str, text: str, status: int = 200) -> HTMLResponse:
+_ICONS = {
+    "connected": '<circle cx="12" cy="12" r="10" stroke="#8FBF6B" stroke-width="1.6"/><path d="m8 12 2.5 2.5L16 9" stroke="#8FBF6B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+    "error": '<circle cx="12" cy="12" r="10" stroke="#7A7264" stroke-width="1.6"/><path d="M9 9l6 6M15 9l-6 6" stroke="#7A7264" stroke-width="1.8" stroke-linecap="round"/>',
+    "expired": '<circle cx="12" cy="12" r="10" stroke="#D9A441" stroke-width="1.6"/><path d="M12 7v5l3.5 2" stroke="#D9A441" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+}
+_LABELS = {"connected": "Connected", "error": "Not connected", "expired": "Link expired"}
+
+
+def _page(title: str, text: str, status: int = 200, kind: str = "error") -> HTMLResponse:
+    """One card: connected, not connected, or the link expired."""
+    button = ('<a class="btn-gold" href="/discord/linked-role">Try again</a>' if kind == "error"
+              else f'<a class="{"btn-gold" if kind == "connected" else "lr-alt"}" href="/">Go to Powerscale</a>')
     return HTMLResponse(status_code=status, content=f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)} — Powerscale</title>
 <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <link rel="stylesheet" href="/styles.css">
 <meta name="robots" content="noindex"></head><body><div class="page"><main class="page-content lr-page">
-<div class="lr-card"><img src="/favicon.svg?v=2" alt="" width="48" height="48"><h1 class="lr-title">{escape(title)}</h1>
-<p class="lr-text">{text}</p><a class="btn-gold" href="/">Go to Powerscale</a></div></main></div></body></html>""")
+<div class="lr-card lr-{kind}"><div class="lr-kicker">{_LABELS[kind]}</div>
+<img src="/favicon.svg?v=2" alt="" width="44" height="44">
+<svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">{_ICONS[kind]}</svg>
+<h1 class="lr-title">{escape(title)}</h1><p class="lr-text">{text}</p>{button}</div></main></div></body></html>""")
 
 
 @router.get("/discord/linked-role/status", include_in_schema=False)
@@ -263,7 +276,7 @@ def status(request: Request):
 @router.get("/discord/linked-role", include_in_schema=False)
 def start_linking(request: Request, user: Optional[dict] = Depends(current_user)):
     if not enabled():
-        return _page("Not set up yet", "Linked roles aren't switched on for this site yet.", 503)
+        return _page("Not set up yet", "Linked roles aren't switched on for this site yet.", 503, "error")
     if user is None:
         return RedirectResponse("/login.html?" + urlencode({"next": "/discord/linked-role"}), status_code=302)
     state = secrets.token_urlsafe(24)
@@ -284,20 +297,20 @@ def finish_linking(request: Request, code: str = "", state: str = "", error: str
     with _states_lock:
         owner = _states.pop(state, None)
     if error:
-        return _page("Not connected", "You didn't allow it on Discord, so nothing changed.")
+        return _page("Not connected", "You didn't allow it on Discord, so nothing changed. No roles were touched.", kind="error")
     if owner is None or owner[1] < time.time() or user is None or owner[0] != user["id"] or not code:
-        return _page("Link expired", "That link expired or was opened in another browser. Start again from Discord "
-                     "(Server Settings or the server's Linked Roles menu).", 400)
+        return _page("This link expired", "Discord connection links only last a few minutes, and have to be opened in "
+                     "the browser you're logged in on. Head back to Discord and connect again.", 400, "expired")
     grant = _token_request({"grant_type": "authorization_code", "code": code, "redirect_uri": _redirect_uri(request)})
     if grant is None or "role_connections.write" not in (grant.get("scope") or ""):
-        return _page("Couldn't connect", "Discord didn't accept the sign-in. Please try again.", 502)
+        return _page("Something went wrong", "Discord didn't accept the sign-in. No changes were made to your roles.", 502, "error")
     try:
         me = requests.get(f"{API}/users/@me", timeout=15,
                           headers={"Authorization": f"Bearer {grant['access_token']}", "User-Agent": USER_AGENT}).json()
     except (requests.RequestException, ValueError):
-        return _page("Couldn't connect", "Discord didn't answer. Please try again.", 502)
+        return _page("Something went wrong", "Discord didn't answer. No changes were made to your roles.", 502, "error")
     if not me.get("id"):
-        return _page("Couldn't connect", "Discord didn't say who you are. Please try again.", 502)
+        return _page("Something went wrong", "Discord didn't say who you are. No changes were made to your roles.", 502, "error")
     community.set_discord(user["id"], me["id"], me.get("global_name") or me.get("username") or "Discord user")
     _save_tokens(user["id"], me["id"], grant)
     titles.forget()
@@ -305,6 +318,6 @@ def finish_linking(request: Request, code: str = "", state: str = "", error: str
     name = escape(user["username"])
     if not pushed:
         return _page("Almost there", f"Connected to <b>{name}</b>, but Discord didn't take your stats yet. "
-                     "They'll update within a few hours.")
-    return _page("You're connected", f"Discord now knows <b>{name}</b>'s Powerscale stats, and your roles will "
-                 "update as you win duels. You can close this tab and go back to Discord.")
+                     "They'll update within a few hours.", kind="connected")
+    return _page("You're connected", f"Your Powerscale stats (<b>{name}</b>) are now linked. Roles update in the "
+                 "server within a few minutes. You can close this tab and go back to Discord.", kind="connected")
