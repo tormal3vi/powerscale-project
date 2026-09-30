@@ -231,7 +231,7 @@ function renderNew() {
     newBox.querySelector('#gd-picks').innerHTML = gdChips(gd.opponents, 'opp');
     newBox.querySelector('#gd-custom-search').hidden = gd.opponents.length >= 10;
     newBox.querySelector('#gd-chars').innerHTML = gdChips(gd.chars, 'chr');
-    newBox.querySelector('#gd-chars-search').hidden = gd.chars.length >= 5;
+    newBox.querySelector('#gd-chars-search').hidden = gd.chars.length >= 3;
   };
 
   const setRadio = (attr, value) => newBox.querySelectorAll(`[data-${attr}]`).forEach((b) => {
@@ -275,7 +275,7 @@ function renderNew() {
     addBtn.hidden = draft || gauntletMode || mode !== 'pick' || n >= 5;
     seriesField.hidden = !draft && !gauntletMode && mode === 'pick' && n >= 5; // nothing random left to draw
     if (gauntletMode) {
-      hint.textContent = "Each round shows a character and its ladder of opponents, weakest first. Guess how many it beats before its first loss: 3 points for the exact number, 2 if you're one off, 1 if two off. 30 seconds a round. Characters you don't pick are drawn at random.";
+      hint.textContent = "Three gauntlets: a character against ever-stronger opponents. Call each fight as it comes (does it beat the next one?) and see the result right away. A gauntlet ends at its first loss. A point for every right call, 15 seconds each; level scores go to whoever answered faster. Characters you don't pick are drawn at random.";
       return;
     }
     if (draft) {
@@ -341,8 +341,8 @@ function renderNew() {
     onChoose: (c) => { if (gd.opponents.length < 10) gd.opponents.push(c); drawGauntlet(); },
   }));
   newBox.querySelector('#gd-chars-search').appendChild(characterSearchEl({
-    placeholder: 'Pick a character to run it (up to 5)…', label: 'Pick a character', exclude: () => gd.chars.map((c) => c.id),
-    onChoose: (c) => { if (gd.chars.length < 5) gd.chars.push(c); drawGauntlet(); },
+    placeholder: 'Pick a character to run one (up to 3)…', label: 'Pick a character', exclude: () => gd.chars.map((c) => c.id),
+    onChoose: (c) => { if (gd.chars.length < 3) gd.chars.push(c); drawGauntlet(); },
   }));
   drawGauntlet();
   outBox.addEventListener('click', (e) => {
@@ -668,8 +668,8 @@ function gauntletSource(g) {
 function infoHtml(g) {
   if (g.mode === 'gauntlet') {
     return `<div class="duel-info">
-      <div class="duel-info-row"><span class="duel-lbl" style="margin:0">Gauntlet</span><span class="duel-info-pill">${escapeHtml(gauntletSource(g))} · 5 rounds</span>
-        <span>Each ladder appears only when its round's 30 seconds start.</span></div>
+      <div class="duel-info-row"><span class="duel-lbl" style="margin:0">Gauntlet</span><span class="duel-info-pill">${escapeHtml(gauntletSource(g))} · 3 gauntlets</span>
+        <span>Call each fight as it comes, 15 seconds a call.</span></div>
       ${g.excluded.length ? `<div class="duel-info-row">Random picks leave out: ${g.excluded.map(escapeHtml).join(', ')}</div>` : ''}
     </div>`;
   }
@@ -731,7 +731,7 @@ function challengeHtml(g) {
   if (g.status !== 'open' || g.players.some((p) => p.me)) return '';
   const kind = `${MODE_NAME[g.mode] || 'Prediction'} duel · ${g.format}`;
   const how = g.mode === 'draft' ? 'Five rounds: pick the strongest from a hand of four.'
-    : g.mode === 'gauntlet' ? 'Five characters, each against a ladder of ever-stronger opponents: guess how far each one climbs.'
+    : g.mode === 'gauntlet' ? 'Three characters against ever-stronger opponents: call each fight as it comes.'
       : "Five matchups, 20 seconds each: call who the site says wins.";
   let action;
   if (!me) {
@@ -821,11 +821,16 @@ function resultsHtml(g) {
   if (g.mode === 'gauntlet') {
     const guessRow = (p) => {
       const player = byName[p.username] || { username: p.username };
-      const pts = p.pick_id == null ? 'none' : ['none', 'one', 'two', 'three'][p.points];
-      return `<div class="gd-guess-row${p.pick_id == null ? ' missed' : ''}">
+      const called = p.calls && p.calls.length;  // call by call; else an old number guess
+      const pts = called ? (p.points === p.calls.length ? 'three' : p.points ? 'two' : 'none')
+        : p.pick_id == null ? 'none' : ['none', 'one', 'two', 'three'][p.points];
+      const said = called
+        ? `<span class="gc-marks">${p.calls.map((c) => `<span class="gc-mark ${c === true ? 'ok' : c === false ? 'bad' : 'miss'}" title="${c === true ? 'Right' : c === false ? 'Wrong' : 'No call in time'}">${c === true ? '✓' : c === false ? '✗' : '–'}</span>`).join('')}</span>`
+        : p.pick_id == null ? 'No guess' : `Guessed ${p.pick_id}`;
+      return `<div class="gd-guess-row${!called && p.pick_id == null ? ' missed' : ''}">
         <span class="gd-guess-who">${avatar(player, `duel-pick-avatar${player.me ? ' me' : ''}`)}
           <span class="gd-guess-name${player.me ? ' me' : ''}">${escapeHtml(player.me ? 'you' : p.username)}</span></span>
-        <span class="gd-guess-said">${p.pick_id == null ? 'No guess' : `Guessed ${p.pick_id}`}</span>
+        <span class="gd-guess-said">${said}</span>
         <span class="gd-points ${pts}">+${p.points}</span></div>`;
     };
     return `
@@ -835,10 +840,11 @@ function resultsHtml(g) {
       <div class="duel-result-title">${title}</div>
       <div class="duel-result-score">${score}</div>
       <div class="duel-result-people">${people}</div>
+      ${g.by_speed ? '<div class="gc-speed">Level on calls: the faster answers won.</div>' : ''}
     </div>
     ${g.rounds.map((r) => `
       <section class="gd-round">
-        <h2 class="gd-lbl gd-round-title">Round ${r.round_no}</h2>
+        <h2 class="gd-lbl gd-round-title">${r.picks.some((p) => p.calls && p.calls.length) ? 'Gauntlet' : 'Round'} ${r.round_no}</h2>
         <div class="gd-result-card">
           <div class="gd-result-head">
             <a class="gd-result-hero" href="${escapeHtml(r.compare_url)}">${sideTileHtml(r.a, 160)}<span class="gd-hero-text">
@@ -853,7 +859,7 @@ function resultsHtml(g) {
         </div>
         <div class="gd-guess-card">${r.picks.map(guessRow).join('')}</div>
       </section>`).join('')}
-    <p class="dr-legend">Each ladder runs weakest to strongest; the run ends at the first loss or draw. 3 points for the exact number, 2 if one off, 1 if two off. Tap an opponent to open that matchup.</p>`;
+    <p class="dr-legend">Each gauntlet runs weakest to strongest and ends at the first loss (a draw counts as one). A point for every right call; level scores go to whoever answered faster. Tap an opponent to open that matchup.</p>`;
   }
   if (g.mode === 'draft') {
     return `
@@ -994,16 +1000,40 @@ function gauntletRoundHtml(r) {
   </div>`;
 }
 
+// A gauntlet call: the character, the next opponent, and two buttons.
+// The ones it already beat line up above; the verdict shows after the call.
+function gauntletCallHtml(r) {
+  const trail = r.trail.map((x) => `<span class="gc-beaten" title="Beat ${escapeHtml(shortName(x.name))}">${sideTileHtml(x, 64)}</span>`).join('');
+  const side = (x, cls) => `<div class="gc-side ${cls}">${sideTileHtml(x, 320)}
+    <div class="gc-name">${escapeHtml(shortName(x.name))}</div>
+    <div class="gc-sub">${escapeHtml(x.series)}${x.form ? ` · ${escapeHtml(x.form)}` : ''}</div></div>`;
+  return `<div class="gc-play">
+    ${trail ? `<div class="gc-trail"><span class="gd-lbl">Beaten so far</span><div class="gc-trail-row">${trail}</div></div>` : ''}
+    <div class="gc-fight">${side(r.a, 'gc-hero')}<span class="gc-vs">vs</span>${side(r.b, 'gc-foe')}</div>
+    <div class="gd-lbl gd-prompt">Does ${escapeHtml(shortName(r.a.name))} beat ${escapeHtml(shortName(r.b.name))}?</div>
+    <div class="gc-buttons">
+      <button type="button" class="gc-btn gc-yes" data-pick="1">Beats them</button>
+      <button type="button" class="gc-btn gc-no" data-pick="0">Doesn't</button>
+    </div>
+    <div class="gc-reveal" hidden></div>
+  </div>`;
+}
+
 function showRound(r) {
-  const dots = Array.from({ length: r.total }, (_, i) => `<span class="duel-dot${i + 1 < r.round_no ? ' done' : i + 1 === r.round_no ? ' now' : ''}"></span>`).join('');
-  const roundLength = r.mode === 'gauntlet' ? 30 : 20;
+  const call = r.mode === 'gauntlet' && r.b;
+  const count = call ? r.gauntlets : r.total;
+  const at = call ? r.gauntlet_no : r.round_no;
+  const dots = Array.from({ length: count }, (_, i) => `<span class="duel-dot${i + 1 < at ? ' done' : i + 1 === at ? ' now' : ''}"></span>`).join('');
+  const roundLength = call ? 15 : r.mode === 'gauntlet' ? 30 : 20;
+  const title = call ? `Gauntlet ${r.gauntlet_no} of ${r.gauntlets} · rung ${r.rung} of ${r.rungs}`
+    : `Round ${r.round_no} of ${r.total}${r.mode === 'draft' ? ' — pick your fighter' : r.mode === 'gauntlet' ? ' — how far does it climb?' : ''}`;
   playFrame(`
-    <div class="duel-play-round" id="play-title">Round ${r.round_no} of ${r.total}${r.mode === 'draft' ? ' — pick your fighter' : r.mode === 'gauntlet' ? ' — how far does it climb?' : ''}</div>
+    <div class="duel-play-round" id="play-title">${title}</div>
     <div class="duel-play-sub">${playTitle()}</div>
     <div class="duel-dots" aria-hidden="true">${dots}</div>
     <div class="duel-clock"><span class="duel-clock-num" aria-live="off"></span><div class="duel-clock-track"><div class="duel-clock-bar"></div></div></div>
     ${r.mode === 'draft' ? `<div class="dr-prompt">Your pick fights each opponent's: take the strongest of your ${r.hand.length}</div>` : ''}
-    ${r.mode === 'gauntlet' ? gauntletRoundHtml(r) : `<div class="duel-choices${r.mode === 'draft' ? ' dr-hand-grid' : ''}">
+    ${call ? gauntletCallHtml(r) : r.mode === 'gauntlet' ? gauntletRoundHtml(r) : `<div class="duel-choices${r.mode === 'draft' ? ' dr-hand-grid' : ''}">
       ${(r.mode === 'draft' ? r.hand : [r.a, r.b]).map((s) => `
         <button type="button" class="duel-choice" data-pick="${s.id}">
           <span class="duel-choice-check">${CHECK(18)}</span>
@@ -1049,10 +1079,14 @@ function showRound(r) {
     lock();
     btn.classList.add('chosen');
     const who = r.mode === 'draft' ? `${btn.querySelector('.duel-choice-name').textContent} locked in`
-      : r.mode === 'gauntlet' ? `${btn.dataset.pick} locked in` : 'Locked in';
-    status.textContent = r.round_no < r.total ? who : `${who} — that was the last one`;
+      : r.mode === 'gauntlet' && !call ? `${btn.dataset.pick} locked in` : 'Locked in';
+    if (!call) status.textContent = r.round_no < r.total ? who : `${who} — that was the last one`;
     try {
       const res = await Api.pickRound(r.game_id, r.round_no, Number(btn.dataset.pick));
+      if (call && res.reveal) {
+        showReveal(r, res);
+        return;
+      }
       if (!res.in_time) { status.className = 'duel-play-status bad'; status.textContent = 'Too late — this round counts as wrong'; }
       // The next round is already in the response - its clock started
       // with it, so show it straight away.
@@ -1063,6 +1097,25 @@ function showRound(r) {
       setTimeout(() => play(r.game_id), 1000);
     }
   }));
+}
+
+// Right after a gauntlet call: were you right, and did it win? Then the
+// next call (its clock starts only when it's shown).
+function showReveal(r, res) {
+  const v = res.reveal;
+  const box = playBox.querySelector('.gc-reveal');
+  const name = escapeHtml(shortName(r.a.name));
+  const outcome = v.beat ? `${name} wins` : `${name} is knocked out`;
+  const run = v.ended ? (v.beat ? `Cleared all ${v.rungs}!` : `Climbed ${v.climbed} of ${v.rungs}`) : '';
+  const right = res.in_time && v.correct;
+  box.className = `gc-reveal ${right ? 'right' : 'wrong'}${v.beat ? ' beat' : ' lost'}`;
+  box.innerHTML = `<div class="gc-reveal-call">${right ? '✓ Right call' : res.in_time ? '✗ Wrong call' : '✗ Too late'}</div>
+    <div class="gc-reveal-what">${outcome}</div>
+    <div class="gc-reveal-why">${escapeHtml(v.verdict)}</div>
+    ${run ? `<div class="gc-reveal-run">${run}${v.last_call ? '' : ' — next gauntlet coming up'}</div>` : ''}`;
+  box.hidden = false;
+  playBox.querySelector('.gc-play').classList.add(v.beat ? 'foe-down' : 'hero-down');
+  setTimeout(() => (v.last_call ? showFinished(r.game_id) : play(r.game_id)), v.ended ? 2600 : 1700);
 }
 
 async function showFinished(gameId) {

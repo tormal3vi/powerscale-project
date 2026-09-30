@@ -524,27 +524,50 @@ def test_gauntlet_runs_end_at_the_first_loss_or_draw():
     assert [duels.gauntlet_points(g, 4) for g in (4, 5, 2, 7, None)] == [3, 2, 1, 0, 0]
 
 
-def test_gauntlet_duels_score_guesses_by_distance():
-    ann, ben = _users("gd_ann", "gd_ben")
-    game_id = duels.create(ann["id"], "1v1", [], [], [], "gauntlet", gauntlet_opts={"source": "random"})
-    duels.join(game_id, ben["id"])
-    rounds = {}
-    for uid, off in ((ann["id"], 0), (ben["id"], 1)):
+def test_gauntlet_duels_are_called_fight_by_fight():
+    from datetime import timedelta
+    from sqlalchemy import select, update
+    ann, ben, cy = _users("gd_ann", "gd_ben", "gd_cy")
+
+    def play(game_id, uid, right=True, slow=0):
         r = duels.next_round(game_id, uid)
-        assert r["seconds"] == duels.GAUNTLET_SECONDS and r["seconds_left"] > duels.ROUND_SECONDS
+        assert r["seconds"] == duels.GAUNTLET_SECONDS and r["call"]["rung"] == 1
         while r is not None:
-            rounds[r["round_no"]] = r["answer_id"]
-            assert len(r["ladder"]) >= 2
-            guess = r["answer_id"] + off if r["answer_id"] + off <= len(r["ladder"]) else r["answer_id"] - off
-            _, r = duels.pick(game_id, uid, r["round_no"], guess)
-    g = duels.game(game_id)
-    assert g["games"][0]["status"] == "done"
-    scores = {m["user_id"]: m["score"] for m in g["members"][game_id]}
-    assert scores == {ann["id"]: 15, ben["id"]: 10}  # exact every round; one off every round
-    assert len(g["ladders"][game_id]) == 5
+            if slow:  # as if they'd taken `slow` seconds on this call
+                with community.engine.begin() as conn:
+                    conn.execute(update(duels.game_picks).where(
+                        (duels.game_picks.c.game_id == game_id) & (duels.game_picks.c.user_id == uid)
+                        & (duels.game_picks.c.round_no == r["round_no"])).values(
+                        started_at=r["started_at"] - timedelta(seconds=slow)))
+            call = r["answer_id"] if right else 1 - r["answer_id"]
+            in_time, nxt = duels.pick(game_id, uid, r["round_no"], call)
+            assert in_time and nxt is None  # the result shows before the next call starts
+            res = duels.call_result(game_id, r["round_no"])
+            assert res["beat"] == bool(r["answer_id"])
+            r = duels.next_round(game_id, uid)
+
+    game_id = duels.create(ann["id"], "1v1", [], [], [], "gauntlet", gauntlet_opts={"source": "random"})
+    g = duels.game(game_id)["games"][0]
+    assert g["rounds_total"] >= duels.GAUNTLETS  # at least one call per gauntlet
+    duels.join(game_id, ben["id"])
+    play(game_id, ann["id"], right=True)
+    play(game_id, ben["id"], right=False)
+    done = duels.game(game_id)
+    scores = {m["user_id"]: m["score"] for m in done["members"][game_id]}
+    assert scores == {ann["id"]: g["rounds_total"], ben["id"]: 0}
+    assert {m["user_id"]: m["outcome"] for m in done["members"][game_id]}[ann["id"]] == "win"
+
+    # Level on calls: the faster player wins.
+    game_id = duels.create(ann["id"], "1v1", [], [], [], "gauntlet", gauntlet_opts={"source": "random"})
+    duels.join(game_id, cy["id"])
+    play(game_id, ann["id"], right=True)
+    play(game_id, cy["id"], right=True, slow=5)
+    done = duels.game(game_id)
+    outcomes = {m["user_id"]: m["outcome"] for m in done["members"][game_id]}
+    assert outcomes == {ann["id"]: "win", cy["id"]: "loss"}
+    assert len({m["score"] for m in done["members"][game_id]}) == 1
     duels.delete_user_games(ann["id"])
     with community.reader.connect() as conn:
-        from sqlalchemy import select
         assert not conn.execute(select(duels.game_ladders).where(duels.game_ladders.c.game_id == game_id)).first()
 
 

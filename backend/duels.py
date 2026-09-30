@@ -42,7 +42,8 @@ from backend.community import _aware, _now, avatars, engine, metadata, users
 
 ROUNDS = 5
 ROUND_SECONDS = 20
-GAUNTLET_SECONDS = 30  # a gauntlet round has ten opponents to size up
+GAUNTLET_SECONDS = 15  # a gauntlet call: does it beat the next one? (old number-guess rounds recorded 30)
+GAUNTLETS = 3  # gauntlets in a gauntlet duel, each played call by call
 GRACE_SECONDS = 3  # network lag between the clock running out and the pick arriving
 OPEN_DAYS = 7  # a game that never fills expires after this
 FORFEIT_HOURS = 72  # once a game is full and someone's done, the rest have this long
@@ -81,6 +82,9 @@ games = Table(
     # Gauntlet games: where the opponents come from - "random", "custom",
     # or "series:<name>".
     Column("gauntlet", String(200), nullable=True),
+    # How many rounds (calls) the game has: gauntlet duels vary. NULL: ROUNDS.
+    # A gauntlet game with NULL is an old number-guess one (see _legacy_gauntlet).
+    Column("rounds_total", Integer, nullable=True),
 )
 game_players = Table(
     "game_players", metadata,
@@ -151,7 +155,8 @@ def _migrate() -> None:
             ("teams", "INTEGER"), ("team_size", "INTEGER"), ("winning_team", "INTEGER"),
             ("picked", "INTEGER"), ("excluded", "VARCHAR(1000)")])
         community.add_missing_columns(conn, "games", [("mode", "VARCHAR(12)"), ("discord_msg", "VARCHAR(32)"),
-                                                      ("link_only", "BOOLEAN"), ("gauntlet", "VARCHAR(200)")])
+                                                      ("link_only", "BOOLEAN"), ("gauntlet", "VARCHAR(200)"),
+                                                      ("rounds_total", "INTEGER")])
         community.add_missing_columns(conn, "game_players", [("score", "INTEGER"), ("seat", "INTEGER")])
         community.add_missing_columns(conn, "game_picks", [("seconds", "INTEGER")])
         has_players = select(game_players.c.game_id).where(game_players.c.game_id == games.c.id).exists()
@@ -285,12 +290,12 @@ def _gauntlet_rounds(opts: dict, excluded: frozenset) -> Tuple[List[dict], List[
     custom = [int(c) for c in (opts.get("opponents") or [])][:gauntlet.RUNGS]
     if source == "custom" and len(custom) < 2:
         raise DuelError("Pick at least two opponents")
-    chosen = [int(c) for c in (opts.get("challengers") or [])][:ROUNDS]
+    chosen = [int(c) for c in (opts.get("challengers") or [])][:GAUNTLETS]
     rounds, ladders, used = [], [], set()
-    for round_no in range(1, ROUNDS + 1):
-        picked = round_no <= len(chosen)
+    for gauntlet_no in range(1, GAUNTLETS + 1):
+        picked = gauntlet_no <= len(chosen)
         for _ in range(12):
-            char_id = chosen[round_no - 1] if picked else gauntlet.random_challenger(excluded=excluded)
+            char_id = chosen[gauntlet_no - 1] if picked else gauntlet.random_challenger(excluded=excluded)
             if char_id in used and not picked:
                 continue
             try:
@@ -303,21 +308,88 @@ def _gauntlet_rounds(opts: dict, excluded: frozenset) -> Tuple[List[dict], List[
             if len(opponents) >= 2:
                 break
             if picked:
-                raise DuelError(f"Round {round_no}: too few opponents that character can be compared with")
+                raise DuelError(f"Gauntlet {gauntlet_no}: too few opponents that character can be compared with")
         else:
             raise DuelError("Couldn't build the gauntlets - try again", 503)
         used.add(char_id)
         result = gauntlet.run(char_id, opponents)
-        rounds.append({"char_a": char_id, "char_b": 0, "form_a": "", "form_b": "", "answer_id": result["climbed"],
-                       "verdict": f"Climbed {result['climbed']} of {result['total']}", "picked": picked})
-        ladders += [{"round_no": round_no, "rung": f["rung"], "char_id": f["opponent"], "outcome": f["outcome"],
+        ladders += [{"round_no": gauntlet_no, "rung": f["rung"], "char_id": f["opponent"], "outcome": f["outcome"],
                      "verdict": f["verdict"][:300]} for f in result["fights"]]
+        # One call per fight it gets to: up to and including the one it loses.
+        for f in result["fights"]:
+            if not f["reached"]:
+                break
+            rounds.append({"char_a": char_id, "char_b": f["opponent"], "form_a": "", "form_b": "",
+                           "answer_id": 1 if f["outcome"] == "win" else 0, "verdict": f["verdict"][:300],
+                           "picked": picked})
     label = f"series:{series}" if source == "series" else source
     return rounds, ladders, label
 
 
+def call_result(game_id: int, round_no: int) -> Optional[dict]:
+    """A gauntlet call's answer, once it's been made: whether the character
+    won, what decided it, and where the call sits (see gauntlet_calls)."""
+    with community.reader.connect() as conn:
+        g = conn.execute(select(games.c.mode, games.c.rounds_total).where(games.c.id == game_id)).mappings().first()
+        if g is None or g["mode"] != "gauntlet" or not g["rounds_total"]:
+            return None
+        r = conn.execute(select(game_rounds.c.answer_id, game_rounds.c.verdict).where(and_(
+            game_rounds.c.game_id == game_id, game_rounds.c.round_no == round_no))).mappings().first()
+        ladders = [dict(l) for l in conn.execute(select(game_ladders).where(game_ladders.c.game_id == game_id)).mappings()]
+    calls = gauntlet_calls(ladders)
+    if r is None or not 1 <= round_no <= len(calls):
+        return None
+    call = calls[round_no - 1]
+    last = round_no == len(calls) or calls[round_no]["gauntlet"] != call["gauntlet"]
+    climbed = sum(1 for c in calls[:round_no] if c["gauntlet"] == call["gauntlet"]) - (0 if r["answer_id"] else 1)
+    return {"beat": bool(r["answer_id"]), "verdict": r["verdict"], "ended": last, "climbed": climbed,
+            "rungs": call["rungs"], "gauntlet": call["gauntlet"], "last_call": round_no == len(calls)}
+
+
+def rounds_of(g: dict) -> int:
+    """The game's number of rounds: gauntlet duels' calls vary."""
+    return g.get("rounds_total") or ROUNDS
+
+
+def _legacy_gauntlet(g: dict) -> bool:
+    """A gauntlet game from before calls: five number guesses."""
+    return g.get("mode") == "gauntlet" and not g.get("rounds_total")
+
+
+def gauntlet_calls(ladders: List[dict]) -> List[dict]:
+    """A gauntlet duel's calls in order, from its ladders (game_ladders rows):
+    [{"gauntlet": n, "rung": r, "rungs": ladder size, "ladder": [ids]}]."""
+    by_gauntlet: Dict[int, List[dict]] = {}
+    for l in sorted(ladders, key=lambda l: (l["round_no"], l["rung"])):
+        by_gauntlet.setdefault(l["round_no"], []).append(l)
+    calls = []
+    for n in sorted(by_gauntlet):
+        ladder = by_gauntlet[n]
+        for l in ladder:
+            calls.append({"gauntlet": n, "rung": l["rung"], "rungs": len(ladder), "ladder": [x["char_id"] for x in ladder]})
+            if l["outcome"] != "win":
+                break
+    return calls
+
+
+def answer_seconds(g: dict, members: List[dict], by_player: Dict[Tuple[int, int], List[dict]]) -> Dict[int, float]:
+    """{team: seconds its players took over all calls} - a call not answered
+    in time counts its whole clock. Breaks ties in gauntlet duels."""
+    out: Dict[int, float] = {}
+    for m in members:
+        mine = {p["round_no"]: p for p in by_player.get((g["id"], m["user_id"]), [])}
+        total = 0.0
+        for n in range(1, rounds_of(g) + 1):
+            p = mine.get(n)
+            full = (p.get("seconds") if p else None) or GAUNTLET_SECONDS
+            total += (_aware(p["answered_at"]) - _aware(p["started_at"])).total_seconds() if _in_time(p) else full
+        out[m["team"]] = out.get(m["team"], 0.0) + total
+    return {t: round(v, 2) for t, v in out.items()}
+
+
 def gauntlet_points(guess: Optional[int], answer: int) -> int:
-    """3 for the exact number of wins, 2 if one off, 1 if two off."""
+    """Old number-guess gauntlets: 3 for the exact number of wins, 2 if one
+    off, 1 if two off."""
     return 0 if guess is None else max(0, 3 - abs(guess - answer))
 
 
@@ -449,7 +521,8 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exc
             raise DuelError(f"Matchup {i} is already in this challenge")
         taken.add(frozenset((r["char_a"], r["char_b"])))
         rounds.append({**r, "picked": True})
-    n_picked = sum(1 for r in rounds if r["picked"])
+    n_picked = sum(1 for r in rounds if r["picked"]) if mode != "gauntlet" else len(
+        {r["char_a"] for r in rounds if r["picked"]})
     if mode == "gauntlet":
         pass
     elif mode == "draft":
@@ -466,6 +539,7 @@ def create(creator_id: int, fmt: str, invite: List[str], picked: List[dict], exc
             creator_id=creator_id, status="open", created_at=now, teams=teams, team_size=size,
             picked=n_picked, excluded="|".join(sorted(excluded)) or None, mode=mode,
             link_only=True if link_only and not invitees else None, gauntlet=gauntlet_label,
+            rounds_total=len(rounds) if mode == "gauntlet" else None,
         )).inserted_primary_key[0]
         conn.execute(insert(game_players).values(game_id=game_id, user_id=creator_id, team=1, joined_at=now,
                                                  seat=0 if mode == "draft" else None))
@@ -608,8 +682,14 @@ def _deadline(pick: dict) -> datetime:
     return _aware(pick["started_at"]) + timedelta(seconds=pick.get("seconds") or ROUND_SECONDS)
 
 
-def _seconds_for(mode: Optional[str]) -> Optional[int]:
-    return GAUNTLET_SECONDS if mode == "gauntlet" else None  # None: ROUND_SECONDS
+LEGACY_GAUNTLET_SECONDS = 30  # the old number guesses: ten opponents to size up
+
+
+def _seconds_for(r: dict) -> Optional[int]:
+    """A round's clock: gauntlet calls are shorter (None: ROUND_SECONDS)."""
+    if r.get("mode") != "gauntlet":
+        return None
+    return LEGACY_GAUNTLET_SECONDS if _legacy_gauntlet(r) else GAUNTLET_SECONDS
 
 
 def _settled(pick: dict, now: datetime) -> bool:
@@ -640,8 +720,9 @@ def _state(conn, game_id: int, user_id: int) -> List[dict]:
     seat = select(game_players.c.seat).where(and_(
         game_players.c.game_id == game_id, game_players.c.user_id == user_id)).scalar_subquery()
     rows = conn.execute(
-        select(games.c.status, games.c.mode, game_rounds, game_picks.c.started_at, game_picks.c.pick_id,
-               game_picks.c.answered_at, game_picks.c.seconds, member.label("member"), seat.label("seat"))
+        select(games.c.status, games.c.mode, games.c.rounds_total, game_rounds, game_picks.c.started_at,
+               game_picks.c.pick_id, game_picks.c.answered_at, game_picks.c.seconds, member.label("member"),
+               seat.label("seat"))
         .select_from(games.join(game_rounds, game_rounds.c.game_id == games.c.id).outerjoin(
             game_picks, and_(game_picks.c.game_id == game_rounds.c.game_id,
                              game_picks.c.round_no == game_rounds.c.round_no, game_picks.c.user_id == user_id)))
@@ -661,7 +742,7 @@ def _next(conn, state: List[dict], user_id: int, now: datetime) -> Optional[dict
             try:
                 conn.execute(insert(game_picks).values(game_id=r["game_id"], round_no=r["round_no"],
                                                        user_id=user_id, started_at=now,
-                                                       seconds=_seconds_for(r.get("mode"))))
+                                                       seconds=_seconds_for(r)))
             except IntegrityError:
                 # Started a moment ago by this player's other request (a
                 # double tap, two tabs): the clock that counts is that one.
@@ -670,7 +751,7 @@ def _next(conn, state: List[dict], user_id: int, now: datetime) -> Optional[dict
                     game_picks.c.user_id == user_id))).one()
                 r["started_at"], r["seconds"] = started
             else:
-                r["started_at"], r["seconds"] = now, _seconds_for(r.get("mode"))
+                r["started_at"], r["seconds"] = now, _seconds_for(r)
                 _changed()
         left = (_deadline(r) - now).total_seconds()
         return {**r, "seconds_left": max(0.0, left)}
@@ -696,7 +777,12 @@ def _with_hand(conn, r: Optional[dict]) -> Optional[dict]:
     if r is not None and r.get("mode") == "draft":
         r["hand"] = _hand(conn, r["game_id"], r["round_no"], r["seat"])
     if r is not None and r.get("mode") == "gauntlet":
-        r["ladder"] = [l["char_id"] for l in _ladder(conn, r["game_id"], r["round_no"])]
+        if _legacy_gauntlet(r):
+            r["ladder"] = [l["char_id"] for l in _ladder(conn, r["game_id"], r["round_no"])]
+        else:  # which gauntlet and rung this call is, and the ones beaten on the way
+            ladders = [dict(l) for l in conn.execute(select(game_ladders).where(
+                game_ladders.c.game_id == r["game_id"])).mappings()]
+            r["call"] = gauntlet_calls(ladders)[r["round_no"] - 1]
     return r
 
 
@@ -738,9 +824,12 @@ def pick(game_id: int, user_id: int, round_no: int, pick_id: int) -> Tuple[bool,
         if r["mode"] == "draft":
             if pick_id not in _hand(conn, game_id, round_no, r["seat"]):
                 raise DuelError("Pick one of the characters in your hand")
-        elif r["mode"] == "gauntlet":
+        elif r["mode"] == "gauntlet" and _legacy_gauntlet(r):
             if not 0 <= pick_id <= len(_ladder(conn, game_id, round_no)):
                 raise DuelError("Guess how many fights it wins")
+        elif r["mode"] == "gauntlet":
+            if pick_id not in (0, 1):
+                raise DuelError("Call it: 1 if it wins, 0 if it doesn't")
         elif pick_id not in (r["char_a"], r["char_b"]):
             raise DuelError("Pick one of the two characters")
         if r["answered_at"] is not None:
@@ -754,6 +843,11 @@ def pick(game_id: int, user_id: int, round_no: int, pick_id: int) -> Tuple[bool,
         _changed()
         r.update(pick_id=pick_id, answered_at=now)
         in_time = now <= _deadline(r) + timedelta(seconds=GRACE_SECONDS)
+        if r["mode"] == "gauntlet" and not _legacy_gauntlet(r):
+            # The result shows first; the next call starts when they ask for it.
+            if round_no == r["rounds_total"]:
+                _finish_if_done(conn, game_id, now)
+            return in_time, None
         nxt = _next(conn, state, user_id, now) if state[0]["status"] in ("open", "active") else None
         if nxt is None:
             _finish_if_done(conn, game_id, now)
@@ -792,7 +886,7 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
         done_at = []
         for m in members.get(g["id"], []):
             mine = [p for p in by_player.get((g["id"], m["user_id"]), []) if _settled(p, now)]
-            if len(mine) == ROUNDS:
+            if len(mine) == rounds_of(g):
                 done_at.append(max(_aware(p["answered_at"]) if p["answered_at"] else _deadline(p)
                                    for p in mine))
         if len(done_at) < len(members.get(g["id"], [])):
@@ -812,18 +906,24 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
             for m in members[g["id"]]:
                 m["score"] = sum(points.get((n, m["user_id"]), 0) for n in range(1, ROUNDS + 1))
                 team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
-        if g.get("mode") == "gauntlet":
+        if _legacy_gauntlet(g):
             for m in members[g["id"]]:
                 mine = {p["round_no"]: p for p in by_player.get((g["id"], m["user_id"]), [])}
                 m["score"] = sum(gauntlet_points(mine[n]["pick_id"] if _in_time(mine.get(n)) else None, answers[(g["id"], n)])
                                  for n in range(1, ROUNDS + 1))
                 team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
-        for m in members[g["id"]] if g.get("mode") not in ("draft", "gauntlet") else []:
+        for m in members[g["id"]] if g.get("mode") != "draft" and not _legacy_gauntlet(g) else []:
             m["score"] = sum(_correct(next((p for p in by_player.get((g["id"], m["user_id"]), []) if p["round_no"] == n), None),
-                                      answers[(g["id"], n)]) for n in range(1, ROUNDS + 1))
+                                      answers[(g["id"], n)]) for n in range(1, rounds_of(g) + 1))
             team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
         top = max(team_score.values())
         leaders = [t for t, s in team_score.items() if s == top]
+        if len(leaders) > 1 and g.get("mode") == "gauntlet" and not _legacy_gauntlet(g):
+            # Level on calls: the faster team wins (see answer_seconds).
+            took = answer_seconds(g, members[g["id"]], by_player)
+            fastest = min(took[t] for t in leaders)
+            quick = [t for t in leaders if took[t] == fastest]
+            leaders = quick if len(quick) == 1 else leaders
         winning = leaders[0] if len(leaders) == 1 else None
         # Players first, the game's status last: reads may run outside a
         # transaction, and a settle cut off halfway is then just redone.
@@ -976,13 +1076,14 @@ def pending_count(user_id: int) -> int:
     live = games.c.status.in_(["open", "active"])
     member = select(game_players.c.game_id).where(and_(
         game_players.c.game_id == games.c.id, game_players.c.user_id == user_id)).exists()
-    cutoff = _now() - timedelta(seconds=max(ROUND_SECONDS, GAUNTLET_SECONDS) + GRACE_SECONDS)
+    cutoff = _now() - timedelta(seconds=max(ROUND_SECONDS, GAUNTLET_SECONDS, LEGACY_GAUNTLET_SECONDS) + GRACE_SECONDS)
     my_done = (select(func.count()).select_from(game_picks).where(and_(
         game_picks.c.game_id == games.c.id, game_picks.c.user_id == user_id,
         or_(game_picks.c.answered_at.isnot(None), game_picks.c.started_at < cutoff))).scalar_subquery())
     invites = (select(func.count()).select_from(game_invites.join(games, games.c.id == game_invites.c.game_id))
                .where(and_(game_invites.c.user_id == user_id, games.c.status == "open", ~member)).scalar_subquery())
-    to_play = (select(func.count()).select_from(games).where(and_(live, member, my_done < ROUNDS)).scalar_subquery())
+    to_play = (select(func.count()).select_from(games).where(and_(
+        live, member, my_done < func.coalesce(games.c.rounds_total, ROUNDS))).scalar_subquery())
     with community.reader.connect() as conn:
         a, b = conn.execute(select(invites, to_play)).one()
     return a + b

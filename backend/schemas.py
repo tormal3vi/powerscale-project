@@ -425,7 +425,13 @@ class DuelRoundOut(BaseModel):
     a: Optional[DuelSideOut] = None
     b: Optional[DuelSideOut] = None
     hand: List[DuelSideOut] = []
-    ladder: List[DuelSideOut] = []  # gauntlet: the opponents, lowest rung first (a is the challenger)
+    ladder: List[DuelSideOut] = []  # old gauntlet rounds: the opponents, lowest rung first (a is the challenger)
+    # Gauntlet calls: does a (the challenger) beat b (the next opponent)?
+    gauntlet_no: Optional[int] = None
+    gauntlets: Optional[int] = None
+    rung: Optional[int] = None
+    rungs: Optional[int] = None
+    trail: List[DuelSideOut] = []  # the opponents it has beaten so far in this gauntlet
 
 
 class DuelPickIn(BaseModel):
@@ -433,8 +439,20 @@ class DuelPickIn(BaseModel):
     pick_id: int
 
 
+class CallRevealOut(BaseModel):
+    """A gauntlet call's result, shown right after it's made."""
+    beat: bool
+    verdict: str
+    correct: bool
+    ended: bool  # this gauntlet is over: it lost, or it cleared the ladder
+    climbed: int
+    rungs: int
+    last_call: bool
+
+
 class DuelPickOut(BaseModel):
     in_time: bool
+    reveal: Optional[CallRevealOut] = None  # gauntlet calls
     next: Optional[DuelRoundOut] = None  # the following round, already started; None when done
 
 
@@ -448,6 +466,7 @@ class DuelRoundPickOut(BaseModel):
     hand: List[DuelSideOut] = []
     points: int = 0
     best_id: Optional[int] = None
+    calls: List[Optional[bool]] = []  # gauntlet: each call right (True), wrong (False) or missed (None)
 
 
 class DuelBoutOut(BaseModel):
@@ -508,6 +527,7 @@ class DuelOut(BaseModel):
     invited: List[str] = []  # invited players who haven't joined yet
     private: bool = False
     link_only: bool = False  # open to whoever has the link, not listed
+    by_speed: bool = False  # gauntlet duels: level on calls, the faster side won
     gauntlet: Optional[str] = None  # gauntlet games: "random", "custom" or "series:<name>"
     seats_left: int = 0
     picked: Optional[int] = None  # rounds the creator chose; the rest are random (None: not recorded)

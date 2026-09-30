@@ -14,7 +14,7 @@ from backend.community_api import (
     avatar_url, character_image_url, current_user, post_limit, require_user, same_origin,
 )
 from backend.schemas import (
-    DuelBoutOut, DuelCreateIn, GauntletFightOut, GauntletOut, DuelJoinIn, DuelListOut, DuelOut, DuelPickIn, DuelPickOut, DuelPlayerOut,
+    CallRevealOut, DuelBoutOut, DuelCreateIn, GauntletFightOut, GauntletOut, DuelJoinIn, DuelListOut, DuelOut, DuelPickIn, DuelPickOut, DuelPlayerOut,
     DuelResultRoundOut, DuelRoundOut, DuelRoundPickOut, DuelSideOut, LeaderboardOut, LeaderboardRowOut,
 )
 
@@ -51,11 +51,17 @@ def _side(char_id: int, form: str, cache: dict) -> DuelSideOut:
 
 def _round_out(game_id: int, r: dict) -> DuelRoundOut:
     cache: dict = {}
-    out = DuelRoundOut(game_id=game_id, round_no=r["round_no"], total=duels.ROUNDS, seconds_left=r["seconds_left"])
+    out = DuelRoundOut(game_id=game_id, round_no=r["round_no"], total=duels.rounds_of(r), seconds_left=r["seconds_left"])
     if r.get("mode") == "draft":
         out.mode = "draft"
         out.hand = [_side(cid, None, cache) for cid in r.get("hand", [])]
-    elif r.get("mode") == "gauntlet":
+    elif r.get("mode") == "gauntlet" and r.get("call"):
+        c = r["call"]
+        out.mode = "gauntlet"
+        out.a, out.b = _side(r["char_a"], None, cache), _side(r["char_b"], None, cache)
+        out.gauntlet_no, out.gauntlets, out.rung, out.rungs = c["gauntlet"], duels.GAUNTLETS, c["rung"], c["rungs"]
+        out.trail = [_side(cid, None, cache) for cid in c["ladder"][:c["rung"] - 1]]
+    elif r.get("mode") == "gauntlet":  # an old number-guess round
         out.mode = "gauntlet"
         out.a = _side(r["char_a"], r["form_a"] or None, cache)
         out.ladder = [_side(cid, None, cache) for cid in r.get("ladder", [])]
@@ -82,7 +88,7 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
              for m in members}
     # Lists don't load a finished game's picks: everyone has played it out.
     have_picks = not done or any(p["game_id"] == g["id"] for p in picks)
-    played = lambda uid: duels.played(picks, g["id"], uid, now) if have_picks else duels.ROUNDS  # noqa: E731
+    played = lambda uid: duels.played(picks, g["id"], uid, now) if have_picks else duels.rounds_of(g)  # noqa: E731
     member_ids = {m["user_id"] for m in members}
     mine = next((m for m in members if m["user_id"] == me), None)
     free = duels.open_teams(g, members)
@@ -110,7 +116,7 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
         seats_left=teams * size - len(members) if g["status"] == "open" else 0,
         picked=g.get("picked"), excluded=[s for s in (g.get("excluded") or "").split("|") if s],
         my_team=mine["team"] if mine else None,
-        my_played=played(me) if mine else 0, total=duels.ROUNDS,
+        my_played=played(me) if mine else 0, total=duels.rounds_of(g),
         can_play=me is not None and duels.can_play(g, me, members),
         can_join=can_join, join_teams=free if can_join else [],
         can_leave=bool(mine) and g["status"] == "open" and me != g["creator_id"]
@@ -138,6 +144,38 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
             tier = _tier_of()
         if g.get("mode") == "gauntlet":
             guesses = duels.picks_in_time(g["id"], picks, members)  # late guesses score nothing
+        if g.get("mode") == "gauntlet" and g.get("rounds_total"):
+            # Calls, regrouped into their gauntlets: each ladder, and every
+            # player's calls on it (right, wrong, or not made in time).
+            ladders_by = data.get("ladders", {}).get(g["id"], {})
+            calls = duels.gauntlet_calls([l for n in sorted(ladders_by) for l in ladders_by[n]])
+            by_round = {r["round_no"]: r for r in rounds}
+            ordered = sorted(members, key=lambda m: (m["team"], m["joined_at"]))
+            for n in sorted(ladders_by):
+                nos = [i + 1 for i, c in enumerate(calls) if c["gauntlet"] == n]
+                first = by_round.get(nos[0]) if nos else None
+                if first is None:
+                    continue
+                alive, fights, climbed = True, [], 0
+                for l in ladders_by[n]:
+                    fights.append(GauntletFightOut(
+                        rung=l["rung"], opponent=_side(l["char_id"], None, cache), outcome=l["outcome"],
+                        verdict=l["verdict"], reached=alive, compare_url=f"compare.html?a={first['char_a']}&b={l['char_id']}"))
+                    climbed += 1 if alive and l["outcome"] == "win" else 0
+                    alive = alive and l["outcome"] == "win"
+                player_calls = []
+                for m in ordered:
+                    marks = [None if guesses.get((k, m["user_id"])) is None
+                             else guesses[(k, m["user_id"])] == by_round[k]["answer_id"] for k in nos]
+                    player_calls.append(DuelRoundPickOut(username=person(m["user_id"])[0], team=m["team"],
+                                                         calls=marks, points=sum(1 for x in marks if x)))
+                out.rounds.append(DuelResultRoundOut(
+                    round_no=n, a=_side(first["char_a"], None, cache), answer_id=climbed,
+                    verdict=f"Climbed {climbed} of {len(ladders_by[n])}", picked=first["picked"],
+                    compare_url=f"character.html?id={first['char_a']}", fights=fights, picks=player_calls))
+            top = max(out.team_scores) if out.team_scores else 0
+            out.by_speed = out.team_scores.count(top) > 1 and any(m.get("outcome") == "win" for m in members)
+            rounds = []  # shown above, per gauntlet
         for r in rounds:
             round_picks = []
             for m in sorted(members, key=lambda m: (m["team"], m["joined_at"])):
@@ -281,7 +319,10 @@ def pick(game_id: int, payload: DuelPickIn, user: dict = Depends(require_user)):
     """Locks in a pick and returns the next round (already started) in the
     same response: one round trip between rounds instead of two."""
     in_time, nxt = _run(duels.pick, game_id, user["id"], payload.round_no, payload.pick_id)
-    return DuelPickOut(in_time=in_time, next=_round_out(game_id, nxt) if nxt else None)
+    reveal = duels.call_result(game_id, payload.round_no)  # gauntlet calls only
+    return DuelPickOut(in_time=in_time, next=_round_out(game_id, nxt) if nxt else None,
+                       reveal=CallRevealOut(**reveal, correct=in_time and payload.pick_id == int(reveal["beat"]))
+                       if reveal else None)
 
 
 @router.get("/api/gauntlet", response_model=GauntletOut)
