@@ -2611,3 +2611,8 @@ a.dr-mini-wrap.picked:hover .dr-mini { box-shadow: 0 0 0 2px var(--accent-gold);
 .lr-alt:hover { color: var(--text-primary); }
 @media (max-width: 640px) { .lr-page { padding: 32px 16px; } .lr-card { padding: 40px 24px; } }
 @media (max-width: 640px) { .duel-play-round { padding: 0 34px; } }  /* clear of the close button */
+/* In rows that already space their items (gap), a title needs no margin of
+   its own - and sits snug against an Admin badge. */
+.post-head .utitle, .reply-head .utitle, .mc-meta .utitle, .user-pop-name-row .utitle, .up-name-row .utitle { margin-left: 0; align-self: center; }
+.post-head .admin-badge + .utitle, .reply-head .admin-badge + .utitle, .mc-meta .admin-badge + .utitle,
+.user-pop-name-row .admin-badge + .utitle, .up-name-row .admin-badge + .utitle { margin-left: -3px; }
