@@ -235,9 +235,29 @@ def _page(title: str, text: str, status: int = 200) -> HTMLResponse:
 
 
 @router.get("/discord/linked-role/status", include_in_schema=False)
-def status():
-    """Whether Linked Roles is on and Discord took the stats it can check."""
-    return {"enabled": enabled(), "metadata": _registration}
+def status(request: Request):
+    """Whether Linked Roles is on, and what Discord has on file for the app:
+    its verification URL and the stats roles can check (both public)."""
+    out = {"enabled": enabled(), "metadata": _registration}
+    app_id, token = _setting("DISCORD_APPLICATION_ID"), _setting("DISCORD_BOT_TOKEN")
+    if enabled() and token:
+        headers = {"Authorization": f"Bot {token}", "User-Agent": USER_AGENT}
+        try:
+            app = requests.get(f"{API}/applications/@me", headers=headers, timeout=15)
+            meta = requests.get(f"{API}/applications/{app_id}/role-connections/metadata", headers=headers, timeout=15)
+        except requests.RequestException as exc:
+            out["discord"] = f"couldn't reach Discord ({type(exc).__name__})"
+            return out
+        if app.ok:
+            info = app.json()
+            from backend.main import _base_url
+            out["verification_url_on_discord"] = info.get("role_connections_verification_url")
+            out["verification_url_expected"] = f"{_base_url(request)}/discord/linked-role"
+            out["app_id_matches"] = str(info.get("id")) == app_id
+        else:
+            out["app"] = f"Discord said {app.status_code}"
+        out["metadata_on_discord"] = [m.get("key") for m in meta.json()] if meta.ok else f"Discord said {meta.status_code}"
+    return out
 
 
 @router.get("/discord/linked-role", include_in_schema=False)
