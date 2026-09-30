@@ -431,6 +431,8 @@ PAGE_TITLES = {
     "profile.html": "Your profile — Powerscale",
     "tickets.html": "Tickets — Powerscale",
     "faq.html": "FAQ — Powerscale",
+    "terms.html": "Terms of Service — Powerscale",
+    "privacy.html": "Privacy Policy — Powerscale",
 }
 SITE_IMAGE = "/apple-touch-icon.png?v=2"  # bump v when the logo changes: apps cache by URL
 
@@ -591,7 +593,8 @@ def _tournament_preview(ids: Optional[str]):
 
 def _sitemap(request: Request) -> Response:
     base = _base_url(request)
-    urls = [(f"{base}/{page}", None) for page in ("browse.html", "duels.html", "board.html", "tournament.html", "faq.html")]
+    pages = ("browse.html", "duels.html", "board.html", "tournament.html", "faq.html", "terms.html", "privacy.html")
+    urls = [(f"{base}/{page}", None) for page in pages]
     with db.connect() as conn:
         for row in conn.execute("SELECT id, last_scraped_at FROM characters ORDER BY id"):
             urls.append((f"{base}/character.html?id={row[0]}", (row[1] or "")[:10] or None))
@@ -654,7 +657,8 @@ if FRONTEND_DIR.exists():
             return _page_with_preview(request, filename, None, None)
         return page
 
-    for _name in ("browse.html", "board.html", "login.html", "profile.html", "tickets.html", "faq.html"):
+    for _name in ("browse.html", "board.html", "login.html", "profile.html", "tickets.html", "faq.html",
+                  "terms.html", "privacy.html"):
         app.add_api_route(f"/{_name}", _plain_page_route(_name), methods=["GET", "HEAD"], include_in_schema=False)
 
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

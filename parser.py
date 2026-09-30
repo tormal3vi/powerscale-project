@@ -921,6 +921,21 @@ def _extract_pictures(soup, heading) -> List[tuple]:
         url = _canonical_image_url(img.get("data-src") or img.get("src")) if img is not None else None
         if url and url not in (u for _, u in pictures):
             pictures.append((_picture_tab_labels(fig), url))
+    if not pictures and heading is not None:
+        # Older pages put the picture in a plain link, not a <figure>
+        # (Celestialsapiens): the first big one above the stats, not a
+        # slideshow or gallery thumbnail.
+        for img in reversed(heading.find_all_previous("img")):
+            if img.find_parent("table", class_="about-article") or img.find_parent(
+                    class_=re.compile(r"slideshow|gallery|navbox|toc")):
+                continue
+            width = img.get("width") or ""
+            if width.isdigit() and int(width) < 150:
+                continue
+            url = _canonical_image_url(img.get("data-src") or img.get("src"))
+            if url:
+                pictures.append(([], url))
+                break
     return pictures
 
 

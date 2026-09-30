@@ -298,7 +298,8 @@ def daily_matchup(now: Optional[datetime] = None) -> bool:
     if local.hour < DAILY_HOUR:
         return False
     day = local.date()
-    before = community.get_mark("discord_daily_post")  # "YYYY-MM-DD|message id" of the last one
+    # "YYYY-MM-DD|message id|a|b" of the last one (older ones: no pair)
+    before = community.get_mark("discord_daily_post")
     if not community.claim_mark("discord_daily", day.isoformat()):
         return False
     a, b = daily.pick(day)
@@ -311,8 +312,9 @@ def daily_matchup(now: Optional[datetime] = None) -> bool:
     if pic:
         embed["thumbnail"] = {"url": pic}
     if before and "|" in before:  # yesterday's, revealed
-        prev_day, prev_id = before.split("|", 1)
-        pa, pb = daily.pick(datetime.strptime(prev_day, "%Y-%m-%d").date())
+        prev_day, prev_id, *pair = before.split("|")
+        pa, pb = (int(pair[0]), int(pair[1])) if len(pair) == 2 else \
+            daily.pick(datetime.strptime(prev_day, "%Y-%m-%d").date())
         prev_names = tuple(characters.short_name(characters.display_name_for_id(c) or "?") for c in (pa, pb))
         lines = [f"The site says: **{_md(_verdict_line(pa, pb))}**"]
         votes = _vote_line(_request("GET", _message_url(url, prev_id)), prev_names)
@@ -328,7 +330,7 @@ def daily_matchup(now: Optional[datetime] = None) -> bool:
         _request("POST", url, embed)
         posted = _request("POST", f"{url}{sep}wait=true", message={"poll": poll})
     if posted and posted.get("id"):
-        community.set_mark("discord_daily_post", f"{day.isoformat()}|{posted['id']}")
+        community.set_mark("discord_daily_post", f"{day.isoformat()}|{posted['id']}|{a}|{b}")
     return True
 
 

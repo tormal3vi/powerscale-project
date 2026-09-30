@@ -248,6 +248,7 @@ class ProfileOut(BaseModel):
     discord: Optional[str] = None
     discord_id: Optional[str] = None
     discord_shown: Optional[bool] = None  # your own profile only: the "show it" setting
+    challenge_button: bool = True  # a Challenge button on their public profile
 
 
 class DiscordLinkIn(BaseModel):
@@ -255,6 +256,10 @@ class DiscordLinkIn(BaseModel):
 
 
 class DiscordShownIn(BaseModel):
+    shown: bool
+
+
+class ChallengeButtonIn(BaseModel):
     shown: bool
 
 

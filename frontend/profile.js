@@ -382,6 +382,24 @@ function renderDiscordState() {
   }
 }
 
+// Saved as soon as it's ticked, like the Discord setting.
+function renderChallengeSetting() {
+  const box = $('f-challenge');
+  const err = $('challenge-error');
+  box.checked = profile.challenge_button !== false;
+  box.addEventListener('change', async () => {
+    err.hidden = true;
+    try {
+      await Api.showChallengeButton(box.checked);
+      profile.challenge_button = box.checked;
+    } catch (e) {
+      box.checked = !box.checked;
+      err.textContent = e.message;
+      err.hidden = false;
+    }
+  });
+}
+
 // --- load ------------------------------------------------------------------------
 
 (async () => {
@@ -398,6 +416,7 @@ function renderDiscordState() {
   renderHeader();
   renderPicture();
   fillDetails();
+  renderChallengeSetting();
   renderDiscord();
   if (linkCode) $('discord-card').scrollIntoView({ block: 'center' });
 })();

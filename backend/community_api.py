@@ -14,7 +14,7 @@ from fastapi.concurrency import run_in_threadpool
 import db
 from backend import avatars, characters, community, discord_webhooks, duels, tickets
 from backend.schemas import (
-    AuthIn, CommentIn, CommentListOut, CommentOut, DeleteAccountIn, DiscordLinkIn, DiscordShownIn, FavoriteOut,
+    AuthIn, ChallengeButtonIn, CommentIn, CommentListOut, CommentOut, DeleteAccountIn, DiscordLinkIn, DiscordShownIn, FavoriteOut,
     LikeOut, MatchupOut, MeOut, OverrideIn, OverrideOut, PasswordIn, PostIn, PostListOut, PostOut, ProfileIn,
     ProfileOut, RecordOut, RulingOut, ThreadOut, UserOut,
 )
@@ -161,6 +161,7 @@ def _profile_out(profile: dict, own: bool) -> ProfileOut:
         discord=profile.get("discord_name") if own or shown else None,
         discord_id=profile.get("discord_id") if own or shown else None,
         discord_shown=profile.get("discord_public") is not False if own else None,
+        challenge_button=profile.get("challenge_button") is not False,  # NULL: shown, the default
     )
 
 
@@ -193,6 +194,12 @@ def discord_link(payload: DiscordLinkIn, user: dict = Depends(require_user)):
 @router.put("/api/me/discord/shown", dependencies=[Depends(same_origin)])
 def discord_shown(payload: DiscordShownIn, user: dict = Depends(require_user)):
     community.show_discord(user["id"], payload.shown)
+    return {"shown": payload.shown}
+
+
+@router.put("/api/me/challenge-button", dependencies=[Depends(same_origin)])
+def challenge_button(payload: ChallengeButtonIn, user: dict = Depends(require_user)):
+    community.show_challenge_button(user["id"], payload.shown)
     return {"shown": payload.shown}
 
 

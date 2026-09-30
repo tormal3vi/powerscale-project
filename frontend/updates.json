@@ -1,5 +1,18 @@
 [
   {
+    "id": "2026-09-30.1",
+    "date": "2026-09-30",
+    "title": "Faster search, and fixes",
+    "changes": [
+      "Searching Characters across All no longer freezes phones: results show as you scroll instead of thousands at once.",
+      "Don't want challenges from your profile? Untick \"Show a Challenge button on my profile\" in Profile settings.",
+      "Profiles no longer leave big gaps between their sections.",
+      "The Discord matchup of the day reveals the matchup that was actually posted (it once showed the wrong one after an update).",
+      "Celestialsapiens has its picture.",
+      "New Terms of Service and Privacy Policy pages (linked from the FAQ and the sign-up form)."
+    ]
+  },
+  {
     "id": "2026-09-29.11",
     "date": "2026-09-29",
     "title": "Challenge anyone",

@@ -112,7 +112,7 @@ async function render() {
           <span class="up-since">Member since ${monthYear(p.member_since)}${p.bio ? '' : ' · no bio yet'}</span>
         </div>
       </div>
-      ${isMe ? '' : `<a class="btn-gold up-challenge" href="duels.html?invite=${encodeURIComponent(p.username)}"
+      ${isMe || !p.challenge_button ? '' : `<a class="btn-gold up-challenge" href="duels.html?invite=${encodeURIComponent(p.username)}"
         title="Invite them to a duel"><span aria-hidden="true">⚔️</span>Challenge</a>`}
     </header>
     <div class="up-stats">
@@ -125,10 +125,14 @@ async function render() {
     </div>
     ${nothing ? '<div class="up-card up-nothing">No duels, posts or comments yet.</div>' : `
     <div class="up-grid">
-      ${card('Recent duels', d.duels.map(duelLine).join(''), 'No finished duels yet.')}
-      ${card('Recent Board posts', d.posts.map(postLine).join(''), 'No posts yet.')}
-      ${card('Recent matchup comments', d.comments.map(commentLine).join(''), 'No comments yet.')}
-      ${card('Overrules suggested', d.credited.map(creditLine).join(''), 'None yet. A ticket that leads to an overrule shows up here.')}
+      <div class="up-col">
+        ${card('Recent duels', d.duels.map(duelLine).join(''), 'No finished duels yet.')}
+        ${card('Recent matchup comments', d.comments.map(commentLine).join(''), 'No comments yet.')}
+      </div>
+      <div class="up-col">
+        ${card('Recent Board posts', d.posts.map(postLine).join(''), 'No posts yet.')}
+        ${card('Overrules suggested', d.credited.map(creditLine).join(''), 'None yet. A ticket that leads to an overrule shows up here.')}
+      </div>
     </div>`}
     ${canBan ? `<section class="up-card up-admin">
       <h2 class="up-card-title up-admin-title">${SHIELD_ICON} Admin-only · tickets sent by this user</h2>

@@ -70,8 +70,16 @@ function toggleSelect(character) {
     }
     state.selected.push({ id: character.id, name: character.name, image_url: character.image_url });
   }
-  renderGrid();
+  refreshCardButtons(); // in place: redrawing would lose how far down the grid you are
   renderCompareBar();
+}
+
+function refreshCardButtons() {
+  grid.querySelectorAll('.card-action-button[data-id]').forEach((btn) => {
+    const selected = isSelected(Number(btn.dataset.id));
+    btn.classList.toggle('selected', selected);
+    btn.textContent = selected ? '✓ Added' : '+ Add to comparison';
+  });
 }
 
 function renderFilterRow() {
@@ -125,6 +133,12 @@ function renderSubfilterRow() {
   keepActiveInView(subfilterRow);
 }
 
+// Folded once per character, not on every keystroke for all 5,000.
+function searchText(c) {
+  if (c._search === undefined) c._search = `${fold(c.name)}\n${fold(c.aliases)}`;
+  return c._search;
+}
+
 function filteredCharacters() {
   const q = fold(state.query.trim());
   const list = state.characters.filter((c) => {
@@ -133,7 +147,7 @@ function filteredCharacters() {
     if (state.tierGroup !== 'any' && tierNumber(c.tier_label) !== state.tierGroup) return false;
     // Search the display name AND the full alias list ("Kakarot",
     // "Salamander", "Homulily" - no longer part of the shown name).
-    if (q && !fold(c.name).includes(q) && !fold(c.aliases).includes(q)) return false;
+    if (q && !searchText(c).includes(q)) return false;
     return true;
   });
   if (state.sort !== 'alpha') {
@@ -240,6 +254,7 @@ function characterCard(c, rank) {
   const btn = document.createElement('button');
   const selected = isSelected(c.id);
   btn.className = 'card-action-button' + (selected ? ' selected' : '');
+  btn.dataset.id = c.id;
   btn.textContent = selected ? '✓ Added' : '+ Add to comparison';
   btn.addEventListener('click', () => toggleSelect(c));
   card.appendChild(btn);
@@ -280,11 +295,42 @@ function renderGrid() {
     : state.sort === 'weak' ? `Sorted weakest first, ${where}.` : DEFAULT_SUBTITLE;
 
   const ranked = state.sort !== 'alpha';
+  shown = { list, ranks: ranked ? rankNumbers(list) : [], drawn: 0 };
+  drawMore();
+  fillScreen();
+}
+
+// Thousands of cards at once (a one-letter search across All) froze
+// phones: cards are drawn a batch at a time, the next as the last comes
+// into view.
+const GRID_BATCH = 60;
+let shown = { list: [], ranks: [], drawn: 0 };
+const gridEnd = document.createElement('div');
+gridEnd.className = 'grid-end';
+gridEnd.setAttribute('aria-hidden', 'true');
+grid.after(gridEnd);
+
+function drawMore() {
+  const { list, ranks } = shown;
   const frag = document.createDocumentFragment();
-  const ranks = ranked ? rankNumbers(list) : [];
-  list.forEach((c, i) => frag.appendChild(characterCard(c, ranks[i] || null)));
+  const end = Math.min(list.length, shown.drawn + GRID_BATCH);
+  for (let i = shown.drawn; i < end; i++) frag.appendChild(characterCard(list[i], ranks[i] || null));
+  shown.drawn = end;
   grid.appendChild(frag);
 }
+
+// More batches while the end of the grid is within a screen of view.
+function fillScreen() {
+  while (shown.drawn < shown.list.length && gridEnd.getBoundingClientRect().top < window.innerHeight + 800) drawMore();
+}
+let fillPending = false;
+const onScroll = () => {
+  if (fillPending) return;
+  fillPending = true;
+  requestAnimationFrame(() => { fillPending = false; fillScreen(); });
+};
+window.addEventListener('scroll', onScroll, { passive: true });
+window.addEventListener('resize', onScroll, { passive: true });
 
 function renderCompareBar() {
   if (state.selected.length === 0) {
@@ -375,9 +421,11 @@ async function init() {
   }
 }
 
+let searchTimer = null;
 searchInput.addEventListener('input', (e) => {
   state.query = e.target.value;
-  renderGrid();
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(renderGrid, 120); // once typing pauses, not per letter
 });
 sortSelect.addEventListener('change', (e) => {
   state.sort = e.target.value;

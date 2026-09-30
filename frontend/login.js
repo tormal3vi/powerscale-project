@@ -21,6 +21,7 @@ function setMode(m) {
   document.querySelectorAll('.auth-tab').forEach((t) => t.classList.toggle('active', t.dataset.mode === m));
   $('auth-submit').textContent = m === 'login' ? 'Log in' : 'Create account';
   $('auth-password').autocomplete = m === 'login' ? 'current-password' : 'new-password';
+  $('auth-legal').hidden = m !== 'register';
   showError('');
 }
 

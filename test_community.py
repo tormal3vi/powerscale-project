@@ -808,7 +808,14 @@ def test_matchup_of_the_day_poll_and_reveal():
         assert a != b and [x["poll_media"]["text"] for x in first["poll"]["answers"]] and first["poll"]["duration"] == 24
         assert "fields" not in first["embeds"][0]  # nothing to reveal yet
         assert not hooks.daily_matchup(datetime(2021, 6, 1, 20, 0, tzinfo=utc))  # once a day
+        daily._picked.clear()  # a restart, and a roster that grew: the day keeps its pair
+        real_draw, daily._draw = daily._draw, lambda day: (1, 2)
+        try:
+            assert daily.pick(datetime(2021, 6, 1).date()) == (a, b)
+        finally:
+            daily._draw = real_draw
         assert hooks.daily_matchup(datetime(2021, 6, 2, 15, 5, tzinfo=utc))
+        assert f"compare.html?a={a}&b={b}" in calls[-1][2]["embeds"][0]["fields"][0]["value"]  # the one posted
         assert calls[-2][0] == "GET" and calls[-2][1].endswith("/messages/msg1")  # yesterday's poll results
         reveal = calls[-1][2]["embeds"][0]["fields"][0]
         assert reveal["name"].startswith("Yesterday: ") and "The site says:" in reveal["value"]

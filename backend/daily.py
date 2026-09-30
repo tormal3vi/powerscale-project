@@ -8,10 +8,10 @@ import json
 import random
 import threading
 from datetime import date, datetime, timezone
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import db
-from backend import characters, duels
+from backend import characters, community, duels
 
 _picked: Dict[date, Tuple[int, int]] = {}
 _lock = threading.Lock()
@@ -44,13 +44,35 @@ def today() -> date:
     return datetime.now(timezone.utc).astimezone(_zone()).date()
 
 
+def _stored(day: date) -> Optional[Tuple[int, int]]:
+    value = community.get_mark(f"daily:{day.isoformat()}")
+    if value and "|" in value:
+        a, b = value.split("|", 1)
+        return int(a), int(b)
+    return None
+
+
 def pick(day: date) -> Tuple[int, int]:
     """(character a, character b) for `day` - seeded by the date, so it's
-    the same for everyone (kept for the day once chosen, even if the
-    roster grows meanwhile)."""
+    the same for everyone. Stored once chosen: the roster grows between
+    deploys, and the same seed would then draw a different pair (the
+    Discord post reveals yesterday's the next day)."""
     with _lock:
         if day in _picked:
             return _picked[day]
+    chosen = _stored(day)
+    if chosen is None:
+        chosen = _draw(day)
+        if not community.claim_mark(f"daily:{day.isoformat()}", f"{chosen[0]}|{chosen[1]}"):
+            chosen = _stored(day) or chosen  # another copy of the site stored it first
+    with _lock:
+        _picked[day] = chosen
+        for old in [d for d in _picked if d < day]:
+            del _picked[old]
+    return chosen
+
+
+def _draw(day: date) -> Tuple[int, int]:
     everyone = sorted(characters.scorable_pool())  # (id, tier, series), in a fixed order
     forms = _form_counts()
     rnd = random.Random(f"powerscale-daily-{day.isoformat()}")
@@ -74,8 +96,4 @@ def pick(day: date) -> Tuple[int, int]:
             break
     if chosen is None:  # an unlucky day: any two
         chosen = tuple(cid for cid, _, _ in rnd.sample(everyone, 2))
-    with _lock:
-        _picked[day] = chosen
-        for old in [d for d in _picked if d < day]:
-            del _picked[old]
     return chosen

@@ -125,6 +125,7 @@ const Api = {
   linkDiscord: (code) => apiPost('/api/me/discord', { code }),
   unlinkDiscord: () => apiDelete('/api/me/discord'),
   showDiscord: (shown) => apiSend('PUT', '/api/me/discord/shown', { shown }),
+  showChallengeButton: (shown) => apiSend('PUT', '/api/me/challenge-button', { shown }),
   userPage: (username) => apiGet(`/api/users/${encodeURIComponent(username)}/page`),
   userProfile: (username) => apiGet(`/api/users/${encodeURIComponent(username)}`),
   saveProfile: (profile) => apiSend('PUT', '/api/me/profile', profile),
