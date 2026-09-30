@@ -113,6 +113,14 @@ def shown(username: Optional[str]) -> Optional[dict]:
     return title(key)
 
 
+def progress(username: str) -> dict:
+    """{"wins", "overrules", "champion", "founder"} - what Discord's Linked
+    Roles check."""
+    u = _everyone().get(username.lower()) or {"wins": 0, "overrules": 0, "earned": []}
+    return {"wins": u["wins"], "overrules": u["overrules"], "champion": "champion" in u["earned"],
+            "founder": "founder" in u["earned"]}
+
+
 def summary(username: str) -> dict:
     """Everything a profile shows: the title shown, every one earned
     (rarest first), the next ones to work towards, and the choice made."""

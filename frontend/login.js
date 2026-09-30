@@ -8,7 +8,8 @@ const $ = (id) => document.getElementById(id);
 
 function safeNext() {
   const next = new URLSearchParams(location.search).get('next') || '';
-  return /^[a-z]+\.html(\?[^#]*)?$/i.test(next) ? next : 'board.html';
+  // A page of ours, or the Discord Linked Roles start (never another site).
+  return /^([a-z]+\.html(\?[^#]*)?|\/discord\/linked-role)$/i.test(next) ? next : 'board.html';
 }
 
 function showError(message) {

@@ -577,6 +577,55 @@ def test_titles_come_from_wins_and_can_be_picked_or_hidden():
     assert titles.shown("nobody_at_all") is None
 
 
+def test_linked_roles_push_numbers_and_forget_revoked_tokens():
+    from datetime import timedelta
+    from sqlalchemy import select
+    from backend import linked_roles
+    os.environ.update(DISCORD_CLIENT_SECRET="test-secret", DISCORD_APPLICATION_ID="123")
+    sent = []
+
+    class Reply:
+        def __init__(self, status, body=None):
+            self.status_code, self.ok, self._body = status, 200 <= status < 300, body or {}
+
+        def json(self):
+            return self._body
+    real_put, real_post = linked_roles.requests.put, linked_roles.requests.post
+    linked_roles.requests.put = lambda url, json=None, headers=None, timeout=None: (
+        sent.append((url, json, headers["Authorization"])) or Reply(sent_status[0]))
+    linked_roles.requests.post = lambda url, data=None, headers=None, timeout=None: Reply(
+        200, {"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600})
+    sent_status = [200]
+    try:
+        max_, = _users("lr_max")
+        assert linked_roles._open(linked_roles._seal("tok")) == "tok"
+        community.set_discord(max_["id"], "555", "max#1")
+        linked_roles._save_tokens(max_["id"], "555", {"access_token": "acc", "refresh_token": "ref", "expires_in": 3600})
+        with community.reader.connect() as conn:
+            stored = conn.execute(select(community.discord_role_tokens)).mappings().first()
+        assert "acc" not in stored["access_token"]  # encrypted at rest
+        assert linked_roles.push(max_["id"])
+        url, body, auth = sent[-1]
+        assert url.endswith("/users/@me/applications/123/role-connection") and auth == "Bearer acc"
+        assert body["platform_username"] == "lr_max" and body["metadata"]["duel_wins"] == 0
+        assert linked_roles.push(max_["id"]) and len(sent) == 1  # unchanged: not sent again
+        with community.engine.begin() as conn:  # an expired token is refreshed first
+            conn.execute(community.discord_role_tokens.update().values(expires_at=community._now() - timedelta(minutes=1)))
+        assert linked_roles.push(max_["id"], force=True) and sent[-1][2] == "Bearer new-access"
+        sent_status[0] = 401  # revoked on Discord: forgotten
+        assert not linked_roles.push(max_["id"], force=True)
+        with community.reader.connect() as conn:
+            assert conn.execute(select(community.discord_role_tokens)).first() is None
+        linked_roles._save_tokens(max_["id"], "555", {"access_token": "a", "refresh_token": "r"})
+        community.delete_account(max_["id"])  # tokens go with the account
+        with community.reader.connect() as conn:
+            assert conn.execute(select(community.discord_role_tokens)).first() is None
+    finally:
+        linked_roles.requests.put, linked_roles.requests.post = real_put, real_post
+        for k in ("DISCORD_CLIENT_SECRET", "DISCORD_APPLICATION_ID"):
+            os.environ.pop(k, None)
+
+
 def test_team_games_add_up_members_and_share_the_result():
     a1, a2, b1, b2 = _users("team_a1", "team_a2", "team_b1", "team_b2")
     game_id = duels.create(a1["id"], "2v2", [], [])

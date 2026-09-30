@@ -1,5 +1,14 @@
 [
   {
+    "id": "2026-09-30.7",
+    "date": "2026-09-30",
+    "title": "Discord roles from your Powerscale stats",
+    "changes": [
+      "Discord servers can now give out roles based on your Powerscale stats: duel wins, approved overrule suggestions, weekly champion or founder.",
+      "Claim one from the server's Linked Roles menu. Signing in there also connects your Discord to your Powerscale account, and your roles update as you win duels."
+    ]
+  },
+  {
     "id": "2026-09-30.6",
     "date": "2026-09-30",
     "title": "Matchup images for TikTok and stories",

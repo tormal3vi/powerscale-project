@@ -108,6 +108,18 @@ discord_links = Table(
     Column("discord_name", String(64), nullable=False),
     Column("expires_at", DateTime(timezone=True), nullable=False),
 )
+# Discord Linked Roles (linked_roles.py): the OAuth tokens that let the
+# site update what Discord knows about someone's Powerscale stats -
+# encrypted, and gone with the account or the Discord link.
+discord_role_tokens = Table(
+    "discord_role_tokens", metadata,
+    Column("user_id", Integer, ForeignKey("users.id"), primary_key=True),
+    Column("discord_id", String(32), nullable=False),
+    Column("access_token", Text, nullable=False),
+    Column("refresh_token", Text, nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("pushed", String(300), nullable=True),  # the metadata last sent, to skip unchanged updates
+)
 sessions = Table(
     "sessions", metadata,
     Column("token_hash", String(64), primary_key=True),
@@ -458,6 +470,8 @@ def redeem_discord_link(code: str, user_id: int) -> str:
             raise LinkError("That link expired - run /link again")
         conn.execute(update(users).where(users.c.discord_id == row["discord_id"])
                      .values(discord_id=None, discord_name=None))
+        conn.execute(delete(discord_role_tokens).where(and_(discord_role_tokens.c.discord_id == row["discord_id"],
+                                                            discord_role_tokens.c.user_id != user_id)))
         conn.execute(update(users).where(users.c.id == user_id).values(discord_id=row["discord_id"],
                                                                        discord_name=row["discord_name"]))
     return row["discord_name"]
@@ -466,6 +480,21 @@ def redeem_discord_link(code: str, user_id: int) -> str:
 def unlink_discord(user_id: int) -> None:
     with engine.begin() as conn:
         conn.execute(update(users).where(users.c.id == user_id).values(discord_id=None, discord_name=None))
+        conn.execute(delete(discord_role_tokens).where(discord_role_tokens.c.user_id == user_id))
+
+
+def set_discord(user_id: int, discord_id: str, discord_name: str) -> None:
+    """Links a Discord account the user just proved is theirs (signing in
+    with Discord for Linked Roles), moving it off any other account - the
+    same as redeeming a /link code."""
+    with engine.begin() as conn:
+        others = [r[0] for r in conn.execute(select(users.c.id).where(and_(
+            users.c.discord_id == str(discord_id), users.c.id != user_id)))]
+        if others:
+            conn.execute(update(users).where(users.c.id.in_(others)).values(discord_id=None, discord_name=None))
+            conn.execute(delete(discord_role_tokens).where(discord_role_tokens.c.user_id.in_(others)))
+        conn.execute(update(users).where(users.c.id == user_id).values(discord_id=str(discord_id),
+                                                                       discord_name=discord_name[:64]))
 
 
 def user_by_discord(discord_id: str, shown_only: bool = False) -> Optional[dict]:
@@ -580,6 +609,7 @@ def delete_account(user_id: int) -> None:
         conn.execute(delete(matchup_comments).where(matchup_comments.c.user_id == user_id))
         conn.execute(delete(avatars).where(avatars.c.user_id == user_id))
         conn.execute(delete(sessions).where(sessions.c.user_id == user_id))
+        conn.execute(delete(discord_role_tokens).where(discord_role_tokens.c.user_id == user_id))
         conn.execute(delete(users).where(users.c.id == user_id))
     _board_changed()
 

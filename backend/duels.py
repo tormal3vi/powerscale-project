@@ -842,6 +842,8 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
             _changed()
             titles.forget()  # a win can earn a title
             discord_webhooks.duel_finished(g["id"])
+            from backend import linked_roles  # here: it imports community_api, which imports this module
+            linked_roles.refresh_later([m["user_id"] for m in members[g["id"]]])
 
 
 # --- reading ---------------------------------------------------------------------------------

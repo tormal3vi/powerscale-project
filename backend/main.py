@@ -31,7 +31,7 @@ import parser as parser_module
 import scraper
 from backend import (
     characters, community, community_api, daily, discord_bot, discord_webhooks, duels, duels_api, form_renames,
-    profiles_api, tickets_api,
+    linked_roles, profiles_api, tickets_api,
 )
 from backend.schemas import (
     AbilityFlagOut,
@@ -56,10 +56,12 @@ app.include_router(duels_api.router)
 app.include_router(tickets_api.router)
 app.include_router(profiles_api.router)
 app.include_router(discord_bot.router)
+app.include_router(linked_roles.router)
 db.init_db()  # adds columns newer code expects to an older powerscale.db
 community.init()
 form_renames.apply()  # moves overrules etc. onto renamed forms, once per batch
 discord_bot.start()  # registers the Discord commands, if Discord is set up
+linked_roles.start()  # Discord Linked Roles, if DISCORD_CLIENT_SECRET is set
 discord_webhooks.start_schedule()  # weekly leaderboard and matchup of the day, if their channels are set up
 discord_webhooks.start_updates()  # this version's update notes, if not announced yet
 

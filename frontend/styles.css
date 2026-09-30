@@ -2522,3 +2522,12 @@ a.dr-mini-wrap.picked:hover .dr-mini { box-shadow: 0 0 0 2px var(--accent-gold);
 .up-next-bar { height: 5px; border-radius: 3px; background: var(--pill-bg); margin-top: 6px; overflow: hidden; }
 .up-next-bar span { display: block; height: 100%; background: var(--accent-gold); border-radius: 3px; }
 .up-titles { margin-bottom: 20px; }
+
+/* Discord Linked Roles result page */
+.lr-page { display: flex; justify-content: center; align-items: flex-start; padding-top: 80px; }
+.lr-card { max-width: 440px; width: 100%; text-align: center; background: var(--card); border: 1px solid var(--card-border);
+  border-radius: 18px; padding: 32px 26px; box-sizing: border-box; }
+.lr-card img { border-radius: 12px; }
+.lr-title { font: 700 26px var(--font-serif); margin: 14px 0 8px; color: var(--text-primary); }
+.lr-text { font-size: 15px; line-height: 1.6; color: var(--text-secondary); margin: 0 0 22px; }
+.lr-text b { color: var(--text-primary); }
