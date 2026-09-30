@@ -2488,3 +2488,37 @@ a.dr-mini-wrap.picked:hover .dr-mini { box-shadow: 0 0 0 2px var(--accent-gold);
   .gd-hero .duel-tile { width: 54px; height: 54px; }
   .gd-guesses { grid-template-columns: repeat(6, 1fr); }
 }
+
+/* --- Titles (backend/titles.py) ------------------------------------------ */
+.utitle { display: inline-flex; align-items: center; margin-left: 6px; padding: 2px 8px; border-radius: var(--radius-pill);
+  font: 700 10.5px var(--font-sans); letter-spacing: 0.03em; white-space: nowrap; vertical-align: middle;
+  color: var(--tc); background: color-mix(in srgb, var(--tc) 16%, transparent); border: 1px solid color-mix(in srgb, var(--tc) 40%, transparent); }
+.utitle-sm { padding: 1px 6px; font-size: 9.5px; margin-left: 5px; }
+.utitle-lg { padding: 3px 10px; font-size: 12px; margin-left: 2px; }
+.t-slate { --tc: #A8A29A; }
+.t-green { --tc: #8FBF6B; }
+.t-teal { --tc: #4FC1B0; }
+.t-sky { --tc: #62B6E8; }
+.t-blue { --tc: #6F8FF2; }
+.t-violet { --tc: #9B82F0; }
+.t-purple { --tc: #C07BE8; }
+.t-pink { --tc: #EB7AB8; }
+.t-orange { --tc: #F0955A; }
+.t-red { --tc: #EE6A6A; }
+.t-gold { --tc: #E3B04B; }
+.t-founder { --tc: #D9A441; background: transparent; border-style: dashed; }
+.t-legend { --tc: #FFE39A; color: #1A1712; border: none;
+  background: linear-gradient(90deg, #F0955A, #EB7AB8, #9B82F0, #62B6E8, #8FBF6B, #E3B04B, #F0955A);
+  background-size: 300% 100%; animation: legend-shine 6s linear infinite; }
+@keyframes legend-shine { to { background-position: 300% 0; } }
+@media (prefers-reduced-motion: reduce) { .t-legend { animation: none; } }
+.up-titles .up-card-title { margin-bottom: 12px; }
+.up-title-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.up-title-list .utitle { margin-left: 0; font-size: 12px; padding: 4px 11px; }
+.up-next-list { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.up-next-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.up-next-head .utitle { margin-left: 0; opacity: 0.75; }
+.up-next-count { font: 500 12px var(--font-mono); color: var(--text-tertiary); }
+.up-next-bar { height: 5px; border-radius: 3px; background: var(--pill-bg); margin-top: 6px; overflow: hidden; }
+.up-next-bar span { display: block; height: 100%; background: var(--accent-gold); border-radius: 3px; }
+.up-titles { margin-bottom: 20px; }

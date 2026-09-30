@@ -179,6 +179,22 @@ class AuthIn(BaseModel):
     password: str = Field(..., max_length=200)
 
 
+class TitleOut(BaseModel):
+    key: str
+    name: str
+    color: str  # a CSS class suffix: t-<color>
+
+
+class NextTitleOut(TitleOut):
+    have: int
+    need: int
+    what: str  # "duel wins", "approved overrule suggestions"
+
+
+class TitleIn(BaseModel):
+    key: Optional[str] = Field(None, max_length=32)  # None: the rarest automatically; "none": no title
+
+
 class UserOut(BaseModel):
     username: str
     is_admin: bool
@@ -249,6 +265,10 @@ class ProfileOut(BaseModel):
     discord_id: Optional[str] = None
     discord_shown: Optional[bool] = None  # your own profile only: the "show it" setting
     challenge_button: bool = True  # a Challenge button on their public profile
+    title: Optional[TitleOut] = None  # the one shown next to their name
+    titles: List[TitleOut] = []  # every one earned, rarest first
+    next_titles: List[NextTitleOut] = []  # the next ones to work towards
+    title_choice: Optional[str] = None  # your own profile only: what you picked (None: automatic)
 
 
 class DiscordLinkIn(BaseModel):
@@ -290,6 +310,7 @@ class PostOut(BaseModel):
     credit: Optional[str] = None  # on an overrule made from a ticket: who sent it
     author: str
     author_is_admin: bool = False
+    author_title: Optional[TitleOut] = None
     author_avatar: Optional[str] = None
     author_favorite: Optional[FavoriteOut] = None
     kind: Optional[str] = None  # "overrule" for posts made by an admin ruling
@@ -328,6 +349,7 @@ class CommentOut(BaseModel):
     id: int
     author: str
     author_is_admin: bool = False
+    author_title: Optional[TitleOut] = None
     author_avatar: Optional[str] = None
     author_favorite: Optional[FavoriteOut] = None
     body: str
@@ -375,6 +397,7 @@ class DuelJoinIn(BaseModel):
 class DuelPlayerOut(BaseModel):
     username: str
     is_admin: bool = False
+    title: Optional[TitleOut] = None
     avatar_url: Optional[str] = None
     team: int
     played: int = 0
@@ -511,6 +534,7 @@ class DuelListOut(BaseModel):
 class LeaderboardRowOut(BaseModel):
     username: str
     is_admin: bool = False
+    title: Optional[TitleOut] = None
     avatar_url: Optional[str] = None
     wins: int
     draws: int

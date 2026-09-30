@@ -95,6 +95,9 @@ users = Table(
     # @them) - NULL means yes, the default. Off hides the link both ways.
     Column("discord_public", Boolean, nullable=True),
     Column("challenge_button", Boolean, nullable=True),  # a Challenge button on their profile (NULL: yes)
+    # The title shown next to their name (see titles.py): NULL the rarest
+    # one they've earned, "none" none.
+    Column("title", String(32), nullable=True),
 )
 # One-time codes from the Discord app's /link: open the link while logged
 # in on the site, confirm, and that Discord account is yours.
@@ -200,7 +203,8 @@ site_marks = Table(
 _ADDED_COLUMNS = {
     "posts": [("kind", "VARCHAR(16)"), ("ruling_winner", "INTEGER"), ("credit_user_id", "INTEGER")],
     "users": [("bio", "VARCHAR(200)"), ("favorite_char_id", "INTEGER"), ("discord_id", "VARCHAR(32)"),
-              ("discord_name", "VARCHAR(64)"), ("discord_public", "BOOLEAN"), ("challenge_button", "BOOLEAN")],
+              ("discord_name", "VARCHAR(64)"), ("discord_public", "BOOLEAN"), ("challenge_button", "BOOLEAN"),
+              ("title", "VARCHAR(32)")],
 }
 
 

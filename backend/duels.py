@@ -37,7 +37,7 @@ from sqlalchemy import (
 
 from sqlalchemy.exc import IntegrityError
 
-from backend import characters, community, discord_webhooks, gauntlet, prewarm
+from backend import characters, community, discord_webhooks, gauntlet, prewarm, titles
 from backend.community import _aware, _now, avatars, engine, metadata, users
 
 ROUNDS = 5
@@ -840,6 +840,7 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
                                 .values(status="done", finished_at=now, winning_team=winning)).rowcount
         if finished:
             _changed()
+            titles.forget()  # a win can earn a title
             discord_webhooks.duel_finished(g["id"])
 
 

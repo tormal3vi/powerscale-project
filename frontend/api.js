@@ -129,6 +129,7 @@ const Api = {
   unlinkDiscord: () => apiDelete('/api/me/discord'),
   showDiscord: (shown) => apiSend('PUT', '/api/me/discord/shown', { shown }),
   showChallengeButton: (shown) => apiSend('PUT', '/api/me/challenge-button', { shown }),
+  chooseTitle: (key) => apiSend('PUT', '/api/me/title', { key }),
   userPage: (username) => apiGet(`/api/users/${encodeURIComponent(username)}/page`),
   userProfile: (username) => apiGet(`/api/users/${encodeURIComponent(username)}`),
   saveProfile: (profile) => apiSend('PUT', '/api/me/profile', profile),
@@ -479,6 +480,12 @@ function userColor(name) {
 // avatarUrl only ever comes from our own API (/api/avatars/<name>?v=<n>).
 // The gold "ADMIN" pill. `solid` is the filled version used on profiles
 // (settings header, popover, phone menu); the outline one sits in feeds.
+// An earned title (see backend/titles.py), next to a name.
+function titleHtml(t, cls = '') {
+  if (!t) return '';
+  return `<span class="utitle t-${escapeHtml(t.color)} ${cls}" title="${escapeHtml(t.name)}: a title earned on Powerscale">${escapeHtml(t.name)}</span>`;
+}
+
 function adminBadgeHtml({ solid = false } = {}) {
   const shield = `<svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.2 14 3.8v3.6c0 3.7-2.5 6.1-6 7.4-3.5-1.3-6-3.7-6-7.4V3.8L8 1.2Z" ${solid ? 'fill="currentColor"' : 'stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"'}/></svg>`;
   return `<span class="admin-badge${solid ? ' solid' : ''}" title="Site admin">${shield}Admin</span>`;

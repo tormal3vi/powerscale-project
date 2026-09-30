@@ -548,6 +548,35 @@ def test_gauntlet_duels_score_guesses_by_distance():
         assert not conn.execute(select(duels.game_ladders).where(duels.game_ladders.c.game_id == game_id)).first()
 
 
+def test_titles_come_from_wins_and_can_be_picked_or_hidden():
+    from backend import titles
+    kim, lou = _users("title_kim", "title_lou")
+    for _ in range(5):  # kim wins five duels
+        game_id = duels.create(kim["id"], "1v1", [], [])
+        duels.join(game_id, lou["id"])
+        _play(game_id, kim["id"], right=True)
+        _play(game_id, lou["id"], right=False)
+    titles.forget()
+    s = titles.summary("TITLE_KIM")  # any case
+    keys = [t["key"] for t in s["earned"]]
+    assert "duels:1" in keys and "duels:5" in keys and "duels:10" not in keys
+    assert s["next"][0]["name"] == "Contender" and s["next"][0]["have"] == 5
+    founder = "founder" in keys  # the test database's first 100 accounts
+    assert titles.shown("title_kim")["name"] == ("Challenger" if not founder or titles._RANK["duels:5"] > titles._RANK["founder"] else "Founder")
+    titles.choose(kim["id"], "duels:1")
+    assert titles.shown("title_kim")["name"] == "Rookie"
+    titles.choose(kim["id"], titles.HIDDEN)
+    assert titles.shown("title_kim") is None
+    try:
+        titles.choose(kim["id"], "duels:1000")
+        assert False, "a title not earned can't be picked"
+    except ValueError:
+        pass
+    titles.choose(kim["id"], None)
+    assert titles.shown("title_kim")["key"] == max(keys, key=lambda k: titles._RANK[k])
+    assert titles.shown("nobody_at_all") is None
+
+
 def test_team_games_add_up_members_and_share_the_result():
     a1, a2, b1, b2 = _users("team_a1", "team_a2", "team_b1", "team_b2")
     game_id = duels.create(a1["id"], "2v2", [], [])

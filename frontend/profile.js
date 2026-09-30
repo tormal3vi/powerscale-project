@@ -382,6 +382,30 @@ function renderDiscordState() {
   }
 }
 
+// The title shown next to your name: automatic (your rarest), one you
+// pick, or none. Saved as soon as it's picked.
+function renderTitleSetting() {
+  if (!profile.titles.length) return;
+  $('title-field').hidden = false;
+  const select = $('f-title');
+  const rarest = profile.titles[0];
+  select.innerHTML = `<option value="">Automatic: your rarest (${escapeHtml(rarest.name)})</option>`
+    + profile.titles.map((t) => `<option value="${escapeHtml(t.key)}">${escapeHtml(t.name)}</option>`).join('')
+    + '<option value="none">None</option>';
+  select.value = profile.title_choice && (profile.title_choice === 'none' || profile.titles.some((t) => t.key === profile.title_choice))
+    ? profile.title_choice : '';
+  select.addEventListener('change', async () => {
+    const before = profile.title_choice || '';
+    try {
+      await Api.chooseTitle(select.value || null);
+      profile.title_choice = select.value || null;
+    } catch (e) {
+      select.value = before;
+      alert(e.message);
+    }
+  });
+}
+
 // Saved as soon as it's ticked, like the Discord setting.
 function renderChallengeSetting() {
   const box = $('f-challenge');
@@ -417,6 +441,7 @@ function renderChallengeSetting() {
   renderPicture();
   fillDetails();
   renderChallengeSetting();
+  renderTitleSetting();
   renderDiscord();
   if (linkCode) $('discord-card').scrollIntoView({ block: 'center' });
 })();

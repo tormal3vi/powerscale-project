@@ -145,7 +145,7 @@ function favoriteChipHtml(fav, cls, px) {
 
 function authorHtml(post, cls) {
   return `<button type="button" class="author-hit ${cls}" data-user="${escapeHtml(post.author)}">${escapeHtml(post.author)}</button>${
-    post.author_is_admin ? ADMIN_BADGE : ''}${favoriteChipHtml(post.author_favorite, 'fav-mini', 32)}`;
+    post.author_is_admin ? ADMIN_BADGE : ''}${titleHtml(post.author_title)}${favoriteChipHtml(post.author_favorite, 'fav-mini', 32)}`;
 }
 
 // --- author profile popover -------------------------------------------------
@@ -186,7 +186,7 @@ async function showProfilePopover(trigger) {
       <div class="user-pop-head">
         ${userAvatarHtml(p.username, p.avatar_url, 'user-pop-avatar', { admin: p.is_admin })}
         <div class="user-pop-id">
-          <div class="user-pop-name-row"><span class="user-pop-name">${escapeHtml(p.username)}</span>${p.is_admin ? adminBadgeHtml({ solid: true }) : ''}</div>
+          <div class="user-pop-name-row"><span class="user-pop-name">${escapeHtml(p.username)}</span>${p.is_admin ? adminBadgeHtml({ solid: true }) : ''}${titleHtml(p.title)}</div>
           <div class="user-pop-meta">${monthYear(p.member_since)} · ${p.post_count} post${p.post_count === 1 ? '' : 's'}${duelRecordText(p.record)}</div>
         </div>
       </div>

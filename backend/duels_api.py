@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 import calculator
 import db
-from backend import characters, community, discord_webhooks, duels, gauntlet
+from backend import characters, community, discord_webhooks, duels, gauntlet, titles
 from backend.community_api import (
     avatar_url, character_image_url, current_user, post_limit, require_user, same_origin,
 )
@@ -93,7 +93,7 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
     for m in sorted(members, key=lambda m: (m["team"], m["joined_at"])):
         name, avatar = person(m["user_id"])
         out_players.append(DuelPlayerOut(
-            username=name, is_admin=community.is_admin(name), avatar_url=avatar, team=m["team"],
+            username=name, is_admin=community.is_admin(name), title=titles.shown(name), avatar_url=avatar, team=m["team"],
             played=played(m["user_id"]), me=m["user_id"] == me,
             score=score[m["user_id"]] if done else None, outcome=m["outcome"] if done else None,
         ))
@@ -320,6 +320,7 @@ def leaderboard(response: Response):
     response.headers["Cache-Control"] = "no-store"
     return LeaderboardOut(rows=[
         LeaderboardRowOut(username=r["username"], is_admin=community.is_admin(r["username"]),
+                          title=titles.shown(r["username"]),
                           avatar_url=avatar_url(r["username"], r["avatar_at"]),
                           wins=r["wins"], draws=r["draws"], losses=r["losses"])
         for r in duels.leaderboard()

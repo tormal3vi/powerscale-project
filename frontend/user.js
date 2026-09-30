@@ -77,6 +77,21 @@ function ticketLine(t) {
   </div>`;
 }
 
+// Every title earned, and the next ones to work towards.
+function titlesCardHtml(p) {
+  if (!p.titles.length && !p.next_titles.length) return '';
+  const next = p.next_titles.map((t) => `
+    <div class="up-next">
+      <div class="up-next-head">${titleHtml(t)}<span class="up-next-count">${t.have.toLocaleString('en')} / ${t.need.toLocaleString('en')} ${escapeHtml(t.what)}</span></div>
+      <div class="up-next-bar"><span style="width:${Math.min(100, Math.round((100 * t.have) / t.need))}%"></span></div>
+    </div>`).join('');
+  return `<section class="up-card up-titles">
+    <h2 class="up-card-title">Titles</h2>
+    ${p.titles.length ? `<div class="up-title-list">${p.titles.map((t) => titleHtml(t)).join('')}</div>` : '<div class="up-empty-line">None yet: win duels or get an overrule suggestion approved.</div>'}
+    ${next ? `<div class="up-next-list">${next}</div>` : ''}
+  </section>`;
+}
+
 async function render() {
   if (!username) { root.innerHTML = '<div class="error-state">No user given.</div>'; return; }
   let d;
@@ -101,7 +116,7 @@ async function render() {
     <header class="up-head">
       ${userAvatarHtml(p.username, p.avatar_url, 'up-avatar', { admin: p.is_admin })}
       <div class="up-id">
-        <div class="up-name-row"><h1 class="up-name"></h1>${p.is_admin ? adminBadgeHtml({ solid: true }) : ''}</div>
+        <div class="up-name-row"><h1 class="up-name"></h1>${p.is_admin ? adminBadgeHtml({ solid: true }) : ''}${titleHtml(p.title, 'utitle-lg')}</div>
         ${p.bio ? '<p class="up-bio"></p>' : ''}
         <div class="up-line">
           ${fav ? `<a class="up-fav" href="character.html?id=${fav.id}">
@@ -123,6 +138,7 @@ async function render() {
         : stat(played ? `${rec.wins}–${rec.draws}–${rec.losses}` : '0–0–0', 'Duel record')}
       ${stat(d.overrules_suggested, 'Overrules suggested')}
     </div>
+    ${titlesCardHtml(p)}
     ${nothing ? '<div class="up-card up-nothing">No duels, posts or comments yet.</div>' : `
     <div class="up-grid">
       <div class="up-col">

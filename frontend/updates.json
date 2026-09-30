@@ -1,5 +1,16 @@
 [
   {
+    "id": "2026-09-30.5",
+    "date": "2026-09-30",
+    "title": "Titles",
+    "changes": [
+      "Earn titles that show next to your name on the Board, in comments, in duels and on the leaderboard.",
+      "Duel wins: Rookie at 1, then Challenger, Contender, Fighter, Veteran, Champion, Elite, Master, Grandmaster and Mythic, all the way to Legend at 1,000 wins.",
+      "Approved overrule suggestions: Scout, Analyst, Arbiter and Oracle. Last week's #1 duelist is the Weekly Champion, and the first 100 accounts are Founders.",
+      "Your profile shows every title you've earned and how close you are to the next. Pick which one shows (or none) in Profile settings."
+    ]
+  },
+  {
     "id": "2026-09-30.4",
     "date": "2026-09-30",
     "title": "The Gauntlet",

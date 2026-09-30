@@ -846,7 +846,7 @@ async function renderComments() {
       el.innerHTML = `
         ${userAvatarHtml(c.author, c.author_avatar, 'mc-avatar', { admin: c.author_is_admin })}
         <div class="mc-main">
-          <div class="mc-meta"><a class="mc-author" href="user.html?u=${encodeURIComponent(c.author)}">${escapeHtml(c.author)}</a>${c.author_is_admin ? adminBadgeHtml() : ''}
+          <div class="mc-meta"><a class="mc-author" href="user.html?u=${encodeURIComponent(c.author)}">${escapeHtml(c.author)}</a>${c.author_is_admin ? adminBadgeHtml() : ''}${titleHtml(c.author_title)}
             <span class="mc-time" title="${escapeHtml(new Date(c.created_at).toLocaleString())}">· ${timeAgo(c.created_at)}</span>
             ${c.can_delete ? '<button type="button" class="mc-delete">Delete</button>' : ''}</div>
           <div class="mc-body"></div>

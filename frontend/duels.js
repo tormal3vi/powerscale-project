@@ -575,7 +575,7 @@ async function renderLeaderboard() {
       <li class="lb-row${me && r.username === me.username ? ' me' : ''}">
         <span class="lb-rank">${i + 1}</span>
         ${avatar(r, 'lb-avatar')}
-        <a class="lb-name" href="user.html?u=${encodeURIComponent(r.username)}">${escapeHtml(r.username)}${me && r.username === me.username ? ' (you)' : ''}</a>
+        <a class="lb-name" href="user.html?u=${encodeURIComponent(r.username)}">${escapeHtml(r.username)}${me && r.username === me.username ? ' (you)' : ''}</a>${titleHtml(r.title, 'utitle-sm')}
         <span class="lb-rec" title="${r.wins} wins, ${r.draws} draws, ${r.losses} losses">${r.wins}–${r.draws}–${r.losses}</span>
       </li>`).join('')}</ol>
       <div class="duel-hint">Wins–draws–losses.</div>`;
@@ -617,10 +617,11 @@ window.addEventListener('popstate', () => {
 });
 
 function slotHtml(g, p, cls = '') {
-  const sub = g.status === 'done' ? `${p.score}/${g.total} right` : `${p.played}/${g.total} played`;
+  const sub = g.status !== 'done' ? `${p.played}/${g.total} played`
+    : g.mode === 'draft' || g.mode === 'gauntlet' ? `${p.score} point${p.score === 1 ? '' : 's'}` : `${p.score}/${g.total} right`;
   return `<div class="duel-slot ${cls}">
     ${avatar(p, `duel-slot-avatar${p.me ? ' me' : ''}`)}
-    <div class="duel-slot-text"><div class="duel-slot-name">${escapeHtml(p.username)}${p.me ? ' (you)' : ''}</div><div class="duel-slot-sub">${sub}</div></div>
+    <div class="duel-slot-text"><div class="duel-slot-name">${escapeHtml(p.username)}${p.me ? ' (you)' : ''}${titleHtml(p.title, 'utitle-sm')}</div><div class="duel-slot-sub">${sub}</div></div>
   </div>`;
 }
 

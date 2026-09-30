@@ -12,9 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
 import db
-from backend import avatars, characters, community, discord_webhooks, duels, tickets
+from backend import avatars, characters, community, discord_webhooks, duels, tickets, titles
 from backend.schemas import (
-    AuthIn, ChallengeButtonIn, CommentIn, CommentListOut, CommentOut, DeleteAccountIn, DiscordLinkIn, DiscordShownIn, FavoriteOut,
+    AuthIn, ChallengeButtonIn, CommentIn, TitleIn, CommentListOut, CommentOut, DeleteAccountIn, DiscordLinkIn, DiscordShownIn, FavoriteOut,
     LikeOut, MatchupOut, MeOut, OverrideIn, OverrideOut, PasswordIn, PostIn, PostListOut, PostOut, ProfileIn,
     ProfileOut, RecordOut, RulingOut, ThreadOut, UserOut,
 )
@@ -150,6 +150,7 @@ def _favorite_out(char_id: Optional[int], cache: Optional[dict] = None) -> Optio
 
 
 def _profile_out(profile: dict, own: bool) -> ProfileOut:
+    earned = titles.summary(profile["username"])
     shown = profile.get("discord_public") is not False  # NULL: shown, the default
     return ProfileOut(
         username=profile["username"], is_admin=community.is_admin(profile["username"]),
@@ -162,6 +163,8 @@ def _profile_out(profile: dict, own: bool) -> ProfileOut:
         discord_id=profile.get("discord_id") if own or shown else None,
         discord_shown=profile.get("discord_public") is not False if own else None,
         challenge_button=profile.get("challenge_button") is not False,  # NULL: shown, the default
+        title=earned["shown"], titles=earned["earned"], next_titles=earned["next"],
+        title_choice=earned["chosen"] if own else None,
     )
 
 
@@ -195,6 +198,15 @@ def discord_link(payload: DiscordLinkIn, user: dict = Depends(require_user)):
 def discord_shown(payload: DiscordShownIn, user: dict = Depends(require_user)):
     community.show_discord(user["id"], payload.shown)
     return {"shown": payload.shown}
+
+
+@router.put("/api/me/title", dependencies=[Depends(same_origin)])
+def choose_title(payload: TitleIn, user: dict = Depends(require_user)):
+    try:
+        titles.choose(user["id"], payload.key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"title": titles.shown(user["username"])}
 
 
 @router.put("/api/me/challenge-button", dependencies=[Depends(same_origin)])
@@ -482,7 +494,7 @@ def _post_out(row: dict, viewer: Optional[dict], cache: dict) -> PostOut:
         credit = names.get(row["credit_user_id"])
     return PostOut(
         id=row["id"], parent_id=row["parent_id"], credit=credit, author=row["username"],
-        author_is_admin=community.is_admin(row["username"]),
+        author_is_admin=community.is_admin(row["username"]), author_title=titles.shown(row["username"]),
         author_avatar=avatar_url(row["username"], row.get("avatar_at")),
         author_favorite=_favorite_out(row.get("favorite_char_id"), cache.setdefault("favorites", {})),
         kind=row.get("kind"),
@@ -575,6 +587,7 @@ def like_post(post_id: int, user: dict = Depends(require_user)):
 def _comment_out(row: dict, viewer: Optional[dict], favorites: dict) -> CommentOut:
     return CommentOut(
         id=row["id"], author=row["username"], author_is_admin=community.is_admin(row["username"]),
+        author_title=titles.shown(row["username"]),
         author_avatar=avatar_url(row["username"], row.get("avatar_at")),
         author_favorite=_favorite_out(row.get("favorite_char_id"), favorites),
         body=row["body"], created_at=row["created_at"],
