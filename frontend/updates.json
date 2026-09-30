@@ -1,5 +1,16 @@
 [
   {
+    "id": "2026-10-01.1",
+    "date": "2026-10-01",
+    "title": "Gauntlet duels, call by call",
+    "changes": [
+      "Gauntlet duels are simpler and more tense: three gauntlets, and you call every fight as it comes. Does it beat the next one? You see the result right away.",
+      "A gauntlet ends at its first loss. You get a point for every right call, with 15 seconds a call, and if it's level, whoever answered faster wins.",
+      "Results show every player's calls, right and wrong, on each ladder.",
+      "Titles now sit right next to the Admin badge on the Board."
+    ]
+  },
+  {
     "id": "2026-09-30.8",
     "date": "2026-09-30",
     "title": "A fresh look for the Gauntlet and titles",

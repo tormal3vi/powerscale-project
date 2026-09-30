@@ -2648,7 +2648,7 @@ a.dr-mini-wrap.picked:hover .dr-mini { box-shadow: 0 0 0 2px var(--accent-gold);
 .gc-reveal-what { font: 700 20px var(--font-serif); color: var(--text-primary); margin-top: 4px; }
 .gc-reveal-why { font-size: 12.5px; color: var(--text-tertiary); margin-top: 2px; }
 .gc-reveal-run { font: 700 14px var(--font-sans); color: var(--accent-gold); margin-top: 8px; }
-@keyframes gc-pop { from { transform: scale(0.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes gc-pop { from { transform: scale(0.94); } to { transform: none; } }  /* no fade: visible even if animations don't run */
 .gc-marks { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .gc-mark { width: 20px; height: 20px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center;
   font: 700 11px var(--font-mono); background: var(--pill-bg); color: var(--text-quaternary); }
