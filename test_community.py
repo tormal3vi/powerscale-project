@@ -1186,6 +1186,11 @@ def test_discord_admin_checks_plans_and_merges_overwrites():
     ], state)
     assert [a["op"] for a in ok] == ["set_permissions", "create_channel", "remove_overwrite"]
     assert len(problems) == 3
+    # Plans can use names: "#updates", "@everyone", permissions in any case.
+    named, _ = A._check([{"op": "set_permissions", "channel": "#Updates", "target": "@everyone",
+                          "deny": ["send messages"]}], state)
+    assert named == [{"op": "set_permissions", "channel_id": "3", "target_id": "1", "deny": ["SEND_MESSAGES"]}]
+    assert A._parse("{oops")[1] and A._parse('[{"op": "delete_role", "role": "@x"}]')[0]["actions"]
     sent = []
 
     def fake(method, path, body=None, reason=None):

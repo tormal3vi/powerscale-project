@@ -124,7 +124,7 @@ def handle(interaction: dict) -> dict:
     if kind == 3 and str(data.get("custom_id", "")).startswith("admin:"):  # Confirm / Cancel under an /admin plan
         return discord_admin.button(interaction, data["custom_id"])
     if kind == 2 and data.get("name") == "admin":
-        return discord_admin.command(interaction, (options.get("request") or {}).get("value"))
+        return discord_admin.command(interaction, (options.get("plan") or {}).get("value"))
     if kind == 2:  # a command
         args = {k: o.get("value") for k, o in options.items()}
         if data.get("type") == 2:  # right-click a user -> Apps -> Powerscale profile

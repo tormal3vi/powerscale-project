@@ -1,29 +1,26 @@
-"""/admin: describe channel, role and permission changes in plain words
-and the bot makes them - after showing exactly what it will do and
-waiting for a Confirm.
+"""/admin: channel, role and permission changes from a plan, applied
+only after the bot shows exactly what it will do and you press Confirm.
 
-  /admin request: "make #updates read-only for everyone except Admins"
+The admin describes the change to Claude Code, which writes the plan (one
+line of JSON - the format is under "reading a plan" below) to paste:
 
-1. Discord gets a "thinking..." reply at once (it allows 3 seconds; the
-   model takes longer). In the background the bot reads the server's
-   channels and roles, and Claude turns the request into a list of
-   actions.
-2. The actions are checked against the server (do those channels and
-   roles exist, are those real permissions) and written out from the
-   server's own names, not the model's - that preview is what the admin
-   approves. Granting Administrator is never planned: do that by hand.
-3. Confirm applies them one by one, each with an audit log entry naming
-   who asked; Cancel drops the plan. Only the person who asked can press
-   either, and a plan lasts 14 minutes (Discord's reply token lasts 15).
+  /admin plan: {"summary": "...", "actions": [...]}
+
+/admin with no plan shows the server's channels, roles and overrides,
+to paste to Claude Code when it needs to see them.
+
+1. The bot reads the server's channels and roles and checks every step
+   (do those channels and roles exist, are those real permissions).
+2. The preview is written from the server's own names - that's what the
+   admin approves. Granting Administrator is refused: do that by hand.
+3. Confirm applies the steps one by one, each with an audit log entry
+   naming who asked; Cancel drops the plan. Only the person who asked can
+   press either, and a plan lasts 14 minutes (Discord's reply token lasts 15).
 
 Only server members with Administrator see or can use the command, and
 the bot can't do more than its own role allows (Manage Channels, Manage
-Roles, and only roles below its own).
-
-Settings (the host's environment, never committed):
-  ANTHROPIC_API_KEY   console.anthropic.com -> API keys. Without it
-                      /admin says it isn't set up.
-  ADMIN_BOT_MODEL     optional; the Claude model to use.
+Roles, and only roles below its own). No AI runs on the site, so it costs
+nothing.
 """
 
 import json
@@ -41,7 +38,6 @@ USER_AGENT = "DiscordBot (https://powerscale.online, 1.0)"
 EPHEMERAL = 64
 ADMINISTRATOR = 1 << 3
 PLAN_SECONDS = 14 * 60
-DEFAULT_MODEL = "claude-sonnet-5-5"
 
 PERMISSIONS = {name: 1 << bit for bit, name in enumerate([
     "CREATE_INSTANT_INVITE", "KICK_MEMBERS", "BAN_MEMBERS", "ADMINISTRATOR", "MANAGE_CHANNELS", "MANAGE_GUILD",
@@ -60,10 +56,10 @@ CHANNEL_TYPES = {"text": 0, "voice": 2, "category": 4, "announcement": 5, "stage
 TYPE_NAMES = {v: k for k, v in CHANNEL_TYPES.items()}
 
 COMMAND = {
-    "name": "admin", "description": "Describe channel, role or permission changes; the bot shows a plan to confirm.",
+    "name": "admin", "description": "Apply a channel/role plan from Claude Code, after a preview (no plan: show the server).",
     "integration_types": [0], "contexts": [0], "default_member_permissions": str(ADMINISTRATOR),
-    "options": [{"type": 3, "name": "request", "required": True, "max_length": 1500,
-                 "description": "e.g. make #updates read-only for everyone except Admins"}],
+    "options": [{"type": 3, "name": "plan", "required": False, "max_length": 6000,
+                 "description": "The plan Claude Code wrote (leave empty to list the server's channels and roles)"}],
 }
 
 _plans: Dict[str, dict] = {}
@@ -139,78 +135,112 @@ def _describe_server(state: dict) -> str:
     return "\n".join(lines)
 
 
-PLAN_TOOL = {
-    "name": "propose_plan",
-    "description": "The changes to make on the Discord server, in order. An admin reviews them before anything happens.",
-    "input_schema": {
-        "type": "object", "required": ["actions"],
-        "properties": {
-            "note": {"type": "string", "description": "Anything the admin should know: assumptions made, or why "
-                                                      "something asked for can't or shouldn't be done. Short."},
-            "actions": {"type": "array", "items": {
-                "type": "object", "required": ["op"],
-                "properties": {
-                    "op": {"type": "string", "enum": ["create_channel", "edit_channel", "delete_channel",
-                                                      "set_permissions", "remove_overwrite",
-                                                      "create_role", "edit_role", "delete_role"]},
-                    "ref": {"type": "string", "description": "create_channel/create_role: a short label so later "
-                                                             "actions can point at it as 'new:<ref>'"},
-                    "channel_id": {"type": "string", "description": "an existing channel's id, or 'new:<ref>'"},
-                    "role_id": {"type": "string", "description": "an existing role's id, or 'new:<ref>'"},
-                    "target_id": {"type": "string", "description": "set_permissions/remove_overwrite: the role "
-                                                                   "(or 'new:<ref>') or member id the overwrite is for"},
-                    "target_type": {"type": "string", "enum": ["role", "member"]},
-                    "name": {"type": "string"},
-                    "type": {"type": "string", "enum": list(CHANNEL_TYPES)},
-                    "parent_id": {"type": "string", "description": "a category's id or 'new:<ref>'; "
-                                                                   "'none' takes a channel out of its category"},
-                    "topic": {"type": "string"},
-                    "slowmode_seconds": {"type": "integer", "minimum": 0, "maximum": 21600},
-                    "nsfw": {"type": "boolean"},
-                    "sync_with_category": {"type": "boolean", "description": "edit_channel: copy the category's "
-                                                                             "overwrites onto the channel"},
-                    "allow": {"type": "array", "items": {"type": "string", "enum": list(PERMISSIONS)},
-                              "description": "set_permissions: explicitly allow; create_role: its permissions; "
-                                             "edit_role: permissions to add"},
-                    "deny": {"type": "array", "items": {"type": "string", "enum": list(PERMISSIONS)},
-                             "description": "set_permissions: explicitly deny; edit_role: permissions to remove"},
-                    "neutral": {"type": "array", "items": {"type": "string", "enum": list(PERMISSIONS)},
-                                "description": "set_permissions: back to inherited (neither allowed nor denied)"},
-                    "color": {"type": "string", "description": "roles: hex like #D9A441"},
-                    "hoist": {"type": "boolean", "description": "roles: shown separately in the member list"},
-                    "mentionable": {"type": "boolean"},
-                }}},
-        }},
-}
+# --- reading a plan ------------------------------------------------------------------------------
+#
+# A plan is one line of JSON (Discord's text box is a single line), usually
+# written by Claude Code from the admin's description:
+#
+#   {"summary": "updates read-only except Admins", "actions": [
+#     {"op": "set_permissions", "channel": "#updates", "target": "@everyone",
+#      "deny": ["SEND_MESSAGES", "ADD_REACTIONS"]},
+#     {"op": "set_permissions", "channel": "#updates", "target": "@Admin", "allow": ["SEND_MESSAGES"]}]}
+#
+# ops: create_channel (name, type text|voice|category|announcement|stage|forum,
+#        parent, topic, slowmode_seconds, nsfw, ref)
+#      edit_channel (channel, name, topic, parent ("none" to take it out), slowmode_seconds,
+#        nsfw, sync_with_category)
+#      delete_channel (channel)
+#      set_permissions (channel, target, target_type role|member, allow, deny, neutral):
+#        only the listed permissions change; "neutral" resets them to inherited
+#      remove_overwrite (channel, target, target_type)
+#      create_role (name, color "#D9A441", hoist, mentionable, allow = its permissions, ref)
+#      edit_role (role, name, color, hoist, mentionable, allow = add, deny = remove)
+#      delete_role (role)
+# Channels are "#name" or an id, roles "@name", "@everyone" or an id, members
+# an id or <@id>. Something made earlier in the plan is "new:<its ref>".
+# Permissions are Discord's names (SEND_MESSAGES, VIEW_CHANNEL...), any case.
 
-SYSTEM = """You plan changes to a Discord server for its administrator. You get the server's current roles and
-channels and a request in plain words, and you answer only by calling propose_plan.
-
-- Use the ids given. To act on something created earlier in the same plan, give it a ref and use 'new:<ref>'.
-- set_permissions changes only the permissions you list: others in that overwrite stay as they are.
-- "Read-only" usually means: deny SEND_MESSAGES, SEND_MESSAGES_IN_THREADS, CREATE_PUBLIC_THREADS,
-  CREATE_PRIVATE_THREADS and ADD_REACTIONS for @everyone, and allow SEND_MESSAGES for the roles that should post.
-  "Hidden"/"private" means deny VIEW_CHANNEL for @everyone and allow it for the roles that should see it.
-- Never grant ADMINISTRATOR, and don't touch roles marked managed. Don't delete anything that wasn't clearly asked
-  to be deleted.
-- Do the smallest set of changes that does what was asked. If the request is unclear or impossible, return no
-  actions and explain in note."""
+KEYS = {"channel": "channel_id", "parent": "parent_id", "role": "role_id", "target": "target_id"}
 
 
-def _plan_with_claude(request_text: str, state: dict) -> dict:
-    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    r = requests.post("https://api.anthropic.com/v1/messages", timeout=120, headers={
-        "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json={
-        "model": os.environ.get("ADMIN_BOT_MODEL", "").strip() or DEFAULT_MODEL,
-        "max_tokens": 4096, "system": SYSTEM, "tools": [PLAN_TOOL],
-        "tool_choice": {"type": "tool", "name": "propose_plan"},
-        "messages": [{"role": "user", "content": f"{_describe_server(state)}\n\nREQUEST:\n{request_text}"}]})
-    if not r.ok:
-        raise RuntimeError(f"Claude API error {r.status_code}")
-    for block in r.json().get("content") or []:
-        if block.get("type") == "tool_use":
-            return block.get("input") or {}
-    raise RuntimeError("Claude didn't return a plan")
+def _find_channel(value: str, state: dict, categories: bool = False) -> Tuple[Optional[str], Optional[str]]:
+    """(id, None) or (None, why not)."""
+    if value in state["channels"] or value.startswith("new:") or value == "none":
+        return value, None
+    name = value.strip().lstrip("#").strip().lower()
+    hits = [c["id"] for c in state["channels"].values() if c["name"].lower() == name
+            and (not categories or c["type"] == 4)]
+    if len(hits) == 1:
+        return hits[0], None
+    return None, (f"two channels are called #{name} - use its id" if hits
+                  else f"no {'category' if categories else 'channel'} called {value}")
+
+
+def _find_role(value: str, state: dict) -> Tuple[Optional[str], Optional[str]]:
+    if value in state["roles"] or value.startswith("new:"):
+        return value, None
+    name = value.strip().lstrip("@").strip().lower()
+    if name == "everyone":
+        return state["guild_id"], None
+    hits = [r["id"] for r in state["roles"].values() if r["name"].lower() == name]
+    if len(hits) == 1:
+        return hits[0], None
+    return None, f"two roles are called @{name} - use its id" if hits else f"no role called {value}"
+
+
+def _normalize(action: dict, state: dict) -> Tuple[Optional[dict], Optional[str]]:
+    """Names to ids and permission names to Discord's, or why it can't be read."""
+    if not isinstance(action, dict):
+        return None, "not an action"
+    a = {KEYS.get(k, k): v for k, v in action.items()}
+    for key in ("allow", "deny", "neutral"):
+        names = a.get(key) or []
+        if isinstance(names, str):
+            names = [names]
+        fixed = [str(n).strip().upper().replace(" ", "_") for n in names]
+        unknown = [n for n in fixed if n not in PERMISSIONS]
+        if unknown:
+            return None, "unknown permission " + ", ".join(unknown)
+        if fixed:
+            a[key] = fixed
+    for key in ("channel_id", "parent_id"):
+        if a.get(key) is not None:
+            found, why = _find_channel(str(a[key]), state, categories=key == "parent_id")
+            if why:
+                return None, why
+            a[key] = found
+    if a.get("role_id") is not None:
+        found, why = _find_role(str(a["role_id"]), state)
+        if why:
+            return None, why
+        a["role_id"] = found
+    if a.get("target_id") is not None:
+        target = str(a["target_id"]).strip()
+        if a.get("target_type") == "member" or target.startswith("<@"):
+            a["target_type"], a["target_id"] = "member", target.strip("<@!>")
+        else:
+            found, why = _find_role(target, state)
+            if why:
+                return None, why
+            a["target_id"] = found
+    if a.get("type") is not None and a["type"] not in CHANNEL_TYPES:
+        return None, f"unknown channel type {a['type']!r}"
+    return a, None
+
+
+def _parse(text: str) -> Tuple[dict, Optional[str]]:
+    text = (text or "").strip().strip("`")
+    if text.lower().startswith("json"):
+        text = text[4:]
+    try:
+        plan = json.loads(text)
+    except ValueError as exc:
+        return {}, f"That isn't a plan I can read ({exc.msg}, at character {exc.pos})."
+    if isinstance(plan, list):
+        plan = {"actions": plan}
+    if not isinstance(plan, dict) or not isinstance(plan.get("actions"), list):
+        return {}, "A plan needs a list of actions."
+    return plan, None
 
 
 # --- checking and describing a plan ---------------------------------------------------------------
@@ -229,9 +259,12 @@ def _check(actions: List[dict], state: dict) -> Tuple[List[dict], List[str]]:
     def role(rid):
         return rid[4:] in new_roles if rid and rid.startswith("new:") else rid in state["roles"]
 
-    for i, a in enumerate(actions, 1):
+    for i, raw in enumerate(actions, 1):
+        a, why = _normalize(raw, state)
+        if why:
+            problems.append(f"Step {i} skipped: {why}.")
+            continue
         op = a.get("op")
-        why = None
         if op in ("create_channel", "create_role", "edit_role") and "ADMINISTRATOR" in (a.get("allow") or []):
             why = "won't grant Administrator - do that by hand"
         elif op == "set_permissions" and "ADMINISTRATOR" in (a.get("allow") or []):
@@ -349,7 +382,7 @@ def _refs(actions: List[dict]) -> dict:
 
 
 def _plan_message(plan: dict) -> dict:
-    lines = [f"**You asked:** {plan['request'][:300]}", ""]
+    lines = [f"**Plan:** {plan['request'][:300]}", ""]
     if plan["actions"]:
         lines += [f"`{i}.` {describe(a, plan['state'], plan['refs'])}" for i, a in enumerate(plan["actions"], 1)]
     else:
@@ -481,25 +514,35 @@ def _private(text: str) -> dict:
     return {"type": 4, "data": {"content": text, "flags": EPHEMERAL}}
 
 
-def command(interaction: dict, request_text: str) -> dict:
-    """The /admin command: answered with "thinking...", planned in the background."""
+def command(interaction: dict, plan_text: Optional[str]) -> dict:
+    """/admin plan:<json> -> a preview to confirm. Without a plan: the
+    server's channels and roles, to paste to Claude Code."""
     if not interaction.get("guild_id"):
         return _private("Use /admin in a server.")
     if not _is_admin(interaction):
         return _private("Only server administrators can use /admin.")
-    if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
-        return _private("/admin isn't set up yet: the site needs an ANTHROPIC_API_KEY.")
-    request_text = " ".join(str(request_text or "").split())
-    if not request_text:
-        return _private("Describe what to change.")
 
     def work():
         try:
             state = _state(interaction["guild_id"])
-            proposal = _plan_with_claude(request_text, state)
-            actions, problems = _check(list(proposal.get("actions") or [])[:25], state)
+            if not (plan_text or "").strip():
+                text = _describe_server(state)
+                if len(text) > 3900:
+                    text = text[:3900] + "\n... (cut short)"
+                _edit_reply(interaction, {"content": "", "embeds": [{
+                    "title": "This server, for Claude Code", "color": 0xD9A441,
+                    "description": f"```\n{text}\n```",
+                    "footer": {"text": "Describe what you want changed to Claude Code; "
+                                       "it writes a plan to paste into /admin plan:"}}]})
+                return
+            proposal, why = _parse(plan_text)
+            if why:
+                _edit_reply(interaction, {"content": why})
+                return
+            actions, problems = _check(proposal["actions"][:25], state)
+            summary = " ".join(str(proposal.get("summary") or "").split()) or f"{len(actions)} change(s)"
             plan = {"id": secrets.token_urlsafe(9), "user": _who(interaction)[0], "guild": interaction["guild_id"],
-                    "request": request_text, "actions": actions, "problems": problems,
+                    "request": summary, "actions": actions, "problems": problems,
                     "note": proposal.get("note"), "state": state, "refs": _refs(actions),
                     "until": time.time() + PLAN_SECONDS}
             with _lock:
@@ -508,7 +551,7 @@ def command(interaction: dict, request_text: str) -> dict:
                 _plans[plan["id"]] = plan
             _edit_reply(interaction, _plan_message(plan))
         except Exception as exc:  # noqa: BLE001 - tell the admin rather than leave "thinking..." forever
-            _edit_reply(interaction, {"content": f"Couldn't make a plan: {str(exc)[:300]}"})
+            _edit_reply(interaction, {"content": f"Couldn't read the server: {str(exc)[:300]}"})
 
     threading.Thread(target=work, name="discord-admin-plan", daemon=True).start()
     return {"type": 5, "data": {"flags": EPHEMERAL}}  # "Powerscale is thinking..."
