@@ -1191,6 +1191,11 @@ def test_discord_admin_checks_plans_and_merges_overwrites():
                           "deny": ["send messages"]}], state)
     assert named == [{"op": "set_permissions", "channel_id": "3", "target_id": "1", "deny": ["SEND_MESSAGES"]}]
     assert A._parse("{oops")[1] and A._parse('[{"op": "delete_role", "role": "@x"}]')[0]["actions"]
+    # An AutoMod rule for one channel exempts the other categories whole and that channel's neighbours.
+    chans = [{"id": "10", "type": 4}, {"id": "11", "type": 0, "parent_id": "10"}, {"id": "20", "type": 4},
+             {"id": "21", "type": 0, "parent_id": "20"}, {"id": "22", "type": 0, "parent_id": "20"},
+             {"id": "23", "type": 11, "parent_id": "21"}, {"id": "30", "type": 0}]
+    assert A._all_but(chans, {"22"}) == ["10", "21", "30"]
     sent = []
 
     def fake(method, path, body=None, reason=None):

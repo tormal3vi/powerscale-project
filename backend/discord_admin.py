@@ -103,9 +103,14 @@ def _edit_reply(interaction: dict, message: dict) -> None:
 def _state(guild_id: str) -> dict:
     roles = _discord("GET", f"/guilds/{guild_id}/roles")
     channels = _discord("GET", f"/guilds/{guild_id}/channels")
+    try:
+        automod = _discord("GET", f"/guilds/{guild_id}/auto-moderation/rules")
+    except (RuntimeError, requests.RequestException):
+        automod = []  # needs Manage Server; the rest works without it
     return {"guild_id": guild_id,
             "roles": {r["id"]: r for r in roles},
-            "channels": {c["id"]: c for c in channels}}
+            "channels": {c["id"]: c for c in channels},
+            "automod": {r["id"]: r for r in automod}}
 
 
 def _perm_names(bits) -> List[str]:
@@ -132,6 +137,13 @@ def _describe_server(state: dict) -> str:
             who = state["roles"].get(o["id"], {}).get("name", "?") if o["type"] == 0 else f"member {o['id']}"
             lines.append(f"    overwrite {who} (id={o['id']}): allow={','.join(_perm_names(o['allow'])) or '-'} "
                          f"deny={','.join(_perm_names(o['deny'])) or '-'}")
+    if state.get("automod"):
+        lines.append("\nAUTOMOD RULES:")
+        for r in state["automod"].values():
+            meta = r.get("trigger_metadata") or {}
+            lines.append(f"- {r['name']!r} id={r['id']} {'on' if r.get('enabled') else 'off'} "
+                         f"keywords={meta.get('keyword_filter') or []} regex={meta.get('regex_patterns') or []} "
+                         f"exempt roles={len(r.get('exempt_roles') or [])} channels={len(r.get('exempt_channels') or [])}")
     return "\n".join(lines)
 
 
@@ -156,6 +168,12 @@ def _describe_server(state: dict) -> str:
 #      create_role (name, color "#D9A441", hoist, mentionable, allow = its permissions, ref)
 #      edit_role (role, name, color, hoist, mentionable, allow = add, deny = remove)
 #      delete_role (role)
+#      create_automod_rule (name, regex [...] and/or keywords [...], only_in [channels] or
+#        exempt_channels [channels], exempt_roles [roles], message): blocks matching messages.
+#        only_in exempts every other channel and category as they are now, so a channel
+#        made later is covered by the rule until it's run again. Slash commands aren't
+#        messages, so a rule matching everything ("regex": [".+"]) leaves them working.
+#      delete_automod_rule (rule: its name or id)
 # Channels are "#name" or an id, roles "@name", "@everyone" or an id, members
 # an id or <@id>. Something made earlier in the plan is "new:<its ref>".
 # Permissions are Discord's names (SEND_MESSAGES, VIEW_CHANNEL...), any case.
@@ -223,6 +241,30 @@ def _normalize(action: dict, state: dict) -> Tuple[Optional[dict], Optional[str]
             if why:
                 return None, why
             a["target_id"] = found
+    for key in ("only_in", "exempt_channels"):
+        if a.get(key) is not None:
+            ids = []
+            for value in a[key] if isinstance(a[key], list) else [a[key]]:
+                found, why = _find_channel(str(value), state)
+                if why:
+                    return None, why
+                ids.append(found)
+            a[key] = ids
+    if a.get("exempt_roles") is not None:
+        ids = []
+        for value in a["exempt_roles"] if isinstance(a["exempt_roles"], list) else [a["exempt_roles"]]:
+            found, why = _find_role(str(value), state)
+            if why:
+                return None, why
+            ids.append(found)
+        a["exempt_roles"] = ids
+    if a.get("rule") is not None:
+        rules = state.get("automod") or {}
+        rule = str(a["rule"])
+        hits = [r["id"] for r in rules.values() if r["id"] == rule or r["name"].lower() == rule.lower()]
+        if len(hits) != 1:
+            return None, f"no AutoMod rule called {rule!r}" if not hits else f"two AutoMod rules are called {rule!r}"
+        a["rule"] = hits[0]
     if a.get("type") is not None and a["type"] not in CHANNEL_TYPES:
         return None, f"unknown channel type {a['type']!r}"
     return a, None
@@ -299,6 +341,20 @@ def _check(actions: List[dict], state: dict) -> Tuple[List[dict], List[str]]:
                 why = "@everyone can't be deleted"
             elif state["roles"].get(rid, {}).get("managed"):
                 why = "that role belongs to an integration"
+        elif op == "create_automod_rule":
+            if not a.get("name"):
+                why = "no name"
+            elif not (a.get("regex") or a.get("keywords")):
+                why = "no regex or keywords to match"
+            elif a.get("only_in") and a.get("exempt_channels"):
+                why = "give only_in or exempt_channels, not both"
+            elif any(str(c).startswith("new:") for c in (a.get("only_in") or []) + (a.get("exempt_channels") or [])):
+                why = "AutoMod rules can't use channels made in the same plan - run it again after"
+            elif len(a.get("exempt_roles") or []) > 20:
+                why = "Discord allows 20 exempt roles at most"
+        elif op == "delete_automod_rule":
+            if not a.get("rule"):
+                why = "which rule? give its name"
         else:
             why = f"unknown action {op!r}"
         if why:
@@ -330,6 +386,7 @@ def _pretty_perms(names) -> str:
 def describe(a: dict, state: dict, refs: dict) -> str:
     op = a["op"]
     ch = lambda key="channel_id": _name_of(state, refs, a.get(key))  # noqa: E731
+    ch_name = lambda cid: _name_of(state, refs, cid)  # noqa: E731
     if op == "create_channel":
         where = f" in {ch('parent_id')}" if a.get("parent_id") not in (None, "none") else ""
         return f"Create {a.get('type', 'text')} channel **#{a['name']}**{where}" + \
@@ -374,6 +431,17 @@ def describe(a: dict, state: dict, refs: dict) -> str:
         return f"Edit role **{role}**: " + ("; ".join(p for p in parts if p) or "no changes")
     if op == "delete_role":
         return f"⚠️ **Delete role {role}**"
+    if op == "create_automod_rule":
+        match = ", ".join([f"`{x}`" for x in a.get("regex") or []] + [f"“{x}”" for x in a.get("keywords") or []])
+        where = (" everywhere except " + ", ".join(ch_name(c) for c in a["exempt_channels"])) if a.get("exempt_channels") \
+            else (" only in " + ", ".join(ch_name(c) for c in a["only_in"])) if a.get("only_in") else " in every channel"
+        roles = ", ".join(_name_of(state, refs, r, role_like=True) for r in a.get("exempt_roles") or [])
+        return (f"AutoMod rule **{a['name']}**: block messages matching {match}{where}"
+                + (f"; {roles} not affected" if roles else "")
+                + (f"; tells them: {a['message'][:150]}" if a.get("message") else ""))
+    if op == "delete_automod_rule":
+        rule = (state.get("automod") or {}).get(a["rule"], {})
+        return f"⚠️ **Delete AutoMod rule {rule.get('name', a['rule'])}**"
     return op
 
 
@@ -494,6 +562,40 @@ def _apply_one(a: dict, guild_id: str, made: dict, reason: str) -> None:
             _discord("PATCH", f"/guilds/{guild_id}/roles/{rid}", body, reason)
     elif op == "delete_role":
         _discord("DELETE", f"/guilds/{guild_id}/roles/{real(a['role_id'])}", None, reason)
+    elif op == "create_automod_rule":
+        exempt = list(a.get("exempt_channels") or [])
+        if a.get("only_in"):
+            exempt = _all_but(_discord("GET", f"/guilds/{guild_id}/channels"), set(a["only_in"]))
+        if len(exempt) > 50:
+            raise RuntimeError("Discord allows 50 exempt channels at most")
+        action = {"type": 1}  # block the message
+        if a.get("message"):
+            action["metadata"] = {"custom_message": str(a["message"])[:150]}
+        _discord("POST", f"/guilds/{guild_id}/auto-moderation/rules", {
+            "name": str(a["name"])[:100], "event_type": 1, "trigger_type": 1, "enabled": True,
+            "trigger_metadata": {"keyword_filter": list(a.get("keywords") or []),
+                                 "regex_patterns": list(a.get("regex") or [])},
+            "actions": [action], "exempt_roles": [real(r) for r in a.get("exempt_roles") or []],
+            "exempt_channels": exempt}, reason)
+    elif op == "delete_automod_rule":
+        _discord("DELETE", f"/guilds/{guild_id}/auto-moderation/rules/{a['rule']}", None, reason)
+
+
+def _all_but(channels: List[dict], keep: set) -> List[str]:
+    """Every channel the rule should leave alone: whole categories where
+    possible (fewer entries, and new channels in them are covered too),
+    single channels in the categories that hold one of `keep`."""
+    keep_parents = {c.get("parent_id") for c in channels if c["id"] in keep}
+    exempt = []
+    for c in channels:
+        if c["id"] in keep or c["type"] in (10, 11, 12):  # threads follow their channel
+            continue
+        if c["type"] == 4:
+            if c["id"] not in keep_parents:
+                exempt.append(c["id"])
+        elif c.get("parent_id") in keep_parents or not c.get("parent_id"):
+            exempt.append(c["id"])
+    return exempt
 
 
 # --- the interaction ------------------------------------------------------------------------------
