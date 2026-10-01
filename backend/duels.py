@@ -373,12 +373,27 @@ def gauntlet_calls(ladders: List[dict]) -> List[dict]:
 
 
 KNOCKOUT_POINTS = 3  # calling where a gauntlet ends is the hard call
+FALSE_KNOCKOUT = -2  # calling a knockout that doesn't happen
 
 
 def call_points(answer: int) -> int:
     """A right gauntlet call's worth: 1 for "beats them", KNOCKOUT_POINTS
     for calling the fight it loses."""
     return 1 if answer else KNOCKOUT_POINTS
+
+
+def call_score(pick: Optional[int], answer: int, rules: str = "penalty") -> int:
+    """What one gauntlet call scores (pick None: not made in time).
+    rules - what a game was scored under: "flat" (1 a right call, the
+    first games), "knockout" (a right knockout 3), "penalty" (today's:
+    also -2 for calling a knockout that doesn't happen, so "Doesn't" only
+    pays when you really think it loses - at 3 to 1 with nothing to lose,
+    it paid from a 1-in-4 chance)."""
+    if pick is None:
+        return 0
+    if pick == answer:
+        return 1 if rules == "flat" else call_points(answer)
+    return FALSE_KNOCKOUT if rules == "penalty" and pick == 0 else 0
 
 
 def answer_seconds(g: dict, members: List[dict], by_player: Dict[Tuple[int, int], List[dict]]) -> Dict[int, float]:
@@ -922,9 +937,12 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
                                  for n in range(1, ROUNDS + 1))
                 team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
         for m in members[g["id"]] if g.get("mode") != "draft" and not _legacy_gauntlet(g) else []:
-            m["score"] = sum((call_points(answers[(g["id"], n)]) if g.get("mode") == "gauntlet" else 1)
-                             * _correct(next((p for p in by_player.get((g["id"], m["user_id"]), []) if p["round_no"] == n), None),
-                                        answers[(g["id"], n)]) for n in range(1, rounds_of(g) + 1))
+            mine = {p["round_no"]: p for p in by_player.get((g["id"], m["user_id"]), [])}
+            if g.get("mode") == "gauntlet":
+                m["score"] = sum(call_score(mine[n]["pick_id"] if _in_time(mine.get(n)) else None, answers[(g["id"], n)])
+                                 for n in range(1, rounds_of(g) + 1))
+            else:
+                m["score"] = sum(_correct(mine.get(n), answers[(g["id"], n)]) for n in range(1, rounds_of(g) + 1))
             team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
         top = max(team_score.values())
         leaders = [t for t, s in team_score.items() if s == top]

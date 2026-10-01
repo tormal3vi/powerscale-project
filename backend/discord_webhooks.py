@@ -405,7 +405,7 @@ def _message_url(webhook: str, message_id: str) -> str:
 
 _MODE_WORD = {"predict": "prediction", "draft": "draft", "gauntlet": "gauntlet"}
 _MODE_HOW = {"draft": "Everyone is dealt 4 characters and picks the strongest, five rounds.",
-             "gauntlet": "Three characters against ever-stronger opponents: call each fight as it comes. Calling the knockout is worth 3."}
+             "gauntlet": "Three characters against ever-stronger opponents: call each fight as it comes. Calling the knockout is worth 3, a wrong one costs 2."}
 
 
 def lobby_embed(g) -> dict:

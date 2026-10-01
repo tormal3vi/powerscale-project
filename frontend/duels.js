@@ -275,7 +275,7 @@ function renderNew() {
     addBtn.hidden = draft || gauntletMode || mode !== 'pick' || n >= 5;
     seriesField.hidden = !draft && !gauntletMode && mode === 'pick' && n >= 5; // nothing random left to draw
     if (gauntletMode) {
-      hint.textContent = "Three gauntlets: a character against ever-stronger opponents. Call each fight as it comes (does it beat the next one?) and see the result right away; a gauntlet ends at its first loss. A right \"beats them\" is worth 1 point, and calling the knockout (the fight it loses) is worth 3. 15 seconds a call; level scores go to whoever answered faster. Characters you don't pick are drawn at random.";
+      hint.textContent = "Three gauntlets: a character against ever-stronger opponents. Call each fight as it comes (does it beat the next one?) and see the result right away; a gauntlet ends at its first loss. A right \"beats them\" is worth 1 point, calling the knockout (the fight it loses) is worth 3, and calling a knockout that doesn't happen costs 2. 15 seconds a call; level scores go to whoever answered faster. Characters you don't pick are drawn at random.";
       return;
     }
     if (draft) {
@@ -823,6 +823,9 @@ function gauntletResultsHtml(g, { outcome, title, byName }) {
         const c = p.calls[i];
         const ko = r.fights[i].outcome !== 'win' && g.knockout_points > 1;
         if (c === true && ko) return `<span class="grs-mark ok ko" title="Called the knockout: +${g.knockout_points}">${MARK_OK}<span class="grs-ko">${g.knockout_points}</span></span>`;
+        if (c === false && p.said[i] === 0 && g.false_knockout < 0) {
+          return `<span class="grs-mark bad fk" title="Called a knockout that didn't happen: ${g.false_knockout}">${MARK_BAD}<span class="grs-ko">${g.false_knockout}</span></span>`;
+        }
         return c === true ? `<span class="grs-mark ok" title="Right">${MARK_OK}</span>`
           : c === false ? `<span class="grs-mark bad" title="Wrong">${MARK_BAD}</span>`
             : `<span class="grs-mark late" title="Time ran out">${MARK_LATE}</span>`;
@@ -844,7 +847,7 @@ function gauntletResultsHtml(g, { outcome, title, byName }) {
   };
   return `${head}${g.rounds.map(gauntletCard).join('')}
     <p class="dr-legend">Each gauntlet runs weakest to strongest and ends at its first loss (too close to call counts as one). ${g.knockout_points > 1
-      ? `A right "beats them" is worth 1 point; calling the knockout (the fight it loses) is worth ${g.knockout_points}.` : 'A point for every right call.'} Level scores go to whoever answered faster. Tap an opponent to open that matchup.</p>`;
+      ? `A right "beats them" is worth 1 point; calling the knockout (the fight it loses) is worth ${g.knockout_points}${g.false_knockout < 0 ? `, and calling one that doesn't happen costs ${-g.false_knockout}` : ''}.` : 'A point for every right call.'} Level scores go to whoever answered faster. Tap an opponent to open that matchup.</p>`;
 }
 
 function resultsHtml(g) {
@@ -1225,7 +1228,8 @@ function showReveal(r, res) {
   const said = v.beat ? 'lose' : 'win';  // what a wrong call said would happen
   const call = late ? ['late', ICON_LATE, 'Too late', 'Time ran out · +0']
     : right ? ['ok', ICON_OK, 'Right call', v.points > 1 ? `+${v.points} points · you called the knockout` : '+1 point']
-      : ['bad', ICON_BAD, 'Wrong call', `+0 · you said it would ${said}`];
+      : v.points < 0 ? ['bad', ICON_BAD, 'Wrong call', `${v.points} · you called a knockout, but it won`]
+        : ['bad', ICON_BAD, 'Wrong call', `+0 · you said it would ${said}`];
   const tags = { win: '<span class="gr-tag win">WINS</span>', ko: '<span class="gr-tag ko">K.O.</span>' };
   const heroCard = gcCard(r.a, `gc-hero ${v.beat ? 'up' : 'down'}`, v.beat ? tags.win : tags.ko);
   const foeCard = gcCard(r.b, `gc-foe ${v.beat ? 'down' : 'up'}`, v.beat ? tags.ko : tags.win);

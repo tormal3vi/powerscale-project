@@ -1,5 +1,14 @@
 [
   {
+    "id": "2026-10-02.5",
+    "date": "2026-10-02",
+    "title": "Gauntlet duels: a wrong knockout call costs 2",
+    "changes": [
+      "In gauntlet duels, calling a knockout that doesn't happen now costs 2 points. Saying \"loses\" on every fight no longer pays off, so call each fight the way you really think it goes.",
+      "Finished games keep the scores they were played under."
+    ]
+  },
+  {
     "id": "2026-10-02.4",
     "date": "2026-10-02",
     "title": "Share your gauntlet",

@@ -448,7 +448,7 @@ class CallRevealOut(BaseModel):
     climbed: int
     rungs: int
     last_call: bool
-    points: int = 0  # what this call earned: 1 for a right "beats them", 3 for calling the knockout
+    points: int = 0  # what this call earned: +1 a right "beats them", +3 the knockout, -2 a knockout that didn't happen
 
 
 class DuelPickOut(BaseModel):
@@ -468,6 +468,7 @@ class DuelRoundPickOut(BaseModel):
     points: int = 0
     best_id: Optional[int] = None
     calls: List[Optional[bool]] = []  # gauntlet: each call right (True), wrong (False) or missed (None)
+    said: List[Optional[int]] = []  # gauntlet: each call made (1 beats them, 0 doesn't; None missed)
 
 
 class DuelBoutOut(BaseModel):
@@ -531,6 +532,7 @@ class DuelOut(BaseModel):
     by_speed: bool = False  # gauntlet duels: level on calls, the faster side won
     team_seconds: List[float] = []  # gauntlet duels: each side's total answering time, for the tiebreak
     knockout_points: int = 1  # gauntlet duels: what a right call on the losing fight was worth
+    false_knockout: int = 0  # gauntlet duels: what calling a knockout that didn't happen cost (0 or -2)
     gauntlet: Optional[str] = None  # gauntlet games: "random", "custom" or "series:<name>"
     seats_left: int = 0
     picked: Optional[int] = None  # rounds the creator chose; the rest are random (None: not recorded)

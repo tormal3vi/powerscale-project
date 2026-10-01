@@ -150,13 +150,14 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
             ladders_by = data.get("ladders", {}).get(g["id"], {})
             calls = duels.gauntlet_calls([l for n in sorted(ladders_by) for l in ladders_by[n]])
             by_round = {r["round_no"]: r for r in rounds}
-            # Games scored before knockout calls were worth 3 keep 1 a call: show
-            # each game as it was scored (its stored scores say which).
-            def total(uid, weigh):
-                return sum((duels.call_points(r["answer_id"]) if weigh else 1)
-                           for r in rounds if guesses.get((r["round_no"], uid)) == r["answer_id"])
-            weighted = all(m.get("score") is None or m["score"] == total(m["user_id"], True) for m in members)
-            out.knockout_points = duels.KNOCKOUT_POINTS if weighted else 1
+            # Show each game as it was scored - today's rules, or an older
+            # game's (its stored scores say which).
+            def total(uid, rules):
+                return sum(duels.call_score(guesses.get((r["round_no"], uid)), r["answer_id"], rules) for r in rounds)
+            rules = next((x for x in ("penalty", "knockout", "flat")
+                          if all(m.get("score") is None or m["score"] == total(m["user_id"], x) for m in members)), "penalty")
+            out.knockout_points = 1 if rules == "flat" else duels.KNOCKOUT_POINTS
+            out.false_knockout = duels.FALSE_KNOCKOUT if rules == "penalty" else 0
             ordered = sorted(members, key=lambda m: (m["team"], m["joined_at"]))
             for n in sorted(ladders_by):
                 nos = [i + 1 for i, c in enumerate(calls) if c["gauntlet"] == n]
@@ -174,9 +175,10 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
                 for m in ordered:
                     marks = [None if guesses.get((k, m["user_id"])) is None
                              else guesses[(k, m["user_id"])] == by_round[k]["answer_id"] for k in nos]
-                    worth = [duels.call_points(by_round[k]["answer_id"]) if weighted else 1 for k in nos]
-                    player_calls.append(DuelRoundPickOut(username=person(m["user_id"])[0], team=m["team"],
-                                                         calls=marks, points=sum(w for x, w in zip(marks, worth) if x)))
+                    said = [guesses.get((k, m["user_id"])) for k in nos]
+                    player_calls.append(DuelRoundPickOut(
+                        username=person(m["user_id"])[0], team=m["team"], calls=marks, said=said,
+                        points=sum(duels.call_score(x, by_round[k]["answer_id"], rules) for x, k in zip(said, nos))))
                 out.rounds.append(DuelResultRoundOut(
                     round_no=n, a=_side(first["char_a"], None, cache), answer_id=climbed,
                     verdict=f"Climbed {climbed} of {len(ladders_by[n])}", picked=first["picked"],
@@ -335,12 +337,13 @@ def pick(game_id: int, payload: DuelPickIn, user: dict = Depends(require_user)):
     in_time, nxt = _run(duels.pick, game_id, user["id"], payload.round_no, payload.pick_id)
     reveal = duels.call_result(game_id, payload.round_no)  # gauntlet calls only
     return DuelPickOut(in_time=in_time, next=_round_out(game_id, nxt) if nxt else None,
-                       reveal=_reveal_out(reveal, in_time and payload.pick_id == int(reveal["beat"])) if reveal else None)
+                       reveal=_reveal_out(reveal, in_time, payload.pick_id) if reveal else None)
 
 
-def _reveal_out(reveal: dict, correct: bool) -> CallRevealOut:
-    return CallRevealOut(**reveal, correct=correct,
-                         points=duels.call_points(int(reveal["beat"])) if correct else 0)
+def _reveal_out(reveal: dict, in_time: bool, pick: int) -> CallRevealOut:
+    answer = int(reveal["beat"])
+    return CallRevealOut(**reveal, correct=in_time and pick == answer,
+                         points=duels.call_score(pick if in_time else None, answer))
 
 
 @router.get("/api/gauntlet", response_model=GauntletOut)
