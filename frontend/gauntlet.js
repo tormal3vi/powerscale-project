@@ -301,7 +301,7 @@ async function saveGauntletImage(r, { story = false } = {}) {
   const L = story
     ? { head: 200, hero: [W / 2 - 180, 280, 360, 56], name: 740, sub: 790, result: 920, cols: 5, thumb: 132, gap: 24, ladder: 990 }
     : { head: 100, hero: [W / 2 - 120, 140, 240, 40], name: 450, sub: 492, result: 590, cols: 10, thumb: 80, gap: 12, ladder: 660 };
-  text('HOW FAR DOES IT CLIMB?', story ? 38 : 28, W / 2, L.head, { font: '"IBM Plex Mono"', weight: 700, color: '#D9A441', spacing: 4 });
+  text(`HOW FAR DOES ${shortName(c.name).toUpperCase()} CLIMB?`, story ? 38 : 28, W / 2, L.head, { max: W - 120, font: '"IBM Plex Mono"', weight: 700, color: '#D9A441', spacing: 4 });
   const [hx, hy, hs, hr] = L.hero;
   tile(hero, c, hx, hy, hs, hr, '#D9A441');
   text(shortName(c.name), story ? 60 : 50, W / 2, L.name, { font: 'Fraunces', weight: 700 });
