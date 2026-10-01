@@ -1,5 +1,13 @@
 [
   {
+    "id": "2026-10-02.6",
+    "date": "2026-10-02",
+    "title": "Gauntlet images name the character",
+    "changes": [
+      "Saved gauntlet images now ask \"How far does Saitama climb?\" with the character's name instead of \"it\"."
+    ]
+  },
+  {
     "id": "2026-10-02.5",
     "date": "2026-10-02",
     "title": "Gauntlet duels: a wrong knockout call costs 2",
