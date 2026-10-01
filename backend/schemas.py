@@ -528,6 +528,7 @@ class DuelOut(BaseModel):
     private: bool = False
     link_only: bool = False  # open to whoever has the link, not listed
     by_speed: bool = False  # gauntlet duels: level on calls, the faster side won
+    team_seconds: List[float] = []  # gauntlet duels: each side's total answering time, for the tiebreak
     gauntlet: Optional[str] = None  # gauntlet games: "random", "custom" or "series:<name>"
     seats_left: int = 0
     picked: Optional[int] = None  # rounds the creator chose; the rest are random (None: not recorded)

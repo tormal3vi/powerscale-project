@@ -1,5 +1,15 @@
 [
   {
+    "id": "2026-10-02.2",
+    "date": "2026-10-02",
+    "title": "Clearer gauntlet duel results",
+    "changes": [
+      "When a gauntlet duel ends level on right calls, the result now says so and shows who answered faster, with both players' total times.",
+      "The winner is listed first in the final ranking.",
+      "On phones, the buttons at the top of the Characters page no longer spill out of their boxes."
+    ]
+  },
+  {
     "id": "2026-10-02.1",
     "date": "2026-10-02",
     "title": "Gauntlet duels, redesigned",

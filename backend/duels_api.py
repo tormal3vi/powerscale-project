@@ -175,6 +175,12 @@ def _duel_out(g: dict, me: Optional[int], data: dict, people: Dict[int, dict], c
                     compare_url=f"character.html?id={first['char_a']}", fights=fights, picks=player_calls))
             top = max(out.team_scores) if out.team_scores else 0
             out.by_speed = out.team_scores.count(top) > 1 and any(m.get("outcome") == "win" for m in members)
+            by_player: Dict[tuple, List[dict]] = {}
+            for p in picks:
+                if p["game_id"] == g["id"]:
+                    by_player.setdefault((g["id"], p["user_id"]), []).append(p)
+            took = duels.answer_seconds(g, members, by_player)
+            out.team_seconds = [took.get(t, 0.0) for t in range(1, teams + 1)]
             rounds = []  # shown above, per gauntlet
         for r in rounds:
             round_picks = []

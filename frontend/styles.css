@@ -1590,6 +1590,10 @@ body.modal-open { overflow: hidden; }
 
   .page-head-actions { width: 100%; }
   .page-head-actions > * { flex: 1; min-width: 0; padding-left: 10px; padding-right: 10px; }
+  /* Three buttons don't fit in a row: two, then the gold one full width. */
+  .page-head-actions-3 { display: grid; grid-template-columns: 1fr 1fr; }
+  .page-head-actions-3 > :last-child { grid-column: 1 / -1; }
+  .page-head-actions > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   .char-page { padding: 16px; }
   .char-main, .char-layout, .char-side { gap: 16px; }
@@ -2867,3 +2871,4 @@ a.dr-mini-wrap.picked:hover .dr-mini { box-shadow: 0 0 0 2px var(--accent-gold);
 /* The share menu wraps its button: place the wrapper in the card's corner. */
 .grs-outcome .share-wrap { position: absolute; top: 14px; right: 14px; }
 .grs-outcome .share-wrap .duel-result-share { position: static; }
+.grs-rank-time { font: 500 11px var(--font-mono); color: var(--text-quaternary); }

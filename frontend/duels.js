@@ -775,24 +775,39 @@ const MARK_BAD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><p
 const MARK_LATE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#7A7264" stroke-width="2"/><path d="M12 7v5l3 2" stroke="#7A7264" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function gauntletResultsHtml(g, { outcome, title, byName }) {
-  const ranked = [...g.players].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  // Winners first, then by calls, then by speed (what decides a tie).
+  const secs = (p) => g.team_seconds[p.team - 1] ?? 0;
+  const ranked = [...g.players].sort((a, b) => (b.outcome === 'win') - (a.outcome === 'win')
+    || (b.score ?? 0) - (a.score ?? 0) || secs(a) - secs(b));
+  const clock = (t) => `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}`;
   const scores = [...new Set(g.team_scores)].sort((a, b) => b - a);
   const scoreLine = g.team_scores.length === 2 ? `${Math.max(...g.team_scores)} — ${Math.min(...g.team_scores)}` : scores.join(' · ');
   const me = g.players.find((p) => p.me);
   const rival = ranked.find((p) => !p.me);
   const vsLine = g.players.length === 2 && me && rival ? `you · ${escapeHtml(rival.username)}` : `${g.players.length} players`;
   const playerName = (p) => escapeHtml(p.me ? `${p.username} (you)` : p.username);
+  // A tie on calls is settled by total answering time: say whose, and by how much.
+  function speedNote() {
+    const winners = g.players.filter((p) => p.outcome === 'win');
+    if (!winners.length) return '';
+    const wTeam = winners[0].team;
+    const others = g.team_seconds.map((t, i) => [i + 1, t]).filter(([team]) => team !== wTeam);
+    const runnerUp = others.sort((a, b) => a[1] - b[1])[0];
+    const who = winners.some((p) => p.me) ? 'You' : escapeHtml(winners.map((p) => p.username).join(' & '));
+    return `<div class="gc-speed">Level on ${Math.max(...g.team_scores)} right calls, so speed decided it: ${who} answered faster
+      (${clock(g.team_seconds[wTeam - 1])} in total vs ${clock(runnerUp ? runnerUp[1] : 0)}).</div>`;
+  }
   const head = `<div class="grs-head ${outcome}">
     <div class="grs-outcome">
       <div class="grs-kicker">Gauntlet duel · ${g.rounds.length} gauntlet${g.rounds.length === 1 ? '' : 's'} · ${g.players.length} players</div>
       <div class="grs-title">${title}</div>
       <div class="grs-score">${scoreLine}</div>
       <div class="grs-vs">${vsLine}</div>
-      ${g.by_speed ? '<div class="gc-speed">Level on calls: the faster answers won.</div>' : ''}
+      ${g.by_speed ? speedNote() : ''}
       <button type="button" class="duel-result-share pill-button btn-sm">Share ▾</button>
     </div>
     <ol class="grs-rank">${ranked.map((p, i) => `<li class="grs-rank-row${p.me ? ' me' : ''}"><span class="grs-rank-no">${i + 1}</span>
-      ${avatar(p, 'grs-avatar')}<span class="grs-rank-name">${playerName(p)}</span><span class="grs-rank-pts">${p.score ?? 0}</span></li>`).join('')}</ol>
+      ${avatar(p, 'grs-avatar')}<span class="grs-rank-name">${playerName(p)}</span>${g.by_speed ? `<span class="grs-rank-time" title="Total time answering">${clock(secs(p))}</span>` : ''}<span class="grs-rank-pts">${p.score ?? 0}</span></li>`).join('')}</ol>
   </div>`;
   const gauntletCard = (r) => {
     const n = r.fights.length;
