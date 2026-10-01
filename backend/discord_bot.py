@@ -1,5 +1,5 @@
 """The Powerscale Discord app: /compare, /character, /random, /leaderboard, /profile,
-/link and /duel.
+/link, /duel, and /admin for server admins (backend/discord_admin.py).
 
 Discord delivers each slash command to this site as a signed POST (its
 "interactions endpoint"), and the reply goes back in the response. No
@@ -35,7 +35,7 @@ from starlette.concurrency import run_in_threadpool
 
 import calculator
 import db
-from backend import characters, community, community_api, discord_webhooks, duels, tickets
+from backend import characters, community, community_api, discord_admin, discord_webhooks, duels, tickets
 from backend.discord_webhooks import GOLD, _clip, _md, _site
 
 router = APIRouter()
@@ -84,6 +84,7 @@ COMMANDS = [
           "choices": [{"name": f, "value": f} for f in duels.FORMATS]},
          {"type": USER, "name": "opponent", "description": "Challenge someone (1v1; they need a linked account)",
           "required": False}]},
+    discord_admin.COMMAND,  # server admins only
 ]
 
 
@@ -120,6 +121,10 @@ def handle(interaction: dict) -> dict:
     options = {o["name"]: o for o in data.get("options") or []}
     if kind == 4:  # typing in an option with suggestions
         return {"type": 8, "data": {"choices": _suggest(options)}}
+    if kind == 3 and str(data.get("custom_id", "")).startswith("admin:"):  # Confirm / Cancel under an /admin plan
+        return discord_admin.button(interaction, data["custom_id"])
+    if kind == 2 and data.get("name") == "admin":
+        return discord_admin.command(interaction, (options.get("request") or {}).get("value"))
     if kind == 2:  # a command
         args = {k: o.get("value") for k, o in options.items()}
         if data.get("type") == 2:  # right-click a user -> Apps -> Powerscale profile
@@ -518,7 +523,8 @@ def _shape(commands: List[dict]) -> list:
         return (o["name"], o.get("description"), o["type"], bool(o.get("required")), bool(o.get("autocomplete")),
                 tuple(c["value"] for c in o.get("choices") or []))
     return sorted((c["name"], c.get("type", 1), c.get("description") or "", tuple(opt(o) for o in c.get("options") or []),
-                   tuple(sorted(c.get("integration_types") or [])), tuple(sorted(c.get("contexts") or [])))
+                   tuple(sorted(c.get("integration_types") or [])), tuple(sorted(c.get("contexts") or [])),
+                   str(c.get("default_member_permissions") or ""))
                   for c in commands)
 
 

@@ -44,3 +44,7 @@ services:
       # Linked Roles (OAuth2 -> Client Secret): roles that unlock from Powerscale stats.
       - key: DISCORD_CLIENT_SECRET
         sync: false
+      # /admin (backend/discord_admin.py): Claude plans channel and role
+      # changes from a description. console.anthropic.com -> API keys.
+      - key: ANTHROPIC_API_KEY
+        sync: false

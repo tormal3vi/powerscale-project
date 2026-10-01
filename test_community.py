@@ -1168,6 +1168,38 @@ def test_rate_limiter_blocks_after_the_limit_per_key():
     assert rl.allow("ip2")  # separate key, separate budget
 
 
+def test_discord_admin_checks_plans_and_merges_overwrites():
+    from backend import discord_admin as A
+    send, react = A.PERMISSIONS["SEND_MESSAGES"], A.PERMISSIONS["ADD_REACTIONS"]
+    state = {"guild_id": "1",
+             "roles": {"1": {"id": "1", "name": "@everyone", "position": 0, "permissions": "0"},
+                       "2": {"id": "2", "name": "Bot", "position": 1, "permissions": "0", "managed": True}},
+             "channels": {"3": {"id": "3", "name": "updates", "type": 0, "position": 0,
+                                "permission_overwrites": [{"id": "1", "type": 0, "allow": "0", "deny": str(react)}]}}}
+    ok, problems = A._check([
+        {"op": "set_permissions", "channel_id": "3", "target_id": "1", "deny": ["SEND_MESSAGES"]},
+        {"op": "create_channel", "ref": "new", "name": "brags"},
+        {"op": "remove_overwrite", "channel_id": "new:new", "target_id": "1"},
+        {"op": "edit_role", "role_id": "2", "allow": ["KICK_MEMBERS"]},  # an integration's role
+        {"op": "create_role", "name": "Boss", "allow": ["ADMINISTRATOR"]},
+        {"op": "delete_channel", "channel_id": "9"},
+    ], state)
+    assert [a["op"] for a in ok] == ["set_permissions", "create_channel", "remove_overwrite"]
+    assert len(problems) == 3
+    sent = []
+
+    def fake(method, path, body=None, reason=None):
+        sent.append((method, path, body))
+        return state["channels"]["3"] if method == "GET" else None
+    real, A._discord = A._discord, fake
+    try:
+        A._apply_one(ok[0], "1", {}, "test")
+    finally:
+        A._discord = real
+    # The existing deny stays; only Send Messages is added.
+    assert sent[-1] == ("PUT", "/channels/3/permissions/1", {"type": 0, "allow": "0", "deny": str(react | send)})
+
+
 if __name__ == "__main__":
     import sys
 
