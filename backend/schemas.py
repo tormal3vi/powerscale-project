@@ -448,6 +448,7 @@ class CallRevealOut(BaseModel):
     climbed: int
     rungs: int
     last_call: bool
+    points: int = 0  # what this call earned: 1 for a right "beats them", 3 for calling the knockout
 
 
 class DuelPickOut(BaseModel):
@@ -529,6 +530,7 @@ class DuelOut(BaseModel):
     link_only: bool = False  # open to whoever has the link, not listed
     by_speed: bool = False  # gauntlet duels: level on calls, the faster side won
     team_seconds: List[float] = []  # gauntlet duels: each side's total answering time, for the tiebreak
+    knockout_points: int = 1  # gauntlet duels: what a right call on the losing fight was worth
     gauntlet: Optional[str] = None  # gauntlet games: "random", "custom" or "series:<name>"
     seats_left: int = 0
     picked: Optional[int] = None  # rounds the creator chose; the rest are random (None: not recorded)

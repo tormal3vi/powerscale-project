@@ -2,10 +2,11 @@
   {
     "id": "2026-10-02.2",
     "date": "2026-10-02",
-    "title": "Clearer gauntlet duel results",
+    "title": "Gauntlet duels: calling the knockout is worth 3",
     "changes": [
-      "When a gauntlet duel ends level on right calls, the result now says so and shows who answered faster, with both players' total times.",
-      "The winner is listed first in the final ranking.",
+      "In gauntlet duels, calling the knockout (the fight a character loses) is now worth 3 points. A right \"beats them\" stays at 1. Spotting where a character falls is the skill that wins games now.",
+      "Results mark every knockout you called with a gold 3, and the reveal tells you when you've called one.",
+      "When a game still ends level, the result shows who answered faster, with both total times. The winner is listed first.",
       "On phones, the buttons at the top of the Characters page no longer spill out of their boxes."
     ]
   },

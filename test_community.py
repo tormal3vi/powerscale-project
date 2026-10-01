@@ -554,7 +554,10 @@ def test_gauntlet_duels_are_called_fight_by_fight():
     play(game_id, ben["id"], right=False)
     done = duels.game(game_id)
     scores = {m["user_id"]: m["score"] for m in done["members"][game_id]}
-    assert scores == {ann["id"]: g["rounds_total"], ben["id"]: 0}
+    # 1 for each right "beats them", 3 for each knockout called right.
+    expected = sum(duels.call_points(r["answer_id"]) for r in done["rounds"][game_id])
+    assert expected >= g["rounds_total"]  # more when a gauntlet ends in a knockout (it can clear instead)
+    assert scores == {ann["id"]: expected, ben["id"]: 0}
     assert {m["user_id"]: m["outcome"] for m in done["members"][game_id]}[ann["id"]] == "win"
 
     # Level on calls: the faster player wins.

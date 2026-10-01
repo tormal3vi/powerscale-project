@@ -372,6 +372,15 @@ def gauntlet_calls(ladders: List[dict]) -> List[dict]:
     return calls
 
 
+KNOCKOUT_POINTS = 3  # calling where a gauntlet ends is the hard call
+
+
+def call_points(answer: int) -> int:
+    """A right gauntlet call's worth: 1 for "beats them", KNOCKOUT_POINTS
+    for calling the fight it loses."""
+    return 1 if answer else KNOCKOUT_POINTS
+
+
 def answer_seconds(g: dict, members: List[dict], by_player: Dict[Tuple[int, int], List[dict]]) -> Dict[int, float]:
     """{team: seconds its players took over all calls} - a call not answered
     in time counts its whole clock. Breaks ties in gauntlet duels."""
@@ -913,8 +922,9 @@ def _settle(conn, gs: List[dict], now: datetime, picks: Optional[List[dict]] = N
                                  for n in range(1, ROUNDS + 1))
                 team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
         for m in members[g["id"]] if g.get("mode") != "draft" and not _legacy_gauntlet(g) else []:
-            m["score"] = sum(_correct(next((p for p in by_player.get((g["id"], m["user_id"]), []) if p["round_no"] == n), None),
-                                      answers[(g["id"], n)]) for n in range(1, rounds_of(g) + 1))
+            m["score"] = sum((call_points(answers[(g["id"], n)]) if g.get("mode") == "gauntlet" else 1)
+                             * _correct(next((p for p in by_player.get((g["id"], m["user_id"]), []) if p["round_no"] == n), None),
+                                        answers[(g["id"], n)]) for n in range(1, rounds_of(g) + 1))
             team_score[m["team"]] = team_score.get(m["team"], 0) + m["score"]
         top = max(team_score.values())
         leaders = [t for t, s in team_score.items() if s == top]
