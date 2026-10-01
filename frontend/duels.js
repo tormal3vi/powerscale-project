@@ -767,6 +767,68 @@ function wireResultShare(container, g) {
 
 // Headline (you won / lost, the score, everyone's points by team), then
 // each round: the matchup, what decided it, and every player's ✓ or ✗.
+// Gauntlet duel results (design: GD2-Results): who won with the players
+// ranked, then each gauntlet as a grid - its ladder across the top, every
+// player's call on each rung below it.
+const MARK_OK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="#8FBF6B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const MARK_BAD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="#E15252" stroke-width="2.4" stroke-linecap="round"/></svg>';
+const MARK_LATE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#7A7264" stroke-width="2"/><path d="M12 7v5l3 2" stroke="#7A7264" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function gauntletResultsHtml(g, { outcome, title, byName }) {
+  const ranked = [...g.players].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const scores = [...new Set(g.team_scores)].sort((a, b) => b - a);
+  const scoreLine = g.team_scores.length === 2 ? `${Math.max(...g.team_scores)} — ${Math.min(...g.team_scores)}` : scores.join(' · ');
+  const me = g.players.find((p) => p.me);
+  const rival = ranked.find((p) => !p.me);
+  const vsLine = g.players.length === 2 && me && rival ? `you · ${escapeHtml(rival.username)}` : `${g.players.length} players`;
+  const playerName = (p) => escapeHtml(p.me ? `${p.username} (you)` : p.username);
+  const head = `<div class="grs-head ${outcome}">
+    <div class="grs-outcome">
+      <div class="grs-kicker">Gauntlet duel · ${g.rounds.length} gauntlet${g.rounds.length === 1 ? '' : 's'} · ${g.players.length} players</div>
+      <div class="grs-title">${title}</div>
+      <div class="grs-score">${scoreLine}</div>
+      <div class="grs-vs">${vsLine}</div>
+      ${g.by_speed ? '<div class="gc-speed">Level on calls: the faster answers won.</div>' : ''}
+      <button type="button" class="duel-result-share pill-button btn-sm">Share ▾</button>
+    </div>
+    <ol class="grs-rank">${ranked.map((p, i) => `<li class="grs-rank-row${p.me ? ' me' : ''}"><span class="grs-rank-no">${i + 1}</span>
+      ${avatar(p, 'grs-avatar')}<span class="grs-rank-name">${playerName(p)}</span><span class="grs-rank-pts">${p.score ?? 0}</span></li>`).join('')}</ol>
+  </div>`;
+  const gauntletCard = (r) => {
+    const n = r.fights.length;
+    const cleared = r.answer_id === n;
+    const thumbs = r.fights.map((f) => {
+      const cls = !f.reached ? 'unreached' : f.outcome === 'win' ? 'beaten' : 'lost';
+      return `<a class="grs-thumb ${cls}" href="${escapeHtml(f.compare_url)}" title="${f.rung}. ${escapeHtml(shortName(f.opponent.name))}: ${escapeHtml(f.reached ? f.verdict : 'not reached')}">${sideTileHtml(f.opponent, 80)}${cls === 'lost' ? `<span class="grs-x">${MARK_BAD}</span>` : ''}</a>`;
+    }).join('');
+    const rows = r.picks.map((p) => {
+      const player = byName[p.username] || { username: p.username };
+      const marks = r.fights.map((f, i) => {
+        if (i >= p.calls.length) return '<span class="grs-mark none" aria-hidden="true"></span>';
+        const c = p.calls[i];
+        return c === true ? `<span class="grs-mark ok" title="Right">${MARK_OK}</span>`
+          : c === false ? `<span class="grs-mark bad" title="Wrong">${MARK_BAD}</span>`
+            : `<span class="grs-mark late" title="Time ran out">${MARK_LATE}</span>`;
+      }).join('');
+      return `<div class="grs-row"><div class="grs-who">${avatar(player, 'grs-avatar')}<span class="grs-name${player.me ? ' me' : ''}">${playerName(player)}</span></div>
+        ${marks}<span class="grs-pts">${p.points}</span></div>`;
+    }).join('');
+    return `<section class="grs-card" style="--n:${n}">
+      <div class="grs-card-head">
+        <a class="grs-hero" href="${escapeHtml(r.compare_url)}">${sideTileHtml(r.a, 160)}<span class="grs-hero-text">
+          <span class="gc-lbl">Gauntlet ${r.round_no}</span>
+          <span class="grs-hero-name">${escapeHtml(shortName(r.a.name))}${r.picked ? ' <span class="duel-picked">picked</span>' : ''}</span>
+          <span class="grs-hero-sub">${escapeHtml(r.a.series)}${r.a.form ? ` · ${escapeHtml(r.a.form)}` : ''}</span></span></a>
+        <span class="grs-climbed">${cleared ? `Cleared all ${n}!` : `Climbed ${r.answer_id} of ${n}`}</span>
+      </div>
+      <div class="grs-row grs-ladder"><span class="gc-lbl grs-ladder-lbl">Ladder</span>${thumbs}<span class="gc-lbl grs-pts-lbl">Pts</span></div>
+      ${rows}
+    </section>`;
+  };
+  return `${head}${g.rounds.map(gauntletCard).join('')}
+    <p class="dr-legend">Each gauntlet runs weakest to strongest and ends at its first loss (too close to call counts as one). A point for every right call; level scores go to whoever answered faster. Tap an opponent to open that matchup.</p>`;
+}
+
 function resultsHtml(g) {
   const outcome = g.outcome || '';
   const title = { win: 'You won', loss: 'You lost', draw: "It's a draw" }[outcome] || 'Finished';
@@ -818,6 +880,9 @@ function resultsHtml(g) {
         : !b.winner && b.a && b.b ? '<span class="dr-bout-note">even</span>' : ''}`;
     return b.compare_url ? `<a class="dr-bout" href="${escapeHtml(b.compare_url)}">${inner}</a>` : `<span class="dr-bout">${inner}</span>`;
   };
+  if (g.mode === 'gauntlet' && g.rounds.some((r) => r.picks.some((p) => p.calls && p.calls.length))) {
+    return gauntletResultsHtml(g, { outcome, title, byName });
+  }
   if (g.mode === 'gauntlet') {
     const guessRow = (p) => {
       const player = byName[p.username] || { username: p.username };
@@ -949,7 +1014,7 @@ function playFrame(inner, { close = true } = {}) {
   playBox.innerHTML = `<div class="duel-play-inner">${close ? '<button type="button" class="duel-play-close" aria-label="Close">✕</button>' : ''}${inner}</div>`;
   const btn = playBox.querySelector('.duel-play-close');
   if (btn) btn.addEventListener('click', () => {
-    const live = playBox.querySelector('.duel-choice:not(:disabled)');
+    const live = playBox.querySelector('[data-pick]:not(:disabled)');
     if (!live || confirm("Close? This round's clock keeps running.")) closePlay();
   });
 }
@@ -1000,23 +1065,45 @@ function gauntletRoundHtml(r) {
   </div>`;
 }
 
-// A gauntlet call: the character, the next opponent, and two buttons.
-// The ones it already beat line up above; the verdict shows after the call.
+// A gauntlet call (design: GD2-Call): where we are, the clock, the two
+// fighters, what it beat so far, and two big buttons.
+const CHEVRON_UP = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 15l6-6 6 6" stroke="#D9A441" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CHEVRON_DOWN = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#D9A441" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function gauntletDots(r) {
+  return Array.from({ length: r.gauntlets }, (_, i) => `<span class="gc-dot${i + 1 < r.gauntlet_no ? ' done' : i + 1 === r.gauntlet_no ? ' now' : ''}"></span>`).join('');
+}
+
+function gcCard(x, cls, tag = '') {
+  return `<div class="gc-card ${cls}">${sideTileHtml(x, 240)}
+    <div class="gc-card-text"><div class="gc-name">${escapeHtml(shortName(x.name))}</div>
+    <div class="gc-sub">${escapeHtml(x.series)}${x.form ? ` · ${escapeHtml(x.form)}` : ''}</div></div>${tag}</div>`;
+}
+
 function gauntletCallHtml(r) {
-  const trail = r.trail.map((x) => `<span class="gc-beaten" title="Beat ${escapeHtml(shortName(x.name))}">${sideTileHtml(x, 64)}</span>`).join('');
-  const side = (x, cls) => `<div class="gc-side ${cls}">${sideTileHtml(x, 320)}
-    <div class="gc-name">${escapeHtml(shortName(x.name))}</div>
-    <div class="gc-sub">${escapeHtml(x.series)}${x.form ? ` · ${escapeHtml(x.form)}` : ''}</div></div>`;
-  return `<div class="gc-play">
-    ${trail ? `<div class="gc-trail"><span class="gd-lbl">Beaten so far</span><div class="gc-trail-row">${trail}</div></div>` : ''}
-    <div class="gc-fight">${side(r.a, 'gc-hero')}<span class="gc-vs">vs</span>${side(r.b, 'gc-foe')}</div>
-    <div class="gd-lbl gd-prompt">Does ${escapeHtml(shortName(r.a.name))} beat ${escapeHtml(shortName(r.b.name))}?</div>
-    <div class="gc-buttons">
-      <button type="button" class="gc-btn gc-yes" data-pick="1">Beats them</button>
-      <button type="button" class="gc-btn gc-no" data-pick="0">Doesn't</button>
+  const trail = r.trail.length
+    ? `<div class="gc-trail-row">${r.trail.map((x) => `<span class="gc-beaten" title="Beat ${escapeHtml(shortName(x.name))}">${sideTileHtml(x, 64)}</span>`).join('')}</div>`
+    : '<div class="gc-trail-empty">None yet — this is the first rung</div>';
+  return `<div class="gc-frame">
+    <div class="gc-where" id="play-title">Gauntlet ${r.gauntlet_no} of ${r.gauntlets} · rung ${r.rung} of ${r.rungs}</div>
+    <div class="gc-meter"><div class="gc-dots" aria-hidden="true">${gauntletDots(r)}</div><span class="duel-clock-num gc-clock" aria-live="off"></span></div>
+    <div class="gc-track"><div class="duel-clock-bar"></div></div>
+    <div class="gc-fight">${gcCard(r.a, 'gc-hero')}<span class="gc-vs">vs</span>${gcCard(r.b, 'gc-foe')}</div>
+    <div class="gc-trail"><div class="gc-trail-head"><span class="gc-lbl">Beaten so far</span><span class="gc-count">${r.trail.length}</span></div>${trail}</div>
+    <div class="gc-ask">
+      <div class="gc-question">Does ${escapeHtml(bareShort(r.a.name))} beat ${escapeHtml(bareShort(r.b.name))}?</div>
+      <div class="gc-buttons">
+        <button type="button" class="gc-btn" data-pick="1">${CHEVRON_UP}Beats them</button>
+        <button type="button" class="gc-btn" data-pick="0">${CHEVRON_DOWN}Doesn't</button>
+      </div>
+      <div class="duel-play-status" aria-live="polite"></div>
     </div>
-    <div class="gc-reveal" hidden></div>
   </div>`;
+}
+
+// "Black Bolt (Marvel Comics)" -> "Black Bolt": the version is on the card.
+function bareShort(name) {
+  return shortName(name).replace(/\s*\([^)]*\)\s*$/, '');
 }
 
 function showRound(r) {
@@ -1025,15 +1112,14 @@ function showRound(r) {
   const at = call ? r.gauntlet_no : r.round_no;
   const dots = Array.from({ length: count }, (_, i) => `<span class="duel-dot${i + 1 < at ? ' done' : i + 1 === at ? ' now' : ''}"></span>`).join('');
   const roundLength = call ? 15 : r.mode === 'gauntlet' ? 30 : 20;
-  const title = call ? `Gauntlet ${r.gauntlet_no} of ${r.gauntlets} · rung ${r.rung} of ${r.rungs}`
-    : `Round ${r.round_no} of ${r.total}${r.mode === 'draft' ? ' — pick your fighter' : r.mode === 'gauntlet' ? ' — how far does it climb?' : ''}`;
-  playFrame(`
+  const title = `Round ${r.round_no} of ${r.total}${r.mode === 'draft' ? ' — pick your fighter' : r.mode === 'gauntlet' ? ' — how far does it climb?' : ''}`;
+  playFrame(call ? gauntletCallHtml(r) : `
     <div class="duel-play-round" id="play-title">${title}</div>
     <div class="duel-play-sub">${playTitle()}</div>
     <div class="duel-dots" aria-hidden="true">${dots}</div>
     <div class="duel-clock"><span class="duel-clock-num" aria-live="off"></span><div class="duel-clock-track"><div class="duel-clock-bar"></div></div></div>
     ${r.mode === 'draft' ? `<div class="dr-prompt">Your pick fights each opponent's: take the strongest of your ${r.hand.length}</div>` : ''}
-    ${call ? gauntletCallHtml(r) : r.mode === 'gauntlet' ? gauntletRoundHtml(r) : `<div class="duel-choices${r.mode === 'draft' ? ' dr-hand-grid' : ''}">
+    ${r.mode === 'gauntlet' ? gauntletRoundHtml(r) : `<div class="duel-choices${r.mode === 'draft' ? ' dr-hand-grid' : ''}">
       ${(r.mode === 'draft' ? r.hand : [r.a, r.b]).map((s) => `
         <button type="button" class="duel-choice" data-pick="${s.id}">
           <span class="duel-choice-check">${CHECK(18)}</span>
@@ -1060,11 +1146,17 @@ function showRound(r) {
   const tick = () => {
     const left = Math.max(0, (endAt - performance.now()) / 1000);
     bar.style.transform = `scaleX(${left / roundLength})`;
+    if (call) playBox.querySelector('.gc-frame').classList.toggle('urgent', left <= 5);
     bar.classList.toggle('urgent', left <= 5);
     num.classList.toggle('urgent', left <= 5);
     num.textContent = Math.ceil(left);
     if (left <= 0 && !locked) {
       lock();
+      if (call) {  // a late call still shows what happened (it scores nothing)
+        Api.pickRound(r.game_id, r.round_no, 0).then((res) => (res.reveal ? showReveal(r, res) : play(r.game_id)))
+          .catch(() => play(r.game_id));
+        return;
+      }
       status.className = 'duel-play-status bad';
       status.textContent = "Time's up — no pick recorded";
       setTimeout(() => play(r.game_id), 1100);
@@ -1099,24 +1191,54 @@ function showRound(r) {
   }));
 }
 
-// Right after a gauntlet call: were you right, and did it win? Then the
-// next call (its clock starts only when it's shown).
+// Right after a gauntlet call (design: GD2-Reveal): right or wrong, the
+// winner rising and the loser knocked over, then - when the gauntlet's
+// over - how far it got. The next call starts when this has been shown.
+const ICON_OK = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="#8FBF6B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ICON_BAD = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="#E15252" stroke-width="2.4" stroke-linecap="round"/></svg>';
+const ICON_LATE = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#A69C8C" stroke-width="2"/><path d="M12 7v5l3 2" stroke="#A69C8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CROWN = '<svg width="22" height="22" viewBox="0 0 24 24" fill="#D9A441" aria-hidden="true"><path d="M2 6l5 4 6-8 6 8 5-4-2 12H4L2 6Z"/></svg>';
+
 function showReveal(r, res) {
   const v = res.reveal;
-  const box = playBox.querySelector('.gc-reveal');
-  const name = escapeHtml(shortName(r.a.name));
-  const outcome = v.beat ? `${name} wins` : `${name} is knocked out`;
-  const run = v.ended ? (v.beat ? `Cleared all ${v.rungs}!` : `Climbed ${v.climbed} of ${v.rungs}`) : '';
-  const right = res.in_time && v.correct;
-  box.className = `gc-reveal ${right ? 'right' : 'wrong'}${v.beat ? ' beat' : ' lost'}`;
-  box.innerHTML = `<div class="gc-reveal-call">${right ? '✓ Right call' : res.in_time ? '✗ Wrong call' : '✗ Too late'}</div>
-    <div class="gc-reveal-what">${outcome}</div>
-    <div class="gc-reveal-why">${escapeHtml(v.verdict)}</div>
-    ${run ? `<div class="gc-reveal-run">${run}${v.last_call ? '' : ' — next gauntlet coming up'}</div>` : ''}`;
-  box.hidden = false;
-  playBox.querySelector('.gc-play').classList.add(v.beat ? 'foe-down' : 'hero-down', 'revealed');
-  box.scrollIntoView({ block: 'nearest' }); // long names can push it past the bottom of a short screen
-  setTimeout(() => (v.last_call ? showFinished(r.game_id) : play(r.game_id)), v.ended ? 2600 : 1700);
+  const late = !res.in_time;
+  const right = !late && v.correct;
+  const hero = escapeHtml(bareShort(r.a.name));
+  const said = v.beat ? 'lose' : 'win';  // what a wrong call said would happen
+  const call = late ? ['late', ICON_LATE, 'Too late', 'Time ran out · +0']
+    : right ? ['ok', ICON_OK, 'Right call', '+1 point'] : ['bad', ICON_BAD, 'Wrong call', `+0 · you said it would ${said}`];
+  const tags = { win: '<span class="gr-tag win">WINS</span>', ko: '<span class="gr-tag ko">K.O.</span>' };
+  const heroCard = gcCard(r.a, `gc-hero ${v.beat ? 'up' : 'down'}`, v.beat ? tags.win : tags.ko);
+  const foeCard = gcCard(r.b, `gc-foe ${v.beat ? 'down' : 'up'}`, v.beat ? tags.ko : tags.win);
+  const why = /too close to call/i.test(v.verdict) ? 'Too close to call — counts as a loss' : v.verdict;
+  let foot;
+  if (v.ended) {
+    const thumbs = [...r.trail.map((x) => `<span class="gc-beaten">${sideTileHtml(x, 64)}</span>`),
+      `<span class="gc-beaten ${v.beat ? '' : 'lost'}">${sideTileHtml(r.b, 64)}</span>`,
+      ...Array.from({ length: Math.max(0, v.rungs - r.trail.length - 1) }, () => '<span class="gc-unreached"></span>')].join('');
+    const cleared = v.beat && v.climbed === v.rungs;
+    foot = `<div class="gr-end">
+      ${cleared ? `<div class="gr-crown">${CROWN}</div><div class="gr-end-score">Cleared all ${v.rungs}!</div>`
+        : `<div class="gc-lbl">Gauntlet over</div><div class="gr-end-score">Climbed ${v.climbed} of ${v.rungs}</div>`}
+      <div class="gr-end-ladder">${thumbs}</div>
+    </div>
+    <div class="gr-next"><span>${v.last_call ? 'That was the last call' : 'Next gauntlet coming up'}</span></div>
+    <div class="gr-drain"><span style="animation-duration:3s"></span></div>`;
+  } else {
+    foot = `<div class="gr-next"><span>Next: rung ${r.rung + 1} of ${r.rungs}</span><span class="gr-soon">gets going in 2s</span></div>
+    <div class="gr-drain"><span style="animation-duration:2s"></span></div>`;
+  }
+  playFrame(`<div class="gc-frame gr-frame">
+    <div class="gr-head"><span class="gc-where" id="play-title">Gauntlet ${r.gauntlet_no} of ${r.gauntlets} · rung ${r.rung} of ${r.rungs}</span>
+      <span class="gc-dots" aria-hidden="true">${gauntletDots(r)}</span></div>
+    <div class="gr-call ${call[0]}"><span class="gr-badge">${call[1]}</span>
+      <div><div class="gr-call-title">${call[2]}</div><div class="gr-call-sub">${call[3]}</div></div></div>
+    <div class="gr-stage">${heroCard}${foeCard}</div>
+    <div class="gr-what ${v.beat ? 'win' : 'lose'}"><div class="gr-what-title">${hero} ${v.beat ? 'wins' : 'is knocked out'}</div>
+      <div class="gr-why">${escapeHtml(why)}</div></div>
+    <div class="gr-foot">${foot}</div>
+  </div>`);
+  setTimeout(() => (v.last_call ? showFinished(r.game_id) : play(r.game_id)), v.ended ? 3000 : 2000);
 }
 
 async function showFinished(gameId) {
@@ -1129,12 +1251,20 @@ async function showFinished(gameId) {
     wireResultShare(playBox, g);
   } else {
     const others = g ? g.players.filter((p) => !p.me && p.played < g.total) : [];
+    const who = others.map((p) => `<b>${escapeHtml(p.username)}</b>`);
     const wait = g && g.status === 'open'
       ? 'Results show once every seat is filled and everyone has played.'
-      : `Results show once ${others.length ? names(others) : 'everyone'} ${others.length === 1 ? 'has' : 'have'} played.`;
-    playFrame(`<div class="duel-play-round" id="play-title">You're all done</div>
-      <div class="duel-play-sub">All ${g ? g.total : 5} locked in. ${wait}</div>
-      <button type="button" class="btn-gold duel-done-btn">Done</button>`);
+      : `Results show once ${who.length ? (who.length === 1 ? who[0] : `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}`) : 'everyone'} ${who.length === 1 ? 'has' : 'have'} played. We'll tell you the moment they're in.`;
+    const unit = g && g.mode === 'gauntlet' ? 'calls' : 'rounds';
+    playFrame(`<div class="gw-frame">
+      <div class="gw-icon">${ICON_OK}</div>
+      <div class="gw-title" id="play-title">You're all done</div>
+      <div class="gw-text">${wait}</div>
+      ${others.length ? `<div class="gw-list">${others.map((p) => `<div class="gw-row">${avatar(p, 'gw-avatar')}
+        <div class="gw-who"><div class="gw-name">${escapeHtml(p.username)}</div><div class="gw-progress">Played ${p.played} of ${g.total} ${unit}</div></div>
+        <span class="gw-pulse" aria-hidden="true"></span></div>`).join('')}</div>` : ''}
+      <button type="button" class="btn-gold duel-done-btn">Back to Duels</button>
+    </div>`);
   }
   playBox.querySelector('.duel-done-btn').addEventListener('click', () => {
     closePlay();

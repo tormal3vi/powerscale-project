@@ -1,5 +1,17 @@
 [
   {
+    "id": "2026-10-02.1",
+    "date": "2026-10-02",
+    "title": "Gauntlet duels, redesigned",
+    "changes": [
+      "A new look for gauntlet duels: bigger fighters and buttons, and a reveal after every call where the winner rises and the loser gets knocked out.",
+      "When a gauntlet ends you see how far it climbed (or \"Cleared all 10!\"), and a missed call still shows what happened.",
+      "Results show each ladder with everyone's calls lined up under every rung, next to the final ranking.",
+      "While you wait for others, you can see how far they've got.",
+      "Ranked lists no longer skip numbers after ties: fifteen characters tied at #13 are followed by #14, not #28."
+    ]
+  },
+  {
     "id": "2026-10-01.2",
     "date": "2026-10-01",
     "title": "Duels fixes on phones",

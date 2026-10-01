@@ -177,13 +177,17 @@ function strengthKey(c) {
   return [c.tier_score, ...(c.tiebreak || [])];
 }
 
-// Characters equal on every stat share a rank: #12, #12, #14.
+// Characters equal on every stat share a rank, and the next one is just
+// one lower: #12, #12, #13 (not #14 - skipped numbers looked like missing
+// characters when fifteen tie at the top).
 function rankNumbers(list) {
   const ranks = [];
+  let rank = 0;
   list.forEach((c, i) => {
     const prev = list[i - 1];
     const same = prev && strengthKey(prev).every((v, k) => v === strengthKey(c)[k]);
-    ranks.push(c.tier_score == null ? null : same ? ranks[i - 1] : i + 1);
+    if (!same) rank += 1;
+    ranks.push(c.tier_score == null ? null : rank);
   });
   return ranks;
 }
