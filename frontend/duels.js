@@ -1114,7 +1114,8 @@ function showReveal(r, res) {
     <div class="gc-reveal-why">${escapeHtml(v.verdict)}</div>
     ${run ? `<div class="gc-reveal-run">${run}${v.last_call ? '' : ' — next gauntlet coming up'}</div>` : ''}`;
   box.hidden = false;
-  playBox.querySelector('.gc-play').classList.add(v.beat ? 'foe-down' : 'hero-down');
+  playBox.querySelector('.gc-play').classList.add(v.beat ? 'foe-down' : 'hero-down', 'revealed');
+  box.scrollIntoView({ block: 'nearest' }); // long names can push it past the bottom of a short screen
   setTimeout(() => (v.last_call ? showFinished(r.game_id) : play(r.game_id)), v.ended ? 2600 : 1700);
 }
 

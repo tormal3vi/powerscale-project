@@ -2030,7 +2030,7 @@ body.duel-playing { overflow: hidden; }
 .duel-toast-icon.draw { background: var(--pill-bg); color: var(--text-secondary); }
 
 @media (max-width: 900px) {
-  .duels-grid { grid-template-columns: 1fr; }
+  .duels-grid { grid-template-columns: minmax(0, 1fr); }  /* not 1fr: a wide leaderboard row would widen the page */
   .duel-round { flex-wrap: wrap; }
   .duel-round-main { width: auto; flex: 1; }
   .duel-round-picks { flex-basis: 100%; }
@@ -2662,4 +2662,25 @@ a.dr-mini-wrap.picked:hover .dr-mini { box-shadow: 0 0 0 2px var(--accent-gold);
   .gc-name { font-size: 16px; }
   .gc-vs { font-size: 20px; }
   .gc-btn { height: 52px; }
+}
+
+/* Results: a player's picture in the calls card (sized like the other duel rows). */
+.gd-guess-who .duel-pick-avatar { width: 28px; height: 28px; border-radius: 8px; font-size: 12px; flex-shrink: 0; overflow: hidden; }
+.gd-guess-who .duel-pick-avatar.me { box-shadow: 0 0 0 2px var(--accent-gold); }
+.gd-guess-who .duel-pick-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gd-guess-said { min-width: 0; }
+.lb-rec { flex-shrink: 0; }
+/* The reveal takes the buttons' place, so the screen doesn't grow under it. */
+.gc-play.revealed .gc-buttons, .gc-play.revealed .gd-prompt { display: none; }
+.gc-play.revealed .gc-reveal { margin-top: 0; }
+@media (max-width: 640px) {
+  .gd-guess-row { flex-wrap: wrap; row-gap: 6px; }
+  .gd-guess-said { order: 3; flex-basis: 100%; }
+}
+@media (max-width: 640px) and (max-height: 760px) {
+  .gc-side .duel-tile { width: 84px; height: 84px; border-radius: 14px; }
+  .gc-name { font-size: 14.5px; }
+  .gc-fight { margin-bottom: 14px; }
+  .gc-trail { margin-bottom: 10px; }
+  .gc-beaten .duel-tile { width: 24px; height: 24px; }
 }

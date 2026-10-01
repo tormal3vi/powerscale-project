@@ -1,5 +1,15 @@
 [
   {
+    "id": "2026-10-01.2",
+    "date": "2026-10-01",
+    "title": "Duels fixes on phones",
+    "changes": [
+      "The Duels page no longer scrolls sideways on phones.",
+      "In gauntlet duels the result of a call now appears where the buttons were, so it stays on screen even with long names.",
+      "Profile pictures in gauntlet results are the right size again."
+    ]
+  },
+  {
     "id": "2026-10-01.1",
     "date": "2026-10-01",
     "title": "Gauntlet duels, call by call",
