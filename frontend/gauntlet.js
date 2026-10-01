@@ -195,16 +195,23 @@ function showResult(r) {
     <div class="gl-actions">
       <button type="button" class="btn-gold" id="gl-again">Run again</button>
       ${r.source === 'random' ? '<button type="button" class="gl-btn" id="gl-new">New ladder</button>' : ''}
-      <button type="button" class="gl-btn" id="gl-share">Copy link</button>
+      <button type="button" class="gl-btn" id="gl-share">Share ▾</button>
     </div>`;
   box.querySelector('.gl-hero-name').textContent = shortName(c.name);
   box.querySelector('#gl-again').addEventListener('click', () => showResult(lastRun)); // the same fights, climbed again
   box.querySelector('#gl-new')?.addEventListener('click', () => run({ fresh: true }));
-  const share = box.querySelector('#gl-share');
-  share.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(location.href); share.textContent = 'Link copied'; } catch { share.textContent = 'Copy failed'; }
-    setTimeout(() => { share.textContent = 'Copy link'; }, 1800);
-  });
+  const name = shortName(c.name);
+  const result = r.climbed === r.total ? `cleared all ${r.total}` : `climbed ${r.climbed} of ${r.total}`;
+  const image = (label, story) => ({ label, quiet: true, onClick: async (b, close) => {
+    b.textContent = 'Drawing…';
+    try { await saveGauntletImage(r, { story }); close(); } catch { b.textContent = "Couldn't make the image"; }
+    setTimeout(() => { b.textContent = label; }, 1500);
+  } });
+  attachShareMenu(box.querySelector('#gl-share'), () => ({
+    url: location.href,
+    title: `How far does ${name} climb? The Powerscale gauntlet`,
+    text: `${name} ${result} in the Powerscale gauntlet. How far would yours go?`,
+  }), [image('Save as image', false), image('Save for TikTok / stories (9:16)', true)]);
   box.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // One fight at a time, up to where the run ended; then the rest at once.
@@ -225,6 +232,121 @@ function showResult(r) {
     box.querySelector('.gl-hero').classList.add(all ? 'cleared' : 'done');
   };
   step();
+}
+
+// --- the share image ----------------------------------------------------------
+// Square for posts, or 9:16 for TikTok, Shorts and stories: the character,
+// how far it got, and the ladder (beaten green, the one it lost to red,
+// the rest dimmed). Pictures come through this site's own proxy, so the
+// canvas can be saved.
+async function saveGauntletImage(r, { story = false } = {}) {
+  const W = 1080;
+  const H = story ? 1920 : 1080;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const x = canvas.getContext('2d');
+  await Promise.all(['700 64px Fraunces', '600 30px "Public Sans"', '600 26px "IBM Plex Mono"']
+    .map((f) => document.fonts.load(f).catch(() => null)));
+  const load = (src) => new Promise((res) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = src;
+  });
+  const pic = (side, px) => `api/characters/${side.id}/picture?px=${px}${side.form ? `&form=${encodeURIComponent(side.form)}` : ''}`;
+  const c = r.character;
+  const [hero, logo, ...foes] = await Promise.all([load(pic(c, 400)), load('favicon.svg?v=2'),
+    ...r.fights.map((f) => load(pic(f.opponent, 200)))]);
+  const text = (str, px, cx, y, { font = '"Public Sans"', weight = 600, color = '#F3EEE4', max = 900, spacing = 0 } = {}) => {
+    let size = px;
+    if ('letterSpacing' in x) x.letterSpacing = `${spacing}px`;
+    do {
+      x.font = `${weight} ${size}px ${font}, sans-serif`;
+      size -= 2;
+    } while (x.measureText(str).width > max && size > 14);
+    x.fillStyle = color;
+    x.textAlign = 'center';
+    x.fillText(str, cx, y);
+    if ('letterSpacing' in x) x.letterSpacing = '0px';
+  };
+  const tile = (img, side, left, top, size, radius, ring) => {
+    x.save();
+    x.beginPath();
+    x.roundRect(left, top, size, size, radius);
+    x.clip();
+    x.fillStyle = accentFor(side.id);
+    x.fillRect(left, top, size, size);
+    if (img) x.drawImage(img, left, top, size, size);
+    else text(initialFor(side.name), size * 0.42, left + size / 2, top + size * 0.64, { font: 'Fraunces', weight: 700, color: '#14120F' });
+    x.restore();
+    if (ring) {
+      x.lineWidth = Math.max(4, size / 22);
+      x.strokeStyle = ring;
+      x.beginPath();
+      x.roundRect(left, top, size, size, radius);
+      x.stroke();
+    }
+  };
+  x.fillStyle = '#14120F';
+  x.fillRect(0, 0, W, H);
+  const glow = x.createRadialGradient(W / 2, story ? 520 : 300, 0, W / 2, story ? 520 : 300, 640);
+  glow.addColorStop(0, accentFor(c.id));
+  glow.addColorStop(1, 'transparent');
+  x.globalAlpha = 0.16;
+  x.fillStyle = glow;
+  x.fillRect(0, 0, W, H);
+  x.globalAlpha = 1;
+
+  const L = story
+    ? { head: 200, hero: [W / 2 - 180, 280, 360, 56], name: 740, sub: 790, result: 920, cols: 5, thumb: 132, gap: 24, ladder: 990 }
+    : { head: 100, hero: [W / 2 - 120, 140, 240, 40], name: 450, sub: 492, result: 590, cols: 10, thumb: 80, gap: 12, ladder: 660 };
+  text('HOW FAR DOES IT CLIMB?', story ? 38 : 28, W / 2, L.head, { font: '"IBM Plex Mono"', weight: 700, color: '#D9A441', spacing: 4 });
+  const [hx, hy, hs, hr] = L.hero;
+  tile(hero, c, hx, hy, hs, hr, '#D9A441');
+  text(shortName(c.name), story ? 60 : 50, W / 2, L.name, { font: 'Fraunces', weight: 700 });
+  text(`${c.series}${c.form ? ` · ${c.form}` : ''}`, story ? 28 : 24, W / 2, L.sub, { color: '#A69C8C' });
+  text(r.climbed === r.total ? `Cleared all ${r.total}!` : `Climbed ${r.climbed} of ${r.total}`, story ? 76 : 64, W / 2, L.result,
+    { font: 'Fraunces', weight: 700, color: '#D9A441' });
+
+  // The ladder: rung numbers under each picture, rows of `cols`.
+  r.fights.forEach((f, i) => {
+    const row = Math.floor(i / L.cols);
+    const inRow = Math.min(L.cols, r.fights.length - row * L.cols);
+    const rowW = inRow * L.thumb + (inRow - 1) * L.gap;
+    const left = (W - rowW) / 2 + (i % L.cols) * (L.thumb + L.gap);
+    const top = L.ladder + row * (L.thumb + (story ? 70 : 60));
+    const state = !f.reached ? 'unreached' : f.outcome === 'win' ? 'beaten' : 'lost';
+    x.globalAlpha = state === 'unreached' ? 0.3 : 1;
+    tile(foes[i], f.opponent, left, top, L.thumb, L.thumb / 5, state === 'beaten' ? '#8FBF6B' : state === 'lost' ? '#E15252' : null);
+    x.globalAlpha = 1;
+    text(String(f.rung), story ? 24 : 20, left + L.thumb / 2, top + L.thumb + (story ? 36 : 30),
+      { font: '"IBM Plex Mono"', color: state === 'lost' ? '#E15252' : '#7A7264' });
+  });
+
+  const fy = H - (story ? 120 : 100);
+  text('How far would yours climb?', story ? 34 : 28, W / 2, fy - (story ? 90 : 50), { font: 'Fraunces', weight: 700, color: '#D8D0C0' });
+
+  // The logo, then the address, centered together.
+  x.font = '600 30px "IBM Plex Mono", monospace';
+  const site = 'powerscale.online';
+  const start = (W - (44 + 16 + x.measureText(site).width)) / 2;
+  if (logo) x.drawImage(logo, start, fy, 44, 44);
+  x.fillStyle = '#A69C8C';
+  x.textAlign = 'left';
+  x.fillText(site, start + 60, fy + 32);
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  const slug = shortName(c.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'character';
+  const file = new File([blob], `${slug}-gauntlet${story ? '-story' : ''}.png`, { type: 'image/png' });
+  if (matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: `How far does ${shortName(c.name)} climb?` }); return; } catch { /* dismissed: download */ }
+  }
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = file.name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 5000);
 }
 
 // --- start ------------------------------------------------------------------------------
