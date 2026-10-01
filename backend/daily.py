@@ -1,7 +1,8 @@
 """The matchup of the day: the same pair for everyone on a given day
 (Budapest time) - Browse's "Matchup of the day" button and the Discord
 post. Two characters of similar tiers from different series, whose
-verdict isn't a walkover, so there's something to argue about.
+verdict isn't a walkover - so there's something to argue about - nor a
+toss-up, so the next day's reveal has a winner to name.
 """
 
 import json
@@ -88,8 +89,8 @@ def _draw(day: date) -> Tuple[int, int]:
                 continue
             b = rnd.choice(near)
             v = characters.run_compare(a, b, None, None)
-            if v.composite is None or v.label == "Overwhelming favorite":
-                continue  # no verdict, or nothing to argue about
+            if v.composite is None or v.favored is None or v.label == "Overwhelming favorite":
+                continue  # no verdict, a toss-up (the reveal would be "too close to call"), or a walkover
             chosen = (a, b)
             break
         if chosen:

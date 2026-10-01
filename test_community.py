@@ -957,7 +957,7 @@ def test_a_finished_duel_is_announced_once():
 
 def test_matchup_of_the_day_poll_and_reveal():
     from datetime import datetime, timezone
-    from backend import daily, discord_webhooks as hooks
+    from backend import characters, daily, discord_webhooks as hooks
     calls = []
 
     def fake(method, url, embed=None, message=None):
@@ -974,6 +974,9 @@ def test_matchup_of_the_day_poll_and_reveal():
         assert hooks.daily_matchup(datetime(2021, 6, 1, 15, 5, tzinfo=utc))
         first = calls[-1][2]
         a, b = daily.pick(datetime(2021, 6, 1).date())
+        for day in range(1, 15):  # never a toss-up or a walkover: the reveal names a winner
+            v = characters.run_compare(*daily._draw(datetime(2021, 7, day).date()), None, None)
+            assert v.favored is not None and v.label != "Overwhelming favorite", v.label
         assert a != b and [x["poll_media"]["text"] for x in first["poll"]["answers"]] and first["poll"]["duration"] == 24
         assert "fields" not in first["embeds"][0]  # nothing to reveal yet
         assert not hooks.daily_matchup(datetime(2021, 6, 1, 20, 0, tzinfo=utc))  # once a day
