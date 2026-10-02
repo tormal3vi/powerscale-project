@@ -138,7 +138,7 @@ def _describe_server(state: dict, only: Optional[set] = None) -> str:
         parent = state["channels"].get(c.get("parent_id") or "")
         head = f"- #{c['name']} id={c['id']} {kind}" + (f" in category '{parent['name']}'" if parent else "")
         if c.get("topic"):
-            head += f" topic={json.dumps(c['topic'][:120])}"
+            head += f" topic={json.dumps(c['topic'][:120], ensure_ascii=False)}"
         lines.append(head)
         if c.get("available_tags"):
             lines.append("    tags: " + ", ".join(t["name"] + (" (mods only)" if t.get("moderated") else "")
