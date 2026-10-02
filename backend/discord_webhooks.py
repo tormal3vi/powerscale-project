@@ -359,6 +359,13 @@ def note_order(note_id: str) -> tuple:
     return day, int(n) if n.isdigit() else 0
 
 
+def _mark(note_id: str) -> str:
+    """The id as stored to say what's been posted: the number zero-padded
+    ("2026-10-02.0010"), since the database compares it as text."""
+    day, n = note_order(note_id)
+    return f"{day}.{n:04d}"
+
+
 def announce_updates() -> int:
     """Posts the update notes not announced yet; how many it posted."""
     url = _webhook("UPDATES")
@@ -369,7 +376,9 @@ def announce_updates() -> int:
     if not notes:
         return 0
     before = community.get_mark("discord_updates")
-    if not community.claim_mark("discord_updates", notes[-1]["id"]):
+    if before and before != _mark(before):  # stored before .10 existed: "2026-10-02.9"
+        community.set_mark("discord_updates", _mark(before))
+    if not community.claim_mark("discord_updates", _mark(notes[-1]["id"])):
         return 0  # nothing new, or another copy of the site got there first
     fresh = [n for n in notes if before is None or note_order(n["id"]) > note_order(before)]
     fresh = fresh[-1:] if before is None else fresh[-MAX_NOTES_AT_ONCE:]

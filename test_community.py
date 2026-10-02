@@ -930,11 +930,17 @@ def test_update_notes_are_announced_once():
                      {"id": "2026-01-02.2", "date": "2026-01-02", "title": "Also second", "changes": ["d"]}]
         path.write_text(json.dumps(notes))
         assert hooks.announce_updates() == 2 and sent[1:] == ["🆕 Also second", "🆕 Third"]  # oldest first
-        # A tenth note the same day: ".10" comes after ".9", not before ".2".
+        # A tenth note the same day: ".10" comes after ".9" - in the order
+        # and in what the database stores as posted - not before ".2".
         notes[:0] = [{"id": f"2026-01-03.{n}", "date": "2026-01-03", "title": f"Third {n}", "changes": ["e"]}
-                     for n in range(10, 1, -1)]
+                     for n in range(9, 1, -1)]
         path.write_text(json.dumps(notes))
-        assert hooks.announce_updates() == hooks.MAX_NOTES_AT_ONCE and sent[-1] == "🆕 Third 10"
+        assert hooks.announce_updates() == hooks.MAX_NOTES_AT_ONCE and sent[-1] == "🆕 Third 9"
+        community.set_mark("discord_updates", "2026-01-03.9")  # as stored before this fix
+        notes[:0] = [{"id": "2026-01-03.10", "date": "2026-01-03", "title": "Third 10", "changes": ["f"]}]
+        path.write_text(json.dumps(notes))
+        assert hooks.announce_updates() == 1 and sent[-1] == "🆕 Third 10"
+        assert hooks.announce_updates() == 0  # and only once
     finally:
         hooks._send, hooks.UPDATES_FILE = real_send, real_file
         os.environ.pop("DISCORD_WEBHOOK_UPDATES", None)
