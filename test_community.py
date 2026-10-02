@@ -930,12 +930,18 @@ def test_update_notes_are_announced_once():
                      {"id": "2026-01-02.2", "date": "2026-01-02", "title": "Also second", "changes": ["d"]}]
         path.write_text(json.dumps(notes))
         assert hooks.announce_updates() == 2 and sent[1:] == ["🆕 Also second", "🆕 Third"]  # oldest first
+        # A tenth note the same day: ".10" comes after ".9", not before ".2".
+        notes[:0] = [{"id": f"2026-01-03.{n}", "date": "2026-01-03", "title": f"Third {n}", "changes": ["e"]}
+                     for n in range(10, 1, -1)]
+        path.write_text(json.dumps(notes))
+        assert hooks.announce_updates() == hooks.MAX_NOTES_AT_ONCE and sent[-1] == "🆕 Third 10"
     finally:
         hooks._send, hooks.UPDATES_FILE = real_send, real_file
         os.environ.pop("DISCORD_WEBHOOK_UPDATES", None)
     real = json.loads(real_file.read_text(encoding="utf-8"))  # the site's own notes are well-formed
     assert real and all({"id", "date", "title", "changes"} <= set(n) for n in real)
     assert len({n["id"] for n in real}) == len(real) and hooks.update_embed(real[0])["description"]
+    assert [n["id"] for n in real] == sorted((n["id"] for n in real), key=hooks.note_order, reverse=True)
 
 
 def test_renamed_forms_carry_overrules_and_posts_along():

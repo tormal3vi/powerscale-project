@@ -352,19 +352,26 @@ def update_embed(note: dict) -> dict:
             "description": _clip(changes, 4000), "footer": {"text": f"powerscale.online · {day:%b} {day.day}, {day.year}"}}
 
 
+def note_order(note_id: str) -> tuple:
+    """"2026-10-02.10" after "2026-10-02.9": the day, then the number as a
+    number (compared as text, .10 sorted first and never got posted)."""
+    day, _, n = str(note_id).partition(".")
+    return day, int(n) if n.isdigit() else 0
+
+
 def announce_updates() -> int:
     """Posts the update notes not announced yet; how many it posted."""
     url = _webhook("UPDATES")
     if not url or not UPDATES_FILE.exists():
         return 0
     from backend import community
-    notes = sorted(json.loads(UPDATES_FILE.read_text(encoding="utf-8")), key=lambda n: n["id"])
+    notes = sorted(json.loads(UPDATES_FILE.read_text(encoding="utf-8")), key=lambda n: note_order(n["id"]))
     if not notes:
         return 0
     before = community.get_mark("discord_updates")
     if not community.claim_mark("discord_updates", notes[-1]["id"]):
         return 0  # nothing new, or another copy of the site got there first
-    fresh = [n for n in notes if before is None or n["id"] > before]
+    fresh = [n for n in notes if before is None or note_order(n["id"]) > note_order(before)]
     fresh = fresh[-1:] if before is None else fresh[-MAX_NOTES_AT_ONCE:]
     for note in fresh:
         _send(url, update_embed(note))
