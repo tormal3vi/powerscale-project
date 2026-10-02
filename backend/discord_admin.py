@@ -160,7 +160,10 @@ def _describe_server(state: dict) -> str:
 # ops: create_channel (name, type text|voice|category|announcement|stage|forum,
 #        parent, topic, slowmode_seconds, nsfw, ref)
 #      edit_channel (channel, name, topic, parent ("none" to take it out), slowmode_seconds,
-#        nsfw, sync_with_category)
+#        nsfw, sync_with_category; forums also: tags [{"name", "emoji"}] - the full list,
+#        tags already there keep their posts -, require_tag, default_reaction "🔥",
+#        sort "latest"|"created", layout "list"|"gallery". A forum's topic is its
+#        post guidelines)
 #      delete_channel (channel)
 #      set_permissions (channel, target, target_type role|member, allow, deny, neutral):
 #        only the listed permissions change; "neutral" resets them to inherited
@@ -323,6 +326,12 @@ def _check(actions: List[dict], state: dict) -> Tuple[List[dict], List[str]]:
                 why = "that channel doesn't exist"
             elif op == "edit_channel" and a.get("parent_id") not in (None, "none") and not channel(a["parent_id"], {4}):
                 why = "that category doesn't exist"
+            elif op == "edit_channel" and any(k in a for k in ("tags", "require_tag", "default_reaction", "sort", "layout")) \
+                    and not channel(a.get("channel_id"), {15, 16}):
+                why = "tags, default reaction, sort and layout are for forum channels"
+            elif op == "edit_channel" and (len(a.get("tags") or []) > 20
+                                           or any(not isinstance(t, dict) or not t.get("name") for t in a.get("tags") or [])):
+                why = "tags need a name each, 20 at most"
             elif op in ("set_permissions", "remove_overwrite"):
                 if a.get("target_type", "role") == "role" and not role(a.get("target_id")):
                     why = "that role doesn't exist"
@@ -405,6 +414,16 @@ def describe(a: dict, state: dict, refs: dict) -> str:
             parts.append("age-restricted" if a["nsfw"] else "not age-restricted")
         if a.get("sync_with_category"):
             parts.append("sync permissions with its category")
+        if a.get("tags") is not None:
+            parts.append("tags: " + (", ".join(f"{t.get('emoji', '')} {t['name']}".strip() for t in a["tags"]) or "none"))
+        if "require_tag" in a:
+            parts.append("posts need a tag" if a["require_tag"] else "tags optional")
+        if "default_reaction" in a:
+            parts.append(f"default reaction {a['default_reaction'] or '(none)'}")
+        if a.get("sort"):
+            parts.append(f"sorted by {'newest activity' if a['sort'] == 'latest' else 'creation date'}")
+        if a.get("layout"):
+            parts.append(f"{a['layout']} view")
         return f"Edit **{ch()}**: " + ("; ".join(parts) or "no changes")
     if op == "delete_channel":
         return f"⚠️ **Delete {ch()}** (its messages are gone for good)"
@@ -517,6 +536,7 @@ def _apply_one(a: dict, guild_id: str, made: dict, reason: str) -> None:
             parent_id = body.get("parent_id", channel.get("parent_id"))
             if parent_id:
                 body["permission_overwrites"] = _discord("GET", f"/channels/{parent_id}").get("permission_overwrites", [])
+        body.update(_forum_fields(a, cid))
         if body:
             _discord("PATCH", f"/channels/{cid}", body, reason)
     elif op == "delete_channel":
@@ -579,6 +599,33 @@ def _apply_one(a: dict, guild_id: str, made: dict, reason: str) -> None:
             "exempt_channels": exempt}, reason)
     elif op == "delete_automod_rule":
         _discord("DELETE", f"/guilds/{guild_id}/auto-moderation/rules/{a['rule']}", None, reason)
+
+
+def _forum_fields(a: dict, cid: str) -> dict:
+    body = {}
+    if a.get("tags") is not None or "require_tag" in a:
+        channel = _discord("GET", f"/channels/{cid}")
+        if a.get("tags") is not None:
+            # Same name: the same tag (its id), so posts keep it.
+            old = {t["name"].lower(): t for t in channel.get("available_tags") or []}
+            tags = []
+            for t in a["tags"][:20]:
+                tag = {"name": str(t["name"])[:20], "moderated": bool(t.get("moderated"))}
+                if t.get("emoji"):
+                    tag["emoji_name"] = t["emoji"]
+                if tag["name"].lower() in old:
+                    tag["id"] = old[tag["name"].lower()]["id"]
+                tags.append(tag)
+            body["available_tags"] = tags
+        if "require_tag" in a:
+            body["flags"] = (channel.get("flags") or 0) & ~16 | (16 if a["require_tag"] else 0)
+    if "default_reaction" in a:
+        body["default_reaction_emoji"] = {"emoji_name": a["default_reaction"]} if a["default_reaction"] else None
+    if a.get("sort"):
+        body["default_sort_order"] = 1 if a["sort"] == "created" else 0
+    if a.get("layout"):
+        body["default_forum_layout"] = 2 if a["layout"] == "gallery" else 1
+    return body
 
 
 def _all_but(channels: List[dict], keep: set) -> List[str]:
