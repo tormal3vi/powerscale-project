@@ -607,6 +607,17 @@ def test_extra_values_go_to_the_last_form():
     assert _segments_for_forms("A | B", 3) == ["A | B"] * 3  # too few: the whole field for each
 
 
+def test_antasma_prose_abilities_tabber_drops_tab_labels():
+    # Powers and Abilities is a tabber (Real World | Dream World | Dark
+    # Stone) whose tabs hold comma-separated <p> prose, not <li>s.
+    abilities = parse_character(_load("Antasma")).powers_and_abilities
+    assert abilities[0] == "Superhuman Physical Characteristics"
+    assert not any(a.startswith(("Real World", "Dream World", "Dark Stone")) for a in abilities)
+    # each tab is split on its own: tab 1's last item doesn't run into tab 2's first
+    assert "Same as before" in abilities
+    assert "Healing" in abilities and "Reality Warping" in abilities
+
+
 if __name__ == "__main__":
     import sys
 

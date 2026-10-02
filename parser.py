@@ -122,6 +122,10 @@ _PER_FORM_KEYS = set(STAT_FIELD_MAP.values()) | {"tier"}
 # form" (see e.g. Kirby's ability-tabber tabs).
 DEFAULT_FORM_NAME = "Base"
 
+# Marks the end of each tab's text in a prose abilities tabber (see
+# _extract_ability_list); never occurs in page text.
+_TAB_BREAK = "\x00"
+
 
 @dataclass
 class StatBlock:
@@ -858,8 +862,23 @@ def _extract_ability_list(fragment: BeautifulSoup) -> List[str]:
             if text:
                 items.append(text)
         return items
-    text = _clean_text(fragment.get_text())
-    return _split_top_level(text, ",") if text else []
+    # Prose (non-<li>) abilities inside a tabber (Antasma's "Real World |
+    # Dream World | Dark Stone"): drop the tab headers, which plain
+    # get_text() would glue onto the first ability, and split each tab on
+    # its own so a tab's text doesn't run into the next one's (or an
+    # unclosed "(" in one tab swallow the rest).
+    if fragment.find(class_="wds-tab__content") is not None:
+        fragment = copy.copy(fragment)
+        for wrapper in fragment.find_all(class_=["wds-tabs__wrapper", "wds-tabs"]):
+            wrapper.decompose()
+        for content in fragment.find_all(class_="wds-tab__content"):
+            content.append(_TAB_BREAK)
+    items = []
+    for chunk in fragment.get_text().split(_TAB_BREAK):
+        text = _clean_text(chunk)
+        if text:
+            items.extend(_split_top_level(text, ","))
+    return items
 
 
 def _default_form(stats: CharacterStats) -> CharacterForm:
