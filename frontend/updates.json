@@ -1,5 +1,14 @@
 [
   {
+    "id": "2026-10-02.8",
+    "date": "2026-10-02",
+    "title": "Cleaner Powers and abilities lists",
+    "changes": [
+      "Fixed form names stuck onto the first ability (\"Real WorldDream World…\") on 538 characters, like Antasma and Samus.",
+      "Fixed stats showing up inside the abilities list for a few characters, like Wendy, Natsu, Erza and Gray. Verdicts don't change."
+    ]
+  },
+  {
     "id": "2026-10-02.7",
     "date": "2026-10-02",
     "title": "GIFs: animated profile pictures, and characters with GIF pictures",
