@@ -196,6 +196,8 @@ KEYS = {"channel": "channel_id", "parent": "parent_id", "role": "role_id", "targ
 
 def _find_channel(value: str, state: dict, categories: bool = False) -> Tuple[Optional[str], Optional[str]]:
     """(id, None) or (None, why not)."""
+    if value.startswith("<#") and value.endswith(">"):  # a channel mention, as Discord sends a typed #name
+        value = value[2:-1]
     if value in state["channels"] or value.startswith("new:") or value == "none":
         return value, None
     name = value.strip().lstrip("#").strip().lower()
@@ -685,7 +687,7 @@ def command(interaction: dict, plan_text: Optional[str]) -> dict:
         try:
             state = _state(interaction["guild_id"])
             asked = (plan_text or "").strip()
-            if not asked or asked.startswith("#"):
+            if not asked or asked.startswith(("#", "<#")):  # Discord turns a typed #channel into <#id>
                 only = set()
                 for name in asked.replace(",", " ").split():
                     found, why = _find_channel(name, state)
