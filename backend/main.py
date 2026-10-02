@@ -299,6 +299,22 @@ _PICTURE_CACHE_SIZE = 200
 _PICTURE_MAX_BYTES = 6 * 1024 * 1024
 
 
+def _square_frame(data: bytes, px: int) -> bytes:
+    from io import BytesIO
+    from PIL import Image, ImageOps
+    try:
+        with Image.open(BytesIO(data)) as img:
+            if img.width * img.height > 40_000_000:
+                raise ValueError("too large")
+            img.seek(0)
+            square = ImageOps.fit(img.convert("RGBA"), (px, px), Image.Resampling.LANCZOS, centering=(0.5, 0))
+            out = BytesIO()
+            square.save(out, "WEBP", quality=88)
+            return out.getvalue()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="The wiki's picture couldn't be read") from exc
+
+
 @app.get("/api/characters/{char_id}/picture")
 def character_picture(char_id: int, form: Optional[str] = None, px: int = 400):
     px = px if px in (200, 400, 800) else 400
@@ -310,8 +326,7 @@ def character_picture(char_id: int, form: Optional[str] = None, px: int = 400):
         raise HTTPException(status_code=404, detail="No picture")
     key = (url, px)
     if key not in _picture_cache:
-        path, _, query = url.partition("?")
-        crop = f"{path}/top-crop/width/{px}/height/{px}" + (f"?{query}" if query else "")
+        crop = characters.wiki_square(url, px)
         req = urllib.request.Request(crop, headers={"User-Agent": scraper.USER_AGENT,
                                                     "Accept": "image/webp,image/png,image/*"})
         try:
@@ -322,6 +337,8 @@ def character_picture(char_id: int, form: Optional[str] = None, px: int = 400):
             raise HTTPException(status_code=502, detail="The wiki's picture didn't load") from exc
         if not kind.startswith("image/") or len(body) > _PICTURE_MAX_BYTES:
             raise HTTPException(status_code=502, detail="The wiki sent something other than a picture")
+        if crop == url:  # a GIF, whole: square its first frame here, as the CDN would
+            body, kind = _square_frame(body, px), "image/webp"
         _picture_cache[key] = (body, kind)
         while len(_picture_cache) > _PICTURE_CACHE_SIZE:
             _picture_cache.popitem(last=False)
@@ -411,10 +428,7 @@ def _preview_image(char_id: int, form: Optional[str] = None) -> Optional[str]:
     else:
         row = db.get_character_by_id(char_id)
         url = row.get("image_url") if row else None
-    if not url:
-        return None
-    path, _, query = url.partition("?")
-    return f"{path}/top-crop/width/400/height/400" + (f"?{query}" if query else "")
+    return characters.wiki_square(url, 400) if url else None
 
 
 # Every page gets a card: its own title and a line about the site, unless

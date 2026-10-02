@@ -26,8 +26,8 @@ def picture_url(url: Optional[str], px: int) -> Optional[str]:
     to match exactly for the cached copy to be the one the page gets."""
     if not url or not url.startswith("https://static.wikia.nocookie.net/"):
         return None
-    path, _, query = url.partition("?")
-    return f"{path}/top-crop/width/{px}/height/{px}" + (f"?{query}" if query else "")
+    from backend import characters
+    return characters.wiki_square(url, px)
 
 
 def _fetch(url: str) -> None:

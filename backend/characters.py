@@ -157,6 +157,21 @@ def display_name_for_id(char_id: int, colliding: Optional[set] = None) -> Option
     return display_name(row["name"], row["source_url"], colliding)
 
 
+def is_gif(url: Optional[str]) -> bool:
+    """A wiki picture that's a GIF (often animated): Fandom's resizer gives
+    up on the big ones after 12 seconds (503), so they're used whole."""
+    return bool(url) and url.split("?")[0].split("/revision/")[0].lower().endswith(".gif")
+
+
+def wiki_square(url: str, px: int) -> str:
+    """A px-by-px top crop of a wiki picture from Fandom's CDN (see
+    characterPictureUrl in frontend/api.js) - GIFs whole, other sites' as is."""
+    if not url.startswith("https://static.wikia.nocookie.net/") or is_gif(url):
+        return url
+    path, _, query = url.partition("?")
+    return f"{path}/top-crop/width/{px}/height/{px}" + (f"?{query}" if query else "")
+
+
 def short_name(name: str) -> str:
     # Not "170,000 ..." -> "170"; "Team Kirby / ...", but "Ocelot/Revolver Ocelot" stays whole.
     return re.split(r";|,\s|\s/|/\s", name, maxsplit=1)[0].strip()

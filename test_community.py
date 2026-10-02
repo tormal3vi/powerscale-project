@@ -169,6 +169,20 @@ def test_avatar_uploads_are_re_encoded_to_a_small_square_webp():
         assert "too large" in str(exc)
     finally:
         avatars.MAX_PIXELS = limit
+    # Animated GIFs stay animated, smaller, with their timing.
+    frames = [Image.new("RGB", (300, 200), (i * 20, 0, 0)) for i in range(8)]
+    buf = BytesIO()
+    frames[0].save(buf, "GIF", save_all=True, append_images=frames[1:], duration=50, loop=0)
+    out = Image.open(BytesIO(avatars.process(buf.getvalue())))
+    assert (out.format, out.n_frames, out.size) == ("WEBP", 8, (160, 160))
+
+
+def test_gif_pictures_from_the_wiki_are_used_whole():
+    from backend import characters
+    gif = "https://static.wikia.nocookie.net/vsbattles/images/8/8f/Sprite.gif/revision/latest?cb=1"
+    png = "https://static.wikia.nocookie.net/vsbattles/images/8/8f/Pic.png/revision/latest?cb=1"
+    assert characters.wiki_square(gif, 200) == gif
+    assert characters.wiki_square(png, 200).endswith("/latest/top-crop/width/200/height/200?cb=1")
 
 
 def test_avatars_store_replace_and_show_on_posts():

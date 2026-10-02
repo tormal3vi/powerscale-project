@@ -313,7 +313,7 @@ async def _read_image_upload(request: Request, user: dict) -> bytes:
         raise HTTPException(status_code=415, detail="Upload an image file")
     if not avatar_limit.allow(f"user:{user['id']}"):
         raise HTTPException(status_code=429, detail="Too many picture changes - try again in an hour")
-    too_big = HTTPException(status_code=413, detail="That image is over 5 MB")
+    too_big = HTTPException(status_code=413, detail="That image is over 10 MB")
     if int(request.headers.get("content-length") or 0) > avatars.MAX_UPLOAD_BYTES:
         raise too_big
     body = bytearray()

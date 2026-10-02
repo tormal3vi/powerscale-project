@@ -285,8 +285,7 @@ def _picture(char_id: int, px: int = 200, form: Optional[str] = None) -> Optiona
     url = characters.form_picture(char_id, form)
     if not url or not url.startswith("https://static.wikia.nocookie.net/"):
         return None
-    path, _, query = url.partition("?")
-    return f"{path}/top-crop/width/{px}/height/{px}" + (f"?{query}" if query else "")
+    return characters.wiki_square(url, px)
 
 
 def _link_button(url: str, label: str = "Open on Powerscale") -> List[dict]:

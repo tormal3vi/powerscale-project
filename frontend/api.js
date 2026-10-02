@@ -424,6 +424,10 @@ function characterSearchEl({ placeholder = 'Search characters…', label = 'Sear
 function characterPictureUrl(url, px) {
   if (!url) return null;
   if (!url.startsWith('https://static.wikia.nocookie.net/')) return url;
+  // GIFs (often animated) whole: the CDN's resizer gives up on big ones
+  // (503 after 12s). Small files; the tile's object-fit crops them.
+  // Keep in step with wiki_square in backend/characters.py.
+  if (/\.gif$/i.test(url.split('?')[0].split('/revision/')[0])) return url;
   const [path, query] = url.split('?');
   return `${path}/top-crop/width/${px}/height/${px}${query ? `?${query}` : ''}`;
 }
@@ -451,6 +455,9 @@ function setCharacterTile(el, name, url, px) {
 // can't decode it (e.g. HEIC outside Safari), the original goes up and
 // the server explains what's wrong with it.
 async function shrinkImage(file, maxSide = 768) {
+  // GIFs and WebPs may be animated, and a canvas keeps only one frame: the
+  // server shrinks those itself.
+  if (/^image\/(gif|webp)$/.test(file.type)) return file;
   try {
     const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
     const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));

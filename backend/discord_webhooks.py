@@ -91,8 +91,7 @@ def _picture(char_id: int, form: Optional[str] = None) -> Optional[str]:
     url = characters.form_picture(char_id, form)
     if not url or not url.startswith("https://static.wikia.nocookie.net/"):
         return None
-    path, _, query = url.partition("?")
-    return f"{path}/top-crop/width/200/height/200" + (f"?{query}" if query else "")
+    return characters.wiki_square(url, 200)
 
 
 def _md(text: str) -> str:
