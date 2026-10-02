@@ -108,12 +108,32 @@ SUBSERIES = {
     ]),
     "The Legend of Zelda": ("Games", [("Hyrule Warriors", ["Category:Hyrule Warriors"])]),
     "Kirby": ("Games", []),
+    # Square Enix: each Final Fantasy is its own world, grouped into eras
+    # (17 games' worth of filters would crowd Browse); Type-0, Dissidia,
+    # Brave Exvius, the summons shared by many games... are the default.
+    "Final Fantasy": ("Spin-offs & more", [
+        ("I–VI", [f"Category:Final Fantasy {n}" for n in ("I", "II", "III", "IV", "V", "VI")]),
+        ("VII", ["Category:Final Fantasy VII"]),
+        ("VIII–X", [f"Category:Final Fantasy {n}" for n in ("VIII", "IX", "X")]),
+        ("XI–XV", [f"Category:Final Fantasy {n}" for n in ("XI", "XII", "XIII", "XIV", "XV")]),
+        ("Tactics", ["Category:Final Fantasy Tactics", "Category:Final Fantasy Tactics Advance"]),
+    ]),
+    "Kingdom Hearts": ("Games", []),
+    # Atlus: Persona is a Megami Tensei spin-off, and the demons are shared;
+    # the wiki files the ones Persona rates under Persona.
+    "Megami Tensei": ("Shin Megami Tensei", [
+        ("Persona", ["Category:Persona"]),
+        ("Devil Survivor", ["Category:Devil Survivor"]),
+    ]),
 }
 
 # Parts only the page titles tell apart: "Omni-Man (TV Series)", "Goku
 # (DBS Anime)", "Iroha Tamaki (Magia Record)". Checked after the parts'
 # categories, before the default.
 SUBSERIES_BY_QUALIFIER = {
+    "Final Fantasy": {"Remake": "VII", "Crisis Core": "VII", "Final Fantasy VII": "VII", "Lightning Returns": "XI–XV",
+                      "FFT": "Tactics", "Ivalice": "Tactics"},
+    "Kingdom Hearts": {"Kingdom Hearts Manga": "Other media", "Kingdom Hearts The Sceptre and the Kingdom": "Other media"},
     "Dragon Ball": {"Anime": "Anime", "DBS Anime": "Anime", "Toei": "Anime"},
     "Naruto": {"Boruto": "Boruto", "Naruto Next Generations": "Boruto", "Two Blue Vortex": "Boruto"},
     "Devil May Cry": {"Netflix DMC": "Netflix series"},
@@ -171,6 +191,11 @@ SUBSERIES_BY_TITLE = {
     "The Legend of Zelda": {"The Traveler (The Legend of Zelda: Majora's Mask)": "Other Media",
                             "Toon Zelda": "Hyrule Warriors"},
     "Kirby": {"Sirica": "Anime"},
+    # Mainline Final Fantasy characters missing from their game's category.
+    "Final Fantasy": {**{t: "I–VI" for t in ("Cecil Harvey", "Minwu", "Josef (Final Fantasy II)",
+                                              "Scott (Final Fantasy II)", "Ricard Highwind")},
+                      "Edea Lee": "VIII–X", "Wakka": "VIII–X", "Oerba Yun Fang": "XI–XV",
+                      "Paddra Nsu-Yuel": "XI–XV"},
     "Marvel": {"Spider-Society": "Animated"},  # the Spider-Verse films' team
     # Other franchises' characters as they are in the Mortal Kombat games.
     "Mortal Kombat": {**{t: "Guests" for t in (
@@ -257,6 +282,12 @@ EXCLUDED_TITLES = {
               "Halberd (Kirby: Right Back at Ya!)", "Lor Starcutter", "Master Crown", "Robobot Armor", "Warp Star",
               "Ribbon's Shard Gun", "Galaxia", "Galaxia (Kirby: Right Back at Ya!)", "Jamba Heart"},
     "Metroid": {"Samus' Gunship", "Phazon"},
+    "Final Fantasy": {"Final Fantasy VII", "Final Fantasy VIII", "Final Fantasy IX", "Final Fantasy X",
+                      "Cie Physiology (Final Fantasy)", "Unseen Chaos Physiology (Final Fantasy)",
+                      "The Crystals (Final Fantasy)", "Ring of the Lucii", "The Ark"},
+    "Kingdom Hearts": {"Keyblade", "Χ-Blade", "Gummi Ship", "Heart (Kingdom Hearts)",
+                       "Dream Eater Physiology", "Heartless Physiology", "Nobody Physiology"},
+    "Megami Tensei": {"Megami Tensei", "Cognitive Physiology"},
     "Tekken": {"Tekken Verse Universal Abilities",
                "Pandora (Street Fighter X Tekken)"},  # listed under Street Fighter too: filed there
 }
@@ -266,7 +297,10 @@ EXCLUDED_TITLES = {
 # field leads with a legal name: Marvel's "Doctor Doom" page says "Victor
 # Von Doom", "Mister Fantastic" says "Reed Richards". Their characters are
 # named by the title (qualifier dropped); the field stays on as aliases.
-TITLE_NAMED_SERIES = {"Marvel"}
+TITLE_NAMED_SERIES = {"Marvel",
+                      # Garnet's field leads with "Sarah", Firion's with "Firion/Frioniel",
+                      # Shadow Futaba's with "Futaba Sakura"...
+                      "Final Fantasy", "Kingdom Hearts", "Megami Tensei"}
 
 
 def titled_name(title: str, name: Optional[str]) -> str:

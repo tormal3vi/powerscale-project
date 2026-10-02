@@ -163,6 +163,10 @@ def _verdict_out(v: "calculator.Verdict") -> VerdictOut:
 
 # --- /api/categories ---------------------------------------------------
 
+# Parts that read as a sequence rather than by size.
+SUBSERIES_ORDER = {"Final Fantasy": ["I–VI", "VII", "VIII–X", "XI–XV", "Tactics", "Spin-offs & more"]}
+
+
 @app.get("/api/categories", response_model=List[CategoryOut])
 def list_categories():
     with db.connect() as conn:
@@ -177,7 +181,9 @@ def list_categories():
         if r["subseries"]:
             cat.subseries.append(SubseriesOut(name=r["subseries"], count=r["n"]))
     for cat in out.values():
-        cat.subseries.sort(key=lambda sub: -sub.count)  # biggest first: DC's Comics, then Arrowverse...
+        order = SUBSERIES_ORDER.get(cat.name, [])
+        # in order where one is set, else biggest first: DC's Comics, then Arrowverse...
+        cat.subseries.sort(key=lambda sub: (order.index(sub.name) if sub.name in order else len(order), -sub.count))
     return sorted(out.values(), key=lambda c: c.name)
 
 
