@@ -133,6 +133,9 @@ def _describe_server(state: dict) -> str:
         if c.get("topic"):
             head += f" topic={json.dumps(c['topic'][:120])}"
         lines.append(head)
+        if c.get("available_tags"):
+            lines.append("    tags: " + ", ".join(t["name"] + (" (mods only)" if t.get("moderated") else "")
+                                         for t in c["available_tags"]))
         for o in c.get("permission_overwrites") or []:
             who = state["roles"].get(o["id"], {}).get("name", "?") if o["type"] == 0 else f"member {o['id']}"
             lines.append(f"    overwrite {who} (id={o['id']}): allow={','.join(_perm_names(o['allow'])) or '-'} "
