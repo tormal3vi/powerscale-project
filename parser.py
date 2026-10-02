@@ -579,7 +579,16 @@ def _collect_field_blocks(heading) -> List[dict]:
             # wds-tab__content tab, never as direct children of the
             # tabber div itself.
             blocks.extend(_labeled_paragraphs_in(sib))
-            if current is not None:
+            if current is not None and _holds_stat_fields(sib) and _has_text(current["html_parts"]):
+                # A field with its own value, then a per-form stats tabber
+                # (Wendy Marvell (X793): her abilities written out, then a
+                # Pre-Elentear | Limit Break tabber of Attack Potency,
+                # Speed...): the stats are read by _find_stats_tabber, not
+                # added to that field. An empty "Powers and Abilities:"
+                # before one (Garou, Yuji) still takes it - that tabber
+                # holds each form's abilities next to its stats.
+                current = None
+            elif current is not None:
                 current["html_parts"].append(_tabber_own_html(sib))
             continue
         if current is not None:
@@ -642,16 +651,26 @@ def _find_stats_tabber(heading):
         if "tabber" in (sib.get("class") or []):
             candidates = [sib] + candidates
         for tabber in candidates:
-            top_contents = tabber.find_all("div", class_="wds-tab__content", recursive=False)
-            if not top_contents:
-                continue
-            for p in _stat_paragraphs(top_contents[0]):
-                b = p.find("b")
-                if b:
-                    label = b.get_text(strip=True).rstrip(":").strip().lower()
-                    if label in STAT_FIELD_MAP:
-                        return tabber
+            if _holds_stat_fields(tabber):
+                return tabber
     return None
+
+
+def _has_text(html_parts: List[str]) -> bool:
+    return bool(BeautifulSoup("".join(html_parts), "lxml").get_text().strip())
+
+
+def _holds_stat_fields(tabber) -> bool:
+    """Whether a tabber's first tab directly holds stat-field <p>'s
+    ("Attack Potency: ...") - a per-form stats tabber, not an abilities one."""
+    top_contents = tabber.find_all("div", class_="wds-tab__content", recursive=False)
+    if not top_contents:
+        return False
+    for p in _stat_paragraphs(top_contents[0]):
+        b = p.find("b")
+        if b and b.get_text(strip=True).rstrip(":").strip().lower() in STAT_FIELD_MAP:
+            return True
+    return False
 
 
 _BLOCK_TAGS = {"p", "div", "table", "ul", "ol", "h2", "h3", "h4", "center", "figure"}

@@ -618,6 +618,17 @@ def test_antasma_prose_abilities_tabber_drops_tab_labels():
     assert "Healing" in abilities and "Reality Warping" in abilities
 
 
+
+def test_stats_tabber_after_written_out_abilities_stays_out_of_them():
+    # Powers and Abilities written out in its own <p>, then a
+    # Pre-Elentear | Limit Break | Post-Elentear tabber of stats.
+    stats = parse_character(_load("Wendy_Marvell_X793"))
+    abilities = stats.powers_and_abilities
+    assert abilities[0] == "Superhuman Physical Characteristics"
+    assert not any("Attack Potency" in a or "Speed:" in a or a.startswith("higher with") for a in abilities)
+    assert [f.name for f in stats.forms] == ["Pre-Elentear", "Limit Break", "Post-Elentear"]
+
+
 if __name__ == "__main__":
     import sys
 
