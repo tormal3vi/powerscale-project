@@ -97,9 +97,53 @@ function renderFilterRow() {
     });
     filterRow.appendChild(btn);
   }
+  collapseFilterRow();
   keepActiveInView(filterRow);
   renderSubfilterRow();
 }
+
+// 40+ series wrapped into four or five rows of pills, pushing the
+// characters below the fold on a laptop screen: two rows, then a
+// "+N more" pill (the picked series always stays in view). Phones swipe
+// one row instead (CSS), so nothing is hidden there.
+let filtersOpen = false;
+function collapseFilterRow() {
+  filterRow.querySelector('.filter-more')?.remove();
+  const pills = [...filterRow.querySelectorAll('.filter-pill')];
+  pills.forEach((p) => { p.hidden = false; });
+  if (getComputedStyle(filterRow).flexWrap === 'nowrap') return;
+  const rowTops = () => [...new Set(pills.filter((p) => !p.hidden).map((p) => p.offsetTop))];
+  if (rowTops().length <= 2) return;
+  const more = document.createElement('button');
+  more.className = 'filter-pill filter-more';
+  more.addEventListener('click', () => { filtersOpen = !filtersOpen; collapseFilterRow(); });
+  filterRow.appendChild(more);
+  if (filtersOpen) {
+    more.textContent = 'Fewer ▴';
+    return;
+  }
+  const secondRow = rowTops()[1];
+  let hidden = 0;
+  for (let i = pills.length - 1; i > 0; i--) {
+    more.textContent = `+${hidden} more ▾`;
+    if (more.offsetTop <= secondRow) break;
+    if (pills[i].classList.contains('active')) continue;
+    pills[i].hidden = true;
+    hidden += 1;
+  }
+  more.textContent = `+${hidden} more ▾`;
+  // The wider label can wrap it once more: hide one further pill.
+  for (let i = pills.length - 1; i > 0 && more.offsetTop > secondRow; i--) {
+    if (pills[i].hidden || pills[i].classList.contains('active')) continue;
+    pills[i].hidden = true;
+    more.textContent = `+${++hidden} more ▾`;
+  }
+}
+let filterResize;
+window.addEventListener('resize', () => {
+  clearTimeout(filterResize);
+  filterResize = setTimeout(collapseFilterRow, 150);
+}, { passive: true });
 
 // On phones each row is one line you swipe; rebuilding it on a tap reset
 // the swipe to the start, hiding the pill just picked (DC, far right).
@@ -192,6 +236,15 @@ function rankNumbers(list) {
   return ranks;
 }
 
+// How many share each rank: a shared one shows as "=1", and the note
+// says how many share the top (Megami Tensei: 56 demons rated 1-A with
+// the same stats - the wiki's scale doesn't tell them apart).
+function rankCounts(ranks) {
+  const counts = new Map();
+  ranks.forEach((r) => { if (r) counts.set(r, (counts.get(r) || 0) + 1); });
+  return counts;
+}
+
 // "HIGH 3-A" -> "High 3-A"
 function prettifyTier(label) {
   return label.toLowerCase().replace(/^(low|high)\b/, (w) => w[0].toUpperCase() + w.slice(1)).replace(/\d-[abc]/, (t) => t.toUpperCase());
@@ -226,7 +279,9 @@ function characterCard(c, rank) {
   if (rank) {
     const rankEl = document.createElement('div');
     rankEl.className = 'rank-badge' + (rank === 1 ? ' first' : '');
-    rankEl.textContent = `#${rank}`;
+    const tied = (shown.counts.get(rank) || 0) > 1;
+    rankEl.textContent = tied ? `=${rank}` : `#${rank}`;
+    if (tied) rankEl.title = `Tied with ${shown.counts.get(rank) - 1} other${shown.counts.get(rank) > 2 ? 's' : ''}: equal on every stat`;
     card.appendChild(rankEl);
     card.classList.add('ranked');
     if (rank === 1) card.classList.add('rank-first');
@@ -299,7 +354,12 @@ function renderGrid() {
     : state.sort === 'weak' ? `Sorted weakest first, ${where}.` : DEFAULT_SUBTITLE;
 
   const ranked = state.sort !== 'alpha';
-  shown = { list, ranks: ranked ? rankNumbers(list) : [], drawn: 0 };
+  const ranks = ranked ? rankNumbers(list) : [];
+  shown = { list, ranks, counts: rankCounts(ranks), drawn: 0 };
+  const topTie = shown.counts.get(1) || 0;
+  if (ranked && topTie > 1 && !capped) {
+    gridNote.textContent += ` ${topTie} share ${state.sort === 'weak' ? 'the bottom' : 'the top'} spot (shown as =1): equal on every stat, so the wiki's ratings can't separate them.`;
+  }
   drawMore();
   fillScreen();
 }
@@ -308,7 +368,7 @@ function renderGrid() {
 // phones: cards are drawn a batch at a time, the next as the last comes
 // into view.
 const GRID_BATCH = 60;
-let shown = { list: [], ranks: [], drawn: 0 };
+let shown = { list: [], ranks: [], counts: new Map(), drawn: 0 };
 const gridEnd = document.createElement('div');
 gridEnd.className = 'grid-end';
 gridEnd.setAttribute('aria-hidden', 'true');

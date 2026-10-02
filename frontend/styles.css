@@ -305,6 +305,11 @@ input::placeholder { color: var(--text-placeholder); }
   border: 1px solid var(--accent-gold);
 }
 
+.filter-pill[hidden] { display: none; }
+/* "+12 more": the rest of the series, after two rows of pills. */
+.filter-more { border-style: dashed; color: var(--text-tertiary); }
+.filter-more:hover { color: var(--text-primary); border-color: var(--accent-gold); }
+
 /* The parts of a split series (DC: Comics, Arkham...), under its pill. */
 .filter-row.has-sub { margin-bottom: 12px; }
 .subfilter-row[hidden] { display: none; }
