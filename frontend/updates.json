@@ -1,5 +1,14 @@
 [
   {
+    "id": "2026-10-02.7",
+    "date": "2026-10-02",
+    "title": "GIFs: animated profile pictures, and characters with GIF pictures",
+    "changes": [
+      "Profile pictures can be animated: upload a GIF (up to 10 MB) and it stays animated.",
+      "Characters whose wiki picture is a GIF, like Antasma, now show it (animated) instead of a letter."
+    ]
+  },
+  {
     "id": "2026-10-02.6",
     "date": "2026-10-02",
     "title": "Gauntlet images name the character",
