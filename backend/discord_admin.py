@@ -7,7 +7,8 @@ line of JSON - the format is under "reading a plan" below) to paste:
   /admin plan: {"summary": "...", "actions": [...]}
 
 /admin with no plan shows the server's channels, roles and overrides,
-to paste to Claude Code when it needs to see them.
+to paste to Claude Code when it needs to see them; "/admin plan: #bug-reports
+#suggestions" shows just those channels.
 
 1. The bot reads the server's channels and roles and checks every step
    (do those channels and roles exist, are those real permissions).
@@ -59,7 +60,7 @@ COMMAND = {
     "name": "admin", "description": "Apply a channel/role plan from Claude Code, after a preview (no plan: show the server).",
     "integration_types": [0], "contexts": [0], "default_member_permissions": str(ADMINISTRATOR),
     "options": [{"type": 3, "name": "plan", "required": False, "max_length": 6000,
-                 "description": "The plan Claude Code wrote (leave empty to list the server's channels and roles)"}],
+                 "description": "The plan Claude Code wrote. Empty: list the server; #channel: just that channel"}],
 }
 
 _plans: Dict[str, dict] = {}
@@ -118,15 +119,21 @@ def _perm_names(bits) -> List[str]:
     return [n for n, b in PERMISSIONS.items() if bits & b]
 
 
-def _describe_server(state: dict) -> str:
-    roles = sorted(state["roles"].values(), key=lambda r: -r["position"])
-    lines = ["ROLES (highest first; @everyone's id is the server id):"]
-    for r in roles:
-        extra = " [managed by an integration]" if r.get("managed") else ""
-        lines.append(f"- {r['name']} id={r['id']} position={r['position']}{extra} "
-                     f"permissions={','.join(_perm_names(r['permissions'])) or 'none'}")
-    lines.append("\nCHANNELS:")
+def _describe_server(state: dict, only: Optional[set] = None) -> str:
+    """The server for Claude Code to read; `only`: just those channel ids."""
+    lines = []
+    if not only:
+        lines.append("ROLES (highest first; @everyone's id is the server id):")
+        for r in sorted(state["roles"].values(), key=lambda r: -r["position"]):
+            extra = " [managed by an integration]" if r.get("managed") else ""
+            perms = "ADMINISTRATOR (everything)" if int(r["permissions"]) & ADMINISTRATOR \
+                else ",".join(_perm_names(r["permissions"])) or "none"
+            lines.append(f"- {r['name']} id={r['id']} position={r['position']}{extra} permissions={perms}")
+        lines.append("")
+    lines.append("CHANNELS:")
     for c in sorted(state["channels"].values(), key=lambda c: (c.get("parent_id") or "", c.get("position", 0))):
+        if only and c["id"] not in only:
+            continue
         kind = TYPE_NAMES.get(c["type"], f"type {c['type']}")
         parent = state["channels"].get(c.get("parent_id") or "")
         head = f"- #{c['name']} id={c['id']} {kind}" + (f" in category '{parent['name']}'" if parent else "")
@@ -677,10 +684,18 @@ def command(interaction: dict, plan_text: Optional[str]) -> dict:
     def work():
         try:
             state = _state(interaction["guild_id"])
-            if not (plan_text or "").strip():
-                text = _describe_server(state)
+            asked = (plan_text or "").strip()
+            if not asked or asked.startswith("#"):
+                only = set()
+                for name in asked.replace(",", " ").split():
+                    found, why = _find_channel(name, state)
+                    if why:
+                        _edit_reply(interaction, {"content": why})
+                        return
+                    only.add(found)
+                text = _describe_server(state, only)
                 if len(text) > 3900:
-                    text = text[:3900] + "\n... (cut short)"
+                    text = text[:3900] + "\n... (cut short - try /admin plan: #channel to see one channel)"
                 _edit_reply(interaction, {"content": "", "embeds": [{
                     "title": "This server, for Claude Code", "color": 0xD9A441,
                     "description": f"```\n{text}\n```",
